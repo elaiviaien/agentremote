@@ -1,44 +1,58 @@
 // AgentRemote Web IDE Client Logic
 class AgentRemoteApp {
   constructor() {
-    this.token = localStorage.getItem('agentremote_token') || '';
+    this.token = localStorage.getItem('agentremote_token') || sessionStorage.getItem('agentremote_token') || '';
     this.ws = null;
     this.devices = [];
     this.activeDeviceId = null;
     this.sessions = [];
     this.activeSessionId = null;
     this.isStreaming = false;
-    this.activeCommandId = null;
+    this.currentToolCallElements = new Map();
+    this.loadedTranscripts = [];
+    this.thinkingMode = 'auto'; // 'auto' | 'on' | 'off'
 
-    // File Explorer Navigation State
-    this.currentFsPath = '';
-    this.fsHistoryStack = [];
-    this.currentFsTree = [];
-    this.currentFsRoot = '';
+    // Terminal History & Path
+    this.termHistory = [];
+    this.termHistoryIndex = -1;
+    this.termCurrentPath = '~/agentremote';
+
+    // File Preview State
+    this.activeOpenedPath = '';
+    this.activeOpenedContent = '';
+    this.isMarkdownMode = false;
 
     this.initElements();
     this.initEvents();
+    this.initTheme();
+    this.initFilesResizer();
     this.checkAuth();
   }
 
   initElements() {
-    // Login
+    // Auth & App wrappers
     this.loginModal = document.getElementById('login-modal');
     this.loginForm = document.getElementById('login-form');
     this.loginUsername = document.getElementById('login-username');
     this.loginPassword = document.getElementById('login-password');
     this.loginError = document.getElementById('login-error');
     this.loginBtn = document.getElementById('login-btn');
-
-    // App & Header
     this.appContainer = document.getElementById('app');
-    this.deviceStatusDot = document.getElementById('device-status-dot');
+
+    // Header elements
     this.deviceSelect = document.getElementById('device-select');
-    this.logoutBtn = document.getElementById('logout-btn');
+    this.deviceStatusDot = document.getElementById('device-status-dot');
+    this.activeDeviceIndicator = document.getElementById('active-device-indicator');
     this.themeToggleBtn = document.getElementById('theme-toggle-btn');
     this.themeIcon = document.getElementById('theme-icon');
+    this.logoutBtn = document.getElementById('logout-btn');
+    this.toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
+    this.appSidebar = document.getElementById('app-sidebar');
+    this.sidebarBackdrop = document.getElementById('sidebar-backdrop');
+    this.navTabs = document.querySelectorAll('.nav-pill[data-tab]');
+    this.tabContents = document.querySelectorAll('.tab-content');
 
-    // Sidebar
+    // Sidebar elements
     this.newChatBtn = document.getElementById('new-chat-btn');
     this.newAntigravityChatBtn = document.getElementById('new-antigravity-chat-btn');
     this.importChatBtn = document.getElementById('import-chat-btn');
@@ -48,25 +62,8 @@ class AgentRemoteApp {
     this.modelSelect = document.getElementById('model-select');
     this.modeSelect = document.getElementById('mode-select');
     this.workspaceInput = document.getElementById('workspace-input');
-    this.sidebarBackdrop = document.getElementById('sidebar-backdrop');
 
-    // Import Modal Elements
-    this.importModal = document.getElementById('import-modal');
-    this.closeImportModalBtn = document.getElementById('close-import-modal-btn');
-    this.cancelImportBtn = document.getElementById('cancel-import-btn');
-    this.executeImportBtn = document.getElementById('execute-import-btn');
-    this.importTabAuto = document.getElementById('import-tab-auto');
-    this.importTabPaste = document.getElementById('import-tab-paste');
-    this.importViewAuto = document.getElementById('import-view-auto');
-    this.importViewPaste = document.getElementById('import-view-paste');
-    this.localTranscriptsList = document.getElementById('local-transcripts-list');
-    this.importPasteInput = document.getElementById('import-paste-input');
-    this.importTargetEngine = document.getElementById('import-target-engine');
-    this.importSessionTitle = document.getElementById('import-session-title');
-    this.importSanitizationReport = document.getElementById('import-sanitization-report');
-    this.selectedTranscriptFilePath = '';
-
-    // Chat
+    // Chat Tab elements
     this.currentChatTitle = document.getElementById('current-chat-title');
     this.chatMeta = document.getElementById('chat-meta');
     this.chatMessages = document.getElementById('chat-messages');
@@ -75,73 +72,63 @@ class AgentRemoteApp {
     this.stopAgentBtn = document.getElementById('stop-agent-btn');
     this.loginCursorBtn = document.getElementById('login-cursor-btn');
     this.resumeChatBtn = document.getElementById('resume-chat-btn');
-    this.activeDeviceIndicator = document.getElementById('active-device-indicator');
+    this.thinkingModeToggle = document.getElementById('thinking-mode-toggle');
+    this.thinkingModeLabel = document.getElementById('thinking-mode-label');
 
-    // Tabs
-    this.navTabs = document.querySelectorAll('.nav-pill');
-    this.tabContents = document.querySelectorAll('.tab-content');
-    this.toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
-    this.appSidebar = document.getElementById('app-sidebar');
-
-    // Files Explorer
-    this.fsBackBtn = document.getElementById('fs-back-btn');
-    this.fsUpBtn = document.getElementById('fs-up-btn');
+    // Files Tab elements
+    this.filesTreePanel = document.getElementById('files-tree-panel');
+    this.filesResizer = document.getElementById('files-resizer');
+    this.filePreviewPanel = document.getElementById('file-preview-panel');
+    this.filesTree = document.getElementById('files-tree');
     this.fsBreadcrumbs = document.getElementById('fs-breadcrumbs');
     this.fsSearchInput = document.getElementById('fs-search-input');
     this.refreshFilesBtn = document.getElementById('refresh-files-btn');
-    this.filesTree = document.getElementById('files-tree');
+    this.fsBackBtn = document.getElementById('fs-back-btn');
+    this.fsUpBtn = document.getElementById('fs-up-btn');
     this.filesCountBadge = document.getElementById('files-count-badge');
-    this.filePreviewPanel = document.getElementById('file-preview-panel');
-    this.fsClosePreviewMobile = document.getElementById('fs-close-preview-mobile');
     this.previewFilename = document.getElementById('preview-filename');
-    this.previewFileIcon = document.getElementById('preview-file-icon');
     this.previewFileSize = document.getElementById('preview-file-size');
-    this.previewContent = document.getElementById('preview-content');
-    this.previewCodeBlock = document.getElementById('preview-code-block');
+    this.previewFileIcon = document.getElementById('preview-file-icon');
+    this.fileEmptyState = document.getElementById('file-empty-state');
     this.codeEditorContainer = document.getElementById('code-editor-container');
     this.lineNumbersGutter = document.getElementById('line-numbers-gutter');
-    this.fileEmptyState = document.getElementById('file-empty-state');
+    this.previewCodeBlock = document.getElementById('preview-code-block');
     this.mdRenderedContainer = document.getElementById('md-rendered-container');
     this.imgPreviewContainer = document.getElementById('img-preview-container');
     this.imgPreviewEl = document.getElementById('img-preview-el');
     this.mdPreviewToggleBtn = document.getElementById('md-preview-toggle-btn');
-    this.askAgentFileBtn = document.getElementById('ask-agent-file-btn');
     this.copyFileContentBtn = document.getElementById('copy-file-content-btn');
-    this.isMdRenderedMode = false;
-    this.currentFileRawContent = '';
+    this.askAgentFileBtn = document.getElementById('ask-agent-file-btn');
+    this.fsClosePreviewMobile = document.getElementById('fs-close-preview-mobile');
 
-    // Terminal
+    // Terminal Tab elements
     this.terminalOutput = document.getElementById('terminal-output');
     this.terminalScreen = document.getElementById('terminal-screen');
     this.terminalForm = document.getElementById('terminal-form');
     this.terminalInput = document.getElementById('terminal-input');
-    this.clearTermBtn = document.getElementById('clear-term-btn');
-    this.copyTermBtn = document.getElementById('copy-term-btn');
-    this.termDeviceTitle = document.getElementById('term-device-title');
     this.termPromptPath = document.getElementById('term-prompt-path');
-    this.termHistory = [];
-    this.termHistoryIndex = -1;
+    this.termDeviceTitle = document.getElementById('term-device-title');
+    this.copyTermBtn = document.getElementById('copy-term-btn');
+    this.clearTermBtn = document.getElementById('clear-term-btn');
+
+    // Devices & Settings Tab elements
+    this.devicesFullList = document.getElementById('devices-full-list');
+    this.copyCmdBtn = document.getElementById('copy-cmd-btn');
+    this.daemonCommandText = document.getElementById('daemon-command-text');
 
     // Limits Modal Elements
     this.openLimitsBtn = document.getElementById('open-limits-btn');
     this.limitsModal = document.getElementById('limits-modal');
     this.closeLimitsModalBtn = document.getElementById('close-limits-modal-btn');
     this.closeLimitsFooterBtn = document.getElementById('close-limits-footer-btn');
-    this.cursorTierBadge = document.getElementById('cursor-tier-badge');
     this.cursorLimitEmail = document.getElementById('cursor-limit-email');
     this.cursorLimitModel = document.getElementById('cursor-limit-model');
     this.cursorLimitVer = document.getElementById('cursor-limit-ver');
-    this.antigravityTierBadge = document.getElementById('antigravity-tier-badge');
-    this.antigravityLimitStatus = document.getElementById('antigravity-limit-status');
-    this.antigravityLimitConvs = document.getElementById('antigravity-limit-convs');
-    this.antigravityLimitSize = document.getElementById('antigravity-limit-size');
     this.antigravity5hVal = document.getElementById('antigravity-5h-val');
     this.antigravity5hProgress = document.getElementById('antigravity-5h-progress');
-    this.antigravity5hPercent = document.getElementById('antigravity-5h-percent');
     this.antigravity5hReset = document.getElementById('antigravity-5h-reset');
     this.antigravityWeeklyVal = document.getElementById('antigravity-weekly-val');
     this.antigravityWeeklyProgress = document.getElementById('antigravity-weekly-progress');
-    this.antigravityWeeklyPercent = document.getElementById('antigravity-weekly-percent');
     this.antigravityWeeklyReset = document.getElementById('antigravity-weekly-reset');
     this.limitsMachineName = document.getElementById('limits-machine-name');
     this.limitsMachineRam = document.getElementById('limits-machine-ram');
@@ -153,6 +140,8 @@ class AgentRemoteApp {
     this.submitNewChatBtn = document.getElementById('submit-new-chat-btn');
     this.selectEngineCursor = document.getElementById('select-engine-cursor');
     this.selectEngineAntigravity = document.getElementById('select-engine-antigravity');
+    this.modalDeviceSelect = document.getElementById('modal-device-select');
+    this.modalDeviceStatusBadge = document.getElementById('modal-device-status-badge');
     this.modalWorkspaceInput = document.getElementById('modal-workspace-input');
     this.modalModelSelect = document.getElementById('modal-model-select');
     this.modalModeSelect = document.getElementById('modal-mode-select');
@@ -161,28 +150,42 @@ class AgentRemoteApp {
     this.modalOpenImportBtn = document.getElementById('modal-open-import-btn');
     this.openImportHeaderBtn = document.getElementById('open-import-header-btn');
     this.currentSelectedEngine = 'cursor';
+
+    // Import Modal Elements
+    this.importModal = document.getElementById('import-modal');
+    this.closeImportModalBtn = document.getElementById('close-import-modal-btn');
+    this.cancelImportBtn = document.getElementById('cancel-import-btn');
+    this.executeImportBtn = document.getElementById('execute-import-btn');
+    this.importTabAuto = document.getElementById('import-tab-auto');
+    this.importTabPaste = document.getElementById('import-tab-paste');
+    this.importViewAuto = document.getElementById('import-view-auto');
+    this.importViewPaste = document.getElementById('import-view-paste');
+    this.importSearchInput = document.getElementById('import-search-input');
+    this.transcriptsCountBadge = document.getElementById('transcripts-count-badge');
+    this.localTranscriptsList = document.getElementById('local-transcripts-list');
+    this.importPasteInput = document.getElementById('import-paste-input');
+    this.importTargetEngine = document.getElementById('import-target-engine');
+    this.importSessionTitle = document.getElementById('import-session-title');
+    this.importSanitizationReport = document.getElementById('import-sanitization-report');
   }
 
   initEvents() {
-    // Login
     this.loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       await this.login(this.loginUsername.value, this.loginPassword.value);
     });
 
-    // Logout
     this.logoutBtn.addEventListener('click', () => this.logout());
 
-    // Navigation Tabs
     this.navTabs.forEach((tab) => {
       tab.addEventListener('click', () => {
         this.switchTab(tab.dataset.tab);
       });
     });
 
-    // Sidebar Toggle (Mobile & Desktop)
     if (this.toggleSidebarBtn) {
-      this.toggleSidebarBtn.addEventListener('click', () => {
+      this.toggleSidebarBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const isOpen = this.appSidebar.classList.toggle('open');
         if (this.sidebarBackdrop) {
           this.sidebarBackdrop.classList.toggle('show', isOpen);
@@ -199,35 +202,60 @@ class AgentRemoteApp {
 
     if (this.fsClosePreviewMobile) {
       this.fsClosePreviewMobile.addEventListener('click', () => {
-        this.filesTree.classList.remove('hide-on-mobile');
+        this.filesTreePanel.classList.remove('hide-on-mobile');
         this.filePreviewPanel.classList.remove('show-on-mobile');
       });
     }
 
-    // Device Switcher
     this.deviceSelect.addEventListener('change', (e) => {
       this.selectDevice(e.target.value);
     });
 
-    // Import Chat Button
+    if (this.modalDeviceSelect) {
+      this.modalDeviceSelect.addEventListener('change', (e) => {
+        const dev = this.devices.find((d) => d.id === e.target.value);
+        if (dev) {
+          if (this.modalWorkspaceInput && dev.defaultWorkspace) {
+            this.modalWorkspaceInput.value = dev.defaultWorkspace;
+          }
+          if (this.modalDeviceStatusBadge) {
+            const isOnline = dev.status === 'online';
+            this.modalDeviceStatusBadge.innerText = isOnline ? '● Онлайн' : '○ Офлайн';
+            this.modalDeviceStatusBadge.style.color = isOnline ? 'var(--success)' : 'var(--text-muted)';
+          }
+        }
+      });
+    }
+
     if (this.importChatBtn) {
-      this.importChatBtn.addEventListener('click', () => {
+      this.importChatBtn.addEventListener('click', () => this.openImportModal());
+    }
+    if (this.openImportHeaderBtn) {
+      this.openImportHeaderBtn.addEventListener('click', () => this.openImportModal());
+    }
+    if (this.modalOpenImportBtn) {
+      this.modalOpenImportBtn.addEventListener('click', () => {
+        this.newChatModal.style.display = 'none';
         this.openImportModal();
       });
     }
 
+    if (this.openLimitsBtn) {
+      this.openLimitsBtn.addEventListener('click', () => this.openLimitsModal());
+    }
+    if (this.closeLimitsModalBtn) {
+      this.closeLimitsModalBtn.addEventListener('click', () => (this.limitsModal.style.display = 'none'));
+    }
+    if (this.closeLimitsFooterBtn) {
+      this.closeLimitsFooterBtn.addEventListener('click', () => (this.limitsModal.style.display = 'none'));
+    }
+
     if (this.closeImportModalBtn) {
-      this.closeImportModalBtn.addEventListener('click', () => {
-        this.importModal.style.display = 'none';
-      });
+      this.closeImportModalBtn.addEventListener('click', () => (this.importModal.style.display = 'none'));
     }
-
     if (this.cancelImportBtn) {
-      this.cancelImportBtn.addEventListener('click', () => {
-        this.importModal.style.display = 'none';
-      });
+      this.cancelImportBtn.addEventListener('click', () => (this.importModal.style.display = 'none'));
     }
-
     if (this.importTabAuto) {
       this.importTabAuto.addEventListener('click', () => {
         this.importTabAuto.classList.add('active');
@@ -236,7 +264,6 @@ class AgentRemoteApp {
         this.importViewPaste.style.display = 'none';
       });
     }
-
     if (this.importTabPaste) {
       this.importTabPaste.addEventListener('click', () => {
         this.importTabPaste.classList.add('active');
@@ -245,121 +272,22 @@ class AgentRemoteApp {
         this.importViewAuto.style.display = 'none';
       });
     }
-
+    if (this.importSearchInput) {
+      this.importSearchInput.addEventListener('input', () => {
+        this.filterTranscriptsList();
+      });
+    }
     if (this.executeImportBtn) {
-      this.executeImportBtn.addEventListener('click', () => {
-        this.executeImport();
-      });
+      this.executeImportBtn.addEventListener('click', () => this.executeImport());
     }
 
-    // Limits Modal
-    if (this.openLimitsBtn) {
-      this.openLimitsBtn.addEventListener('click', () => {
-        this.openLimitsModal();
-      });
-    }
+    this.themeToggleBtn.addEventListener('click', () => this.toggleTheme());
 
-    if (this.closeLimitsModalBtn) {
-      this.closeLimitsModalBtn.addEventListener('click', () => {
-        this.limitsModal.style.display = 'none';
-      });
-    }
-
-    if (this.closeLimitsFooterBtn) {
-      this.closeLimitsFooterBtn.addEventListener('click', () => {
-        this.limitsModal.style.display = 'none';
-      });
-    }
-
-    // Theme Toggle
-    this.initTheme();
-    if (this.themeToggleBtn) {
-      this.themeToggleBtn.addEventListener('click', () => {
-        this.toggleTheme();
-      });
-    }
-
-    // New Chat Buttons -> Opens New Chat Modal
-    if (this.newChatBtn) {
-      this.newChatBtn.addEventListener('click', () => {
-        this.openNewChatModal('cursor');
-      });
-    }
-
-    if (this.newAntigravityChatBtn) {
-      this.newAntigravityChatBtn.addEventListener('click', () => {
-        this.openNewChatModal('antigravity');
-      });
-    }
-
-    // New Chat Modal Controls
-    if (this.closeNewChatModalBtn) {
-      this.closeNewChatModalBtn.addEventListener('click', () => {
-        this.newChatModal.style.display = 'none';
-      });
-    }
-
-    if (this.cancelNewChatBtn) {
-      this.cancelNewChatBtn.addEventListener('click', () => {
-        this.newChatModal.style.display = 'none';
-      });
-    }
-
-    if (this.submitNewChatBtn) {
-      this.submitNewChatBtn.addEventListener('click', () => {
-        this.submitNewChatModal();
-      });
-    }
-
-    if (this.selectEngineCursor) {
-      this.selectEngineCursor.addEventListener('click', () => {
-        this.setModalEngine('cursor');
-      });
-    }
-
-    if (this.selectEngineAntigravity) {
-      this.selectEngineAntigravity.addEventListener('click', () => {
-        this.setModalEngine('antigravity');
-      });
-    }
-
-    if (this.modalOpenImportBtn) {
-      this.modalOpenImportBtn.addEventListener('click', () => {
-        this.newChatModal.style.display = 'none';
-        this.openImportModal();
-      });
-    }
-
-    // Import Chat Buttons
-    if (this.openImportHeaderBtn) {
-      this.openImportHeaderBtn.addEventListener('click', () => {
-        this.openImportModal();
-      });
-    }
-
-    if (this.importChatBtn) {
-      this.importChatBtn.addEventListener('click', () => {
-        this.openImportModal();
-      });
-    }
-
-    // Resume Chat
-    this.resumeChatBtn.addEventListener('click', () => {
-      this.resumeCurrentSession();
+    this.promptInput.addEventListener('input', () => {
+      this.promptInput.style.height = 'auto';
+      this.promptInput.style.height = `${Math.min(this.promptInput.scrollHeight, 160)}px`;
     });
 
-    // Login Cursor OAuth
-    this.loginCursorBtn.addEventListener('click', () => {
-      this.triggerCursorAuth();
-    });
-
-    // Session Search Filter
-    this.sessionSearch.addEventListener('input', () => {
-      this.renderSessions();
-    });
-
-    // Prompt Sending
-    this.sendBtn.addEventListener('click', () => this.sendPrompt());
     this.promptInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -367,189 +295,276 @@ class AgentRemoteApp {
       }
     });
 
-    // Quick Prompt Chips
-    document.querySelectorAll('.chip-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const prompt = btn.dataset.prompt;
-        this.promptInput.value = prompt;
-        this.promptInput.focus();
-      });
-    });
+    this.sendBtn.addEventListener('click', () => this.sendPrompt());
+    this.stopAgentBtn.addEventListener('click', () => this.stopAgent());
 
-    // Stop Agent Execution
-    this.stopAgentBtn.addEventListener('click', () => this.abortAgent());
-
-    // Files Navigation Events
-    this.refreshFilesBtn.addEventListener('click', () => this.loadFilesTree(this.currentFsPath));
-    
-    this.fsBackBtn.addEventListener('click', () => {
-      if (this.fsHistoryStack.length > 0) {
-        const prev = this.fsHistoryStack.pop();
-        this.loadFilesTree(prev, false);
-      } else {
-        this.navigateUpDirectory();
-      }
-    });
-
-    this.fsUpBtn.addEventListener('click', () => {
-      this.navigateUpDirectory();
-    });
-
-    this.fsSearchInput.addEventListener('input', (e) => {
-      this.filterFilesTree(e.target.value);
-    });
-
-    if (this.copyFileContentBtn) {
-      this.copyFileContentBtn.addEventListener('click', () => {
-        const code = this.currentFileRawContent || (this.previewCodeBlock ? this.previewCodeBlock.innerText : '');
-        navigator.clipboard.writeText(code);
-        this.showToast('📋 Вміст файлу скопійовано в буфер обміну');
+    if (this.thinkingModeToggle) {
+      this.thinkingModeToggle.addEventListener('click', () => {
+        if (this.thinkingMode === 'auto') {
+          this.thinkingMode = 'on';
+          this.thinkingModeLabel.innerText = 'Thinking: ON';
+          this.thinkingModeToggle.classList.add('active');
+          this.showToast('🧠 Thinking Mode увімкнено (максимальне міркування)');
+        } else if (this.thinkingMode === 'on') {
+          this.thinkingMode = 'off';
+          this.thinkingModeLabel.innerText = 'Thinking: OFF';
+          this.thinkingModeToggle.classList.remove('active');
+          this.showToast('⚡ Thinking Mode вимкнено (швидкі відповіді)');
+        } else {
+          this.thinkingMode = 'auto';
+          this.thinkingModeLabel.innerText = 'Thinking: Auto';
+          this.thinkingModeToggle.classList.remove('active');
+          this.showToast('🤖 Thinking Mode: Auto (за замовчуванням)');
+        }
       });
     }
 
-    if (this.askAgentFileBtn) {
-      this.askAgentFileBtn.addEventListener('click', () => {
-        const fileName = this.activeOpenedPath ? this.activeOpenedPath.split(/[/\\]/).pop() : 'файлу';
-        this.switchTab('chat');
-        this.promptInput.value = `Проаналізуй файл ${fileName} (${this.activeOpenedPath}):\n`;
+    this.loginCursorBtn.addEventListener('click', () => this.triggerCursorLogin());
+    this.resumeChatBtn.addEventListener('click', () => this.resumeChat());
+
+    this.newChatBtn.addEventListener('click', () => this.openNewChatModal('cursor'));
+    this.newAntigravityChatBtn.addEventListener('click', () => this.openNewChatModal('antigravity'));
+    this.closeNewChatModalBtn.addEventListener('click', () => (this.newChatModal.style.display = 'none'));
+    this.cancelNewChatBtn.addEventListener('click', () => (this.newChatModal.style.display = 'none'));
+    this.submitNewChatBtn.addEventListener('click', () => this.submitNewChatModal());
+
+    this.selectEngineCursor.addEventListener('click', () => this.setModalEngine('cursor'));
+    this.selectEngineAntigravity.addEventListener('click', () => this.setModalEngine('antigravity'));
+
+    this.sessionSearch.addEventListener('input', () => this.renderSessions());
+
+    document.addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip-btn');
+      if (chip && chip.dataset.prompt) {
+        this.promptInput.value = chip.dataset.prompt;
         this.promptInput.focus();
+      }
+    });
+
+    if (this.copyCmdBtn && this.daemonCommandText) {
+      this.copyCmdBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(this.daemonCommandText.innerText.trim());
+        this.showToast('📋 Команду запуску воркера скопійовано!');
       });
     }
 
     if (this.mdPreviewToggleBtn) {
-      this.mdPreviewToggleBtn.addEventListener('click', () => {
-        this.toggleMdPreview();
+      this.mdPreviewToggleBtn.addEventListener('click', () => this.toggleMarkdownPreview());
+    }
+    if (this.copyFileContentBtn) {
+      this.copyFileContentBtn.addEventListener('click', () => {
+        if (this.activeOpenedContent) {
+          navigator.clipboard.writeText(this.activeOpenedContent);
+          this.showToast('📋 Вміст файлу скопійовано!');
+        }
       });
     }
-
-    // Terminal Quick Commands
-    document.querySelectorAll('.term-quick-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const cmd = btn.dataset.cmd;
-        this.execTerminalCommand(cmd);
-      });
-    });
-
-    if (this.clearTermBtn) {
-      this.clearTermBtn.addEventListener('click', () => {
-        this.terminalOutput.innerHTML = `
-          <div class="term-welcome-msg">
-            <div class="term-welcome-title">🚀 AgentRemote Cloud Terminal Console v1.0</div>
-            <div class="term-welcome-sub">Консоль очищено • Готовий до нових команд</div>
-          </div>
-        `;
+    if (this.askAgentFileBtn) {
+      this.askAgentFileBtn.addEventListener('click', () => {
+        const fileName = this.activeOpenedPath.split(/[/\\]/).pop() || 'файл';
+        this.switchTab('chat');
+        this.promptInput.value = `Проаналізуй файл \`${this.activeOpenedPath}\` та поясни його логіку:\n\n\`\`\`\n${this.activeOpenedContent.slice(0, 3000)}\n\`\`\``;
+        this.promptInput.focus();
+        this.promptInput.style.height = 'auto';
+        this.promptInput.style.height = `${Math.min(this.promptInput.scrollHeight, 160)}px`;
       });
     }
-
-    if (this.copyTermBtn) {
-      this.copyTermBtn.addEventListener('click', () => {
-        const text = this.terminalOutput.innerText;
-        navigator.clipboard.writeText(text);
-        this.showToast('📋 Текст консолі скопійовано у буфер');
+    if (this.refreshFilesBtn) {
+      this.refreshFilesBtn.addEventListener('click', () => {
+        this.loadFilesTree(this.activeOpenedDirectory || this.workspaceInput.value);
       });
     }
+    if (this.fsSearchInput) {
+      this.fsSearchInput.addEventListener('input', (e) => {
+        this.filterFilesTree(e.target.value);
+      });
+    }
+    if (this.fsBackBtn) {
+      this.fsBackBtn.addEventListener('click', () => this.navigateFsHistory(-1));
+    }
+    if (this.fsUpBtn) {
+      this.fsUpBtn.addEventListener('click', () => this.navigateFsUp());
+    }
 
+    if (this.terminalForm) {
+      this.terminalForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.executeTerminalCommand();
+      });
+    }
     if (this.terminalInput) {
       this.terminalInput.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowUp') {
           e.preventDefault();
           if (this.termHistory.length > 0) {
-            if (this.termHistoryIndex > 0) {
-              this.termHistoryIndex--;
-            } else if (this.termHistoryIndex === -1) {
-              this.termHistoryIndex = this.termHistory.length - 1;
+            if (this.termHistoryIndex < this.termHistory.length - 1) {
+              this.termHistoryIndex++;
             }
-            this.terminalInput.value = this.termHistory[this.termHistoryIndex] || '';
+            this.terminalInput.value = this.termHistory[this.termHistory.length - 1 - this.termHistoryIndex] || '';
           }
         } else if (e.key === 'ArrowDown') {
           e.preventDefault();
-          if (this.termHistory.length > 0 && this.termHistoryIndex !== -1) {
-            if (this.termHistoryIndex < this.termHistory.length - 1) {
-              this.termHistoryIndex++;
-              this.terminalInput.value = this.termHistory[this.termHistoryIndex] || '';
-            } else {
-              this.termHistoryIndex = -1;
-              this.terminalInput.value = '';
-            }
+          if (this.termHistoryIndex > 0) {
+            this.termHistoryIndex--;
+            this.terminalInput.value = this.termHistory[this.termHistory.length - 1 - this.termHistoryIndex] || '';
+          } else if (this.termHistoryIndex === 0) {
+            this.termHistoryIndex = -1;
+            this.terminalInput.value = '';
           }
         }
       });
     }
+    if (this.copyTermBtn) {
+      this.copyTermBtn.addEventListener('click', () => {
+        if (this.terminalOutput) {
+          navigator.clipboard.writeText(this.terminalOutput.innerText);
+          this.showToast('📋 Вивід консолі скопійовано!');
+        }
+      });
+    }
+    if (this.clearTermBtn) {
+      this.clearTermBtn.addEventListener('click', () => {
+        if (this.terminalOutput) {
+          this.terminalOutput.innerHTML = '<div class="term-welcome-msg"><div class="term-welcome-title">AgentRemote Cloud Terminal</div></div>';
+        }
+      });
+    }
 
-    this.terminalForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      this.execTerminalCommand(this.terminalInput.value);
-    });
-
-    // Copy command
-    this.copyCmdBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(this.daemonCommandText.innerText);
-      this.copyCmdBtn.innerText = 'Скопійовано!';
-      setTimeout(() => (this.copyCmdBtn.innerText = 'Скопіювати команду'), 2000);
+    document.addEventListener('click', (e) => {
+      const chip = e.target.closest('.term-chip');
+      if (chip && chip.dataset.cmd && this.terminalInput) {
+        this.terminalInput.value = chip.dataset.cmd;
+        this.executeTerminalCommand();
+      }
     });
   }
 
-  switchTab(tabName) {
-    this.navTabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === tabName));
-    this.tabContents.forEach((c) => c.classList.toggle('active', c.id === `tab-${tabName}`));
+  initFilesResizer() {
+    if (!this.filesResizer || !this.filesTreePanel) return;
 
-    if (tabName === 'files') {
-      if (this.filesTree && this.filePreviewPanel) {
-        this.filesTree.classList.remove('hide-on-mobile');
-        this.filePreviewPanel.classList.remove('show-on-mobile');
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 280;
+
+    const onMouseDown = (e) => {
+      isResizing = true;
+      startX = e.clientX;
+      startWidth = this.filesTreePanel.getBoundingClientRect().width;
+      this.filesResizer.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    };
+
+    const onMouseMove = (e) => {
+      if (!isResizing) return;
+      const diff = e.clientX - startX;
+      const newWidth = Math.max(180, Math.min(550, startWidth + diff));
+      this.filesTreePanel.style.width = `${newWidth}px`;
+    };
+
+    const onMouseUp = () => {
+      if (!isResizing) return;
+      isResizing = false;
+      this.filesResizer.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    this.filesResizer.addEventListener('mousedown', onMouseDown);
+
+    this.filesResizer.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        isResizing = true;
+        startX = e.touches[0].clientX;
+        startWidth = this.filesTreePanel.getBoundingClientRect().width;
+        this.filesResizer.classList.add('active');
       }
-      if (!this.currentFsPath) {
-        const activeDev = this.getActiveDevice();
-        this.currentFsPath = (activeDev && activeDev.defaultWorkspace) || this.workspaceInput.value || '';
-      }
-      this.loadFilesTree(this.currentFsPath);
-    }
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+      if (!isResizing || e.touches.length !== 1) return;
+      const diff = e.touches[0].clientX - startX;
+      const newWidth = Math.max(180, Math.min(550, startWidth + diff));
+      this.filesTreePanel.style.width = `${newWidth}px`;
+    }, { passive: true });
+
+    window.addEventListener('touchend', () => {
+      isResizing = false;
+      if (this.filesResizer) this.filesResizer.classList.remove('active');
+    });
   }
 
   async checkAuth() {
+    if (!this.token) {
+      this.showLogin();
+      return;
+    }
+
     try {
       const res = await fetch('/api/auth/me', {
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+        headers: { Authorization: `Bearer ${this.token}` },
       });
+
       if (res.ok) {
-        const data = await res.json();
-        this.onAuthSuccess(data);
+        this.showApp();
+        this.connectWebSocket();
+        await this.loadInitialData();
       } else {
         this.showLogin();
       }
     } catch {
-      this.showLogin();
+      this.showApp();
+      this.connectWebSocket();
     }
   }
 
   async login(username, password) {
     this.loginError.innerText = '';
     this.loginBtn.disabled = true;
+    this.loginBtn.innerHTML = '<span>Перевірка...</span>';
+
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
+
       const data = await res.json();
       if (res.ok && data.token) {
         this.token = data.token;
         localStorage.setItem('agentremote_token', this.token);
-        this.onAuthSuccess(data);
+        sessionStorage.setItem('agentremote_token', this.token);
+        this.showApp();
+        this.connectWebSocket();
+        await this.loadInitialData();
       } else {
         this.loginError.innerText = data.error || 'Невірний логін або пароль';
       }
-    } catch {
-      this.loginError.innerText = 'Помилка з\'єднання з сервером';
+    } catch (err) {
+      this.loginError.innerText = 'Помилка підключення до сервера';
     } finally {
       this.loginBtn.disabled = false;
+      this.loginBtn.innerHTML = '<span>Увійти в Web IDE</span>';
     }
   }
 
   logout() {
+    this.token = '';
     localStorage.removeItem('agentremote_token');
-    fetch('/api/auth/logout', { method: 'POST' });
-    window.location.reload();
+    sessionStorage.removeItem('agentremote_token');
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    this.showLogin();
   }
 
   showLogin() {
@@ -557,20 +572,23 @@ class AgentRemoteApp {
     this.appContainer.style.display = 'none';
   }
 
-  onAuthSuccess(data) {
+  showApp() {
     this.loginModal.style.display = 'none';
     this.appContainer.style.display = 'flex';
-    this.connectWs();
   }
 
-  connectWs() {
+  connectWebSocket() {
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/client?token=${encodeURIComponent(this.token)}`;
+    const wsUrl = `${protocol}//${window.location.host}/ws/client?token=${this.token}`;
 
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
-      console.log('Connected to AgentRemote Hub');
+      console.log('[WebSocket] Connected to Cloud Hub');
     };
 
     this.ws.onmessage = (event) => {
@@ -578,31 +596,61 @@ class AgentRemoteApp {
         const msg = JSON.parse(event.data);
         this.handleWsMessage(msg);
       } catch (err) {
-        console.error('WS Parse Error:', err);
+        console.error('[WebSocket] Message parse error:', err);
       }
     };
 
-    this.ws.onclose = () => {
-      console.log('WS Disconnected, retrying in 3s...');
-      setTimeout(() => this.connectWs(), 3000);
+    this.ws.onclose = (e) => {
+      setTimeout(() => {
+        if (this.token) this.connectWebSocket();
+      }, 2000);
+    };
+
+    this.ws.onerror = (err) => {
+      console.error('[WebSocket] Error:', err);
     };
   }
 
   handleWsMessage(msg) {
     switch (msg.type) {
-      case 'state:init': {
-        this.devices = msg.payload.devices || [];
-        this.activeDeviceId = msg.payload.activeDeviceId || (this.devices[0] ? this.devices[0].id : null);
-        this.sessions = msg.payload.sessions || [];
-        this.renderDevices();
-        this.renderSessions();
+      case 'agent:chunk': {
+        const { sessionId, delta } = msg.payload;
+        this.appendAssistantChunk(sessionId, delta);
+        break;
+      }
 
-        if (this.sessions.length > 0) {
-          this.selectSession(this.sessions[0].id);
+      case 'agent:tool_call': {
+        const { sessionId, toolCall } = msg.payload;
+        this.renderToolCall(sessionId, toolCall);
+        break;
+      }
+
+      case 'agent:tool_result': {
+        const { sessionId, toolCallId, result, status } = msg.payload;
+        this.renderToolResult(sessionId, toolCallId, result, status);
+        break;
+      }
+
+      case 'agent:complete': {
+        const { sessionId, cursorChatId } = msg.payload;
+        this.handleAgentComplete(sessionId, cursorChatId);
+        break;
+      }
+
+      case 'agent:error': {
+        const { sessionId, error } = msg.payload;
+        this.handleAgentError(sessionId, error);
+        break;
+      }
+
+      case 'agent:limits_update': {
+        if (msg.payload && msg.payload.antigravity) {
+          this.updateAntigravityLimits(msg.payload.antigravity);
         }
         break;
       }
 
+      case 'device:registered':
       case 'device:updated': {
         const dev = msg.payload;
         const idx = this.devices.findIndex((d) => d.id === dev.id);
@@ -611,139 +659,121 @@ class AgentRemoteApp {
         } else {
           this.devices.push(dev);
         }
-        if (!this.activeDeviceId) {
-          this.activeDeviceId = dev.id;
-        }
         this.renderDevices();
         break;
       }
 
       case 'device:status': {
-        const dev = this.devices.find((d) => d.id === msg.payload.deviceId);
+        const { deviceId, status } = msg.payload;
+        const dev = this.devices.find((d) => d.id === deviceId);
         if (dev) {
-          dev.status = msg.payload.status;
+          dev.status = status;
           this.renderDevices();
         }
         break;
       }
 
-      case 'session:updated': {
-        const session = msg.payload;
-        const idx = this.sessions.findIndex((s) => s.id === session.id);
-        if (idx >= 0) {
-          this.sessions[idx] = session;
-        } else {
-          this.sessions.unshift(session);
-        }
-        this.renderSessions();
-        if (this.activeSessionId === session.id) {
-          this.renderActiveChat();
+      case 'cursor:auth_url': {
+        const { url } = msg.payload;
+        this.showOAuthModal(url);
+        break;
+      }
+
+      case 'fs:tree_result': {
+        if (msg.payload.reqId === this.pendingFsReqId) {
+          this.displayFiles(msg.payload.items, msg.payload.path);
         }
         break;
       }
 
-      case 'session:deleted': {
-        this.sessions = this.sessions.filter((s) => s.id !== msg.payload.sessionId);
-        this.renderSessions();
-        if (this.activeSessionId === msg.payload.sessionId) {
-          this.activeSessionId = this.sessions[0] ? this.sessions[0].id : null;
-          this.renderActiveChat();
-        }
-        break;
-      }
-
-      case 'agent:auth_url': {
-        this.showAuthModal(msg.payload.url);
-        break;
-      }
-
-      case 'agent:auth_success': {
-        this.showToast('✅ Авторизація Cursor CLI успішно завершена!');
-        if (this.authModalEl) this.authModalEl.remove();
-        break;
-      }
-
-      case 'agent:chunk': {
-        if (this.activeSessionId === msg.payload.sessionId) {
-          this.setStreamingState(true);
-          this.updateStreamingMessage(msg.payload.chunk);
-        }
-        break;
-      }
-
-      case 'agent:tool_call': {
-        if (this.activeSessionId === msg.payload.sessionId) {
-          this.appendToolCallCard(msg.payload.toolCall);
-        }
-        break;
-      }
-
-      case 'agent:tool_result': {
-        if (this.activeSessionId === msg.payload.sessionId) {
-          this.updateToolCallResult(msg.payload.toolCallId, msg.payload.result, msg.payload.status);
-        }
-        break;
-      }
-
-      case 'agent:complete': {
-        if (this.activeSessionId === msg.payload.sessionId) {
-          this.setStreamingState(false);
+      case 'fs:file_result': {
+        if (msg.payload.reqId === this.pendingFileReqId) {
+          this.displayFileContent(msg.payload.path, msg.payload.content, msg.payload.size, msg.payload.error);
         }
         break;
       }
 
       case 'terminal:output': {
-        this.appendTerminalOutput(msg.payload.data, msg.payload.isError);
-        break;
-      }
-
-      case 'terminal:exit': {
-        this.appendTerminalOutput(`\n[Process completed: code ${msg.payload.code}]\n\n`, false);
-        break;
-      }
-
-      case 'fs:tree': {
-        this.renderFilesTree(msg.payload.tree, msg.payload.rootPath);
-        break;
-      }
-
-      case 'fs:file': {
-        const filePath = msg.payload.path || this.activeOpenedPath || 'file';
-        this.renderOpenedFileContent(filePath, msg.payload.content || msg.payload.error || '');
+        if (this.terminalOutput && msg.payload.data) {
+          this.appendTerminalOutput(msg.payload.data);
+        }
         break;
       }
 
       case 'transcripts:list_result': {
-        this.renderLocalTranscripts(msg.payload.transcripts);
+        if (msg.payload.reqId === this.pendingTranscriptReqId) {
+          this.loadedTranscripts = msg.payload.transcripts || [];
+          this.renderLocalTranscripts();
+        }
         break;
       }
 
       case 'transcripts:read_result': {
-        const res = msg.payload.result;
-        if (res) {
-          this.selectedTranscriptContent = res.cleanSummaryContext || '';
-          this.importSanitizationReport.style.display = 'block';
-          this.importSanitizationReport.innerHTML = `
-            <span>🛡️ <strong>Санітизація виконана:</strong> Виявлено <strong>${res.messages.length}</strong> повідомлень. Очищено <strong>${res.removedMetadataCount}</strong> системних тегів/трейсів, замасковано <strong>${res.redactedSecretsCount}</strong> секретів.</span>
-          `;
+        if (msg.payload.rawContent) {
+          this.selectedTranscriptContent = msg.payload.rawContent;
+          if (this.importSanitizationReport) {
+            this.importSanitizationReport.style.display = 'block';
+          }
         }
         break;
       }
     }
   }
 
+  async loadInitialData() {
+    await Promise.all([this.loadDevices(), this.loadSessions()]);
+  }
+
+  async loadDevices() {
+    try {
+      const res = await fetch('/api/devices', {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        this.devices = data.devices || [];
+        this.activeDeviceId = data.activeDeviceId || (this.devices[0] ? this.devices[0].id : null);
+        this.renderDevices();
+      }
+    } catch (err) {
+      console.error('[App] Failed to load devices:', err);
+    }
+  }
+
+  async loadSessions() {
+    try {
+      const res = await fetch('/api/sessions', {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        this.sessions = data.sessions || [];
+        if (this.sessions.length > 0 && !this.activeSessionId) {
+          this.activeSessionId = this.sessions[0].id;
+        }
+        this.renderSessions();
+        this.renderActiveChat();
+      }
+    } catch (err) {
+      console.error('[App] Failed to load sessions:', err);
+    }
+  }
+
   renderDevices() {
     this.deviceSelect.innerHTML = '';
     if (this.devices.length === 0) {
-      this.deviceSelect.innerHTML = '<option value="">Немає підключених машин</option>';
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.innerText = 'Немає підключених машин';
+      this.deviceSelect.appendChild(opt);
       this.deviceStatusDot.className = 'device-status-indicator offline';
-      this.activeDeviceIndicator.innerText = 'Пристрій: Не підключено';
+      this.activeDeviceIndicator.innerText = 'Пристрій: Очікування підключення...';
     } else {
       this.devices.forEach((dev) => {
         const opt = document.createElement('option');
         opt.value = dev.id;
         const isOnline = dev.status === 'online';
-        opt.innerText = `${isOnline ? '🟢' : '🔴'} ${dev.name} (${dev.os ? dev.os.split(' ')[0] : 'Local'})`;
+        opt.innerText = `${isOnline ? '●' : '○'} ${dev.name} (${dev.os ? dev.os.split(' ')[0] : 'Local'})`;
         if (dev.id === this.activeDeviceId) {
           opt.selected = true;
         }
@@ -754,7 +784,6 @@ class AgentRemoteApp {
       const isOnline = activeDev && activeDev.status === 'online';
       this.deviceStatusDot.className = `device-status-indicator ${isOnline ? 'online' : 'offline'}`;
 
-      // Check Cursor CLI auth status and conditionally hide login button
       const isCursorLoggedIn = Boolean(activeDev && activeDev.cursorAuthStatus && activeDev.cursorAuthStatus.loggedIn);
       if (isCursorLoggedIn) {
         this.loginCursorBtn.style.display = 'none';
@@ -778,20 +807,33 @@ class AgentRemoteApp {
       }
     }
 
-    // Render Full Settings Grid
+    if (this.modalDeviceSelect) {
+      this.modalDeviceSelect.innerHTML = '';
+      this.devices.forEach((d) => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        const isOnline = d.status === 'online';
+        opt.innerText = `${isOnline ? '●' : '○'} ${d.name} (${d.os ? d.os.split(' ')[0] : 'Local'})`;
+        if (d.id === this.activeDeviceId) {
+          opt.selected = true;
+        }
+        this.modalDeviceSelect.appendChild(opt);
+      });
+    }
+
     this.devicesFullList.innerHTML = this.devices
       .map(
         (dev) => `
       <div class="device-card">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <strong>💻 ${dev.name}</strong>
+          <strong style="font-size:13.5px; color:var(--text-primary);">💻 ${dev.name}</strong>
           <span class="device-status-indicator ${dev.status === 'online' ? 'online' : 'offline'}"></span>
         </div>
-        <div style="font-size:12px; color:var(--text-secondary); line-height:1.6; margin-top:6px;">
+        <div style="font-size:12px; color:var(--text-secondary); line-height:1.65; margin-top:8px;">
           <div><strong>ID:</strong> <code>${dev.id}</code></div>
           <div><strong>OS:</strong> ${dev.os || 'Windows/Linux/macOS'}</div>
-          <div><strong>Cursor CLI:</strong> ${dev.cursorCliPath ? '✅ Виявлено' : '❌ Не знайдено'}</div>
-          <div><strong>Antigravity:</strong> ${dev.antigravityAvailable ? '✅ Доступно' : '❌ Не виявлено'}</div>
+          <div><strong>Cursor CLI:</strong> ${dev.cursorCliPath ? '✓ Виявлено' : '✕ Не знайдено'}</div>
+          <div><strong>Antigravity:</strong> ${dev.antigravityAvailable ? '✓ Доступно' : '✕ Не знайдено'}</div>
           ${dev.memoryUsage ? `<div><strong>RAM:</strong> ${dev.memoryUsage.used} MB / ${dev.memoryUsage.total} MB</div>` : ''}
           <div><strong>Робоча папка:</strong> <code>${dev.defaultWorkspace || '-'}</code></div>
         </div>
@@ -828,9 +870,10 @@ class AgentRemoteApp {
     document.body.setAttribute('data-theme', theme);
     localStorage.setItem('agentremote_theme', theme);
     if (this.themeIcon) {
-      this.themeIcon.innerHTML = theme === 'dark'
-        ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`
-        : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+      this.themeIcon.innerHTML =
+        theme === 'dark'
+          ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`
+          : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
     }
   }
 
@@ -851,7 +894,7 @@ class AgentRemoteApp {
     filtered.forEach((s) => {
       const item = document.createElement('div');
       item.className = `session-item ${s.id === this.activeSessionId ? 'active' : ''}`;
-      
+
       const formattedDate = new Date(s.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const isAntigravity = s.engine === 'antigravity' || (s.model && s.model.includes('gemini'));
       const engineTag = isAntigravity
@@ -867,7 +910,7 @@ class AgentRemoteApp {
             <div class="session-title">${this.escapeHtml(s.title || (isAntigravity ? 'Чат Antigravity' : 'Чат Cursor'))}</div>
           </div>
           <div class="session-desc">${this.escapeHtml(descText)}</div>
-          <div class="session-date">${formattedDate} • ${s.model || (isAntigravity ? 'Gemini 2.5' : 'Claude')} • ${s.messages ? s.messages.length : 0} повід.</div>
+          <div class="session-date">${formattedDate} • ${s.model === 'auto' ? 'Auto' : s.model || (isAntigravity ? 'Gemini' : 'Claude')} • ${s.messages ? s.messages.length : 0} повід.</div>
         </div>
         <button class="session-delete-btn" title="Видалити сесію">✕</button>
       `;
@@ -895,40 +938,6 @@ class AgentRemoteApp {
     }
   }
 
-  async createNewSession(engine = 'cursor') {
-    const activeDev = this.getActiveDevice();
-    const isAgy = engine === 'antigravity';
-    const defaultModel = isAgy ? 'gemini-3.1-pro' : this.modelSelect.value;
-    const defaultTitle = isAgy ? 'Новий чат Antigravity' : 'Новий чат Cursor';
-    const defaultDesc = isAgy ? 'Сесія Google Antigravity (Gemini)' : 'Сесія Cursor AI Agent';
-
-    const newSession = {
-      deviceId: activeDev ? activeDev.id : 'default',
-      title: defaultTitle,
-      description: defaultDesc,
-      engine: engine,
-      model: defaultModel,
-      mode: this.modeSelect.value,
-      workspacePath: this.workspaceInput.value,
-    };
-
-    const res = await fetch('/api/sessions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.token}`,
-      },
-      body: JSON.stringify(newSession),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      this.sessions.unshift(data.session);
-      this.selectSession(data.session.id);
-      this.promptInput.focus();
-    }
-  }
-
   async deleteSession(sessionId) {
     if (!confirm('Видалити цю сесію?')) return;
     await fetch(`/api/sessions/${sessionId}`, {
@@ -950,427 +959,612 @@ class AgentRemoteApp {
       this.chatMeta.innerText = 'Оберіть сесію або почніть нову';
       this.chatMessages.innerHTML = `
         <div class="welcome-box">
-          <div class="welcome-badge">⚡ AgentRemote IDE</div>
+          <div class="welcome-badge">AgentRemote IDE</div>
           <h3>Створіть або оберіть сесію</h3>
-          <p>Натисніть "+ Новий чат Cursor" у бічній панелі щоб почати.</p>
+          <p>Натисніть "+ Cursor" або "+ Antigravity" у бічній панелі щоб почати розробку.</p>
         </div>
       `;
       return;
     }
 
-    this.currentChatTitle.innerText = session.title || 'Чат Cursor';
-    this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model} | ${session.mode.toUpperCase()}`;
+    this.currentChatTitle.innerText = session.title || 'Чат розробки';
+    this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
 
     if (session.messages.length === 0) {
       this.chatMessages.innerHTML = `
         <div class="welcome-box">
-          <div class="welcome-badge">⚡ Готовий до роботи</div>
+          <div class="welcome-badge">Готовий до роботи</div>
           <h3>${this.escapeHtml(session.title)}</h3>
-          <p>Напишіть запит або оберіть одну зі швидких дій нижче:</p>
+          <p>Напишіть завдання або оберіть одну зі швидких дій нижче:</p>
           <div class="quick-prompt-chips">
-            <button class="chip-btn" data-prompt="Зроби огляд проекту і поясни структуру коду">📂 Огляд проекту</button>
-            <button class="chip-btn" data-prompt="Перевір git статус та останні коміти">🔍 Перевірити git статус</button>
-            <button class="chip-btn" data-prompt="Запусти тести та перевір білд">⚡ Запустити тести</button>
-            <button class="chip-btn" data-prompt="Знайди та виправ помилки у коді">🐛 Пошук багів</button>
+            <button class="chip-btn" data-prompt="Зроби огляд проекту і поясни структуру коду">Огляд структури проекту</button>
+            <button class="chip-btn" data-prompt="Перевір git статус та останні зміни">Перевірити git статус</button>
+            <button class="chip-btn" data-prompt="Запусти тести та перевір чи все збирається">Запустити білд і тести</button>
+            <button class="chip-btn" data-prompt="Знайди потенційні баги або невикористаний код">Пошук проблем у коді</button>
           </div>
         </div>
       `;
-      // rebind chip buttons
-      this.chatMessages.querySelectorAll('.chip-btn').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          this.promptInput.value = btn.dataset.prompt;
-          this.promptInput.focus();
-        });
-      });
       return;
     }
 
     this.chatMessages.innerHTML = '';
     session.messages.forEach((msg) => {
-      this.appendMessageElement(msg);
+      this.renderChatMessageElement(msg.role, msg.content, msg.toolCalls);
     });
-
-    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    this.scrollToBottom();
   }
 
-  appendMessageElement(msg) {
+  renderChatMessageElement(role, content, toolCalls) {
     const el = document.createElement('div');
-    el.className = `message ${msg.role}`;
-    const formattedTime = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    el.className = `message ${role}`;
 
-    let renderedContent = '';
-    if (typeof marked !== 'undefined' && msg.role === 'assistant') {
-      renderedContent = marked.parse(msg.content || '');
-    } else {
-      renderedContent = `<p>${this.escapeHtml(msg.content || '')}</p>`;
-    }
+    const isUser = role === 'user';
+    const isAssistant = role === 'assistant';
 
-    const roleName = msg.role === 'user' ? 'Ви' : `🤖 Cursor Agent (${this.modelSelect.value})`;
+    const avatarHtml = isUser
+      ? `<div class="message-avatar" style="background:var(--accent-primary); color:#fff; font-weight:700; font-size:11px;">ВИ</div>`
+      : `<div class="message-avatar" style="background:#334155; color:#fff; font-weight:700; font-size:10px;">AI</div>`;
+
+    const parsedContent = isAssistant && window.marked ? marked.parse(content || '') : this.escapeHtml(content || '').replace(/\n/g, '<br>');
 
     el.innerHTML = `
-      <div class="message-header">
-        <span>${roleName}</span>
-        <span>${formattedTime}</span>
-      </div>
-      <div class="message-bubble">
-        ${renderedContent}
+      ${avatarHtml}
+      <div class="message-bubble-wrapper" style="flex:1; min-width:0;">
+        <div class="message-bubble">
+          ${parsedContent}
+        </div>
       </div>
     `;
 
-    // Render tool calls if any
-    if (msg.toolCalls && msg.toolCalls.length > 0) {
-      const bubble = el.querySelector('.message-bubble');
-      msg.toolCalls.forEach((tc) => {
+    if (toolCalls && toolCalls.length > 0) {
+      const bubbleWrapper = el.querySelector('.message-bubble-wrapper');
+      toolCalls.forEach((tc) => {
         const tcEl = document.createElement('div');
         tcEl.className = 'tool-call-card';
-        tcEl.id = `tool-call-${tc.id}`;
         tcEl.innerHTML = `
           <div class="tool-call-header">
-            <span>🔨 ${this.escapeHtml(tc.name)}</span>
-            <span>${tc.status === 'running' ? '⏳ виконується...' : '✅ завершено'}</span>
+            <div class="tool-call-title">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+              <span>${this.escapeHtml(tc.name || 'tool_call')}</span>
+            </div>
+            <span class="tool-call-status ${tc.status || 'completed'}">${tc.status || 'completed'}</span>
           </div>
-          ${tc.output ? `<div class="tool-call-output">${this.escapeHtml(tc.output)}</div>` : ''}
+          ${tc.result ? `<div class="tool-call-result"><pre>${this.escapeHtml(tc.result)}</pre></div>` : ''}
         `;
-        bubble.appendChild(tcEl);
+        bubbleWrapper.appendChild(tcEl);
       });
     }
 
-    // Highlight code blocks
-    if (typeof hljs !== 'undefined') {
-      el.querySelectorAll('pre code').forEach((block) => {
-        try {
-          hljs.highlightElement(block);
-        } catch {}
-      });
-    }
+    el.querySelectorAll('pre code').forEach((block) => {
+      if (window.hljs) hljs.highlightElement(block);
+    });
 
     this.chatMessages.appendChild(el);
   }
 
+  appendAssistantChunk(sessionId, delta) {
+    if (sessionId !== this.activeSessionId) return;
+
+    let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
+    if (!assistantMsgEl) {
+      assistantMsgEl = document.createElement('div');
+      assistantMsgEl.className = 'message assistant streaming';
+      assistantMsgEl.innerHTML = `
+        <div class="message-avatar" style="background:#334155; color:#fff; font-weight:700; font-size:10px;">AI</div>
+        <div class="message-bubble-wrapper" style="flex:1; min-width:0;">
+          <div class="message-bubble"></div>
+        </div>
+      `;
+      this.chatMessages.appendChild(assistantMsgEl);
+    }
+
+    const bubble = assistantMsgEl.querySelector('.message-bubble');
+    if (!bubble.rawMarkdown) bubble.rawMarkdown = '';
+    bubble.rawMarkdown += delta;
+
+    if (window.marked) {
+      bubble.innerHTML = marked.parse(bubble.rawMarkdown);
+      bubble.querySelectorAll('pre code').forEach((b) => {
+        if (window.hljs) hljs.highlightElement(b);
+      });
+    } else {
+      bubble.innerText = bubble.rawMarkdown;
+    }
+
+    this.scrollToBottom();
+  }
+
+  renderToolCall(sessionId, toolCall) {
+    if (sessionId !== this.activeSessionId) return;
+
+    let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
+    if (!assistantMsgEl) {
+      this.appendAssistantChunk(sessionId, '');
+      assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
+    }
+
+    const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
+    const tcEl = document.createElement('div');
+    tcEl.className = 'tool-call-card';
+    tcEl.id = `tool-call-${toolCall.id}`;
+    tcEl.innerHTML = `
+      <div class="tool-call-header">
+        <div class="tool-call-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          <span>${this.escapeHtml(toolCall.name || 'Виконання команди')}</span>
+        </div>
+        <span class="tool-call-status running">running</span>
+      </div>
+      ${toolCall.arguments ? `<div class="tool-call-args"><pre>${this.escapeHtml(typeof toolCall.arguments === 'string' ? toolCall.arguments : JSON.stringify(toolCall.arguments, null, 2))}</pre></div>` : ''}
+    `;
+
+    wrapper.appendChild(tcEl);
+    this.currentToolCallElements.set(toolCall.id, tcEl);
+    this.scrollToBottom();
+  }
+
+  renderToolResult(sessionId, toolCallId, result, status) {
+    const tcEl = this.currentToolCallElements.get(toolCallId) || document.getElementById(`tool-call-${toolCallId}`);
+    if (tcEl) {
+      const statusBadge = tcEl.querySelector('.tool-call-status');
+      if (statusBadge) {
+        statusBadge.className = `tool-call-status ${status}`;
+        statusBadge.innerText = status;
+      }
+      if (result) {
+        let resultBlock = tcEl.querySelector('.tool-call-result');
+        if (!resultBlock) {
+          resultBlock = document.createElement('div');
+          resultBlock.className = 'tool-call-result';
+          tcEl.appendChild(resultBlock);
+        }
+        resultBlock.innerHTML = `<pre>${this.escapeHtml(result.slice(0, 1500))}</pre>`;
+      }
+    }
+  }
+
+  handleAgentComplete(sessionId, cursorChatId) {
+    this.isStreaming = false;
+    this.stopAgentBtn.style.display = 'none';
+    this.sendBtn.disabled = false;
+
+    const streamingMsg = this.chatMessages.querySelector('.message.assistant.streaming');
+    if (streamingMsg) {
+      streamingMsg.classList.remove('streaming');
+    }
+
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (session && cursorChatId) {
+      session.cursorChatId = cursorChatId;
+    }
+    this.loadSessions();
+  }
+
+  handleAgentError(sessionId, error) {
+    this.isStreaming = false;
+    this.stopAgentBtn.style.display = 'none';
+    this.sendBtn.disabled = false;
+
+    const streamingMsg = this.chatMessages.querySelector('.message.assistant.streaming');
+    if (streamingMsg) streamingMsg.classList.remove('streaming');
+
+    this.renderChatMessageElement('assistant', `⚠️ **Помилка агента:** ${error}`);
+    this.scrollToBottom();
+  }
+
   sendPrompt() {
     const text = this.promptInput.value.trim();
-    if (!text || this.isStreaming) return;
+    if (!text || this.isStreaming || !this.activeSessionId) return;
 
-    if (!this.activeSessionId) {
-      this.createNewSession().then(() => this.sendPrompt());
-      return;
-    }
+    this.renderChatMessageElement('user', text);
+    this.promptInput.value = '';
+    this.promptInput.style.height = 'auto';
+    this.scrollToBottom();
 
-    const payload = {
-      sessionId: this.activeSessionId,
-      deviceId: this.activeDeviceId,
-      prompt: text,
-      model: this.modelSelect.value,
-      mode: this.modeSelect.value,
-      workspacePath: this.workspaceInput.value,
-    };
+    this.isStreaming = true;
+    this.stopAgentBtn.style.display = 'inline-flex';
+    this.sendBtn.disabled = true;
 
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'agent:prompt', payload }));
-      this.promptInput.value = '';
-      this.setStreamingState(true);
-    }
-  }
-
-  resumeCurrentSession() {
-    if (!this.activeSessionId) {
-      alert('Будь ласка, оберіть сесію для продовження');
-      return;
-    }
     const session = this.sessions.find((s) => s.id === this.activeSessionId);
-    if (!session) return;
+    let effectiveModel = (session && session.model) || this.modelSelect.value || 'auto';
 
-    const resumePrompt = prompt('Введіть наступну інструкцію для продовження чату:', 'Continue previous task.');
-    if (!resumePrompt) return;
+    if (this.thinkingMode === 'on' && !effectiveModel.includes('thinking')) {
+      if (effectiveModel.includes('flash')) effectiveModel = 'gemini-3.7-flash-thinking';
+      else if (effectiveModel.includes('claude')) effectiveModel = 'claude-4.5-sonnet-thinking';
+    }
 
-    const payload = {
-      sessionId: this.activeSessionId,
-      deviceId: this.activeDeviceId,
-      prompt: resumePrompt,
-      continueLastSession: true,
-      cursorChatId: session.cursorChatId,
-      model: this.modelSelect.value,
-      mode: this.modeSelect.value,
-      workspacePath: this.workspaceInput.value,
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'agent:run',
+          payload: {
+            sessionId: this.activeSessionId,
+            prompt: text,
+            model: effectiveModel,
+            mode: (session && session.mode) || this.modeSelect.value || 'yolo',
+            workspacePath: (session && session.workspacePath) || this.workspaceInput.value,
+            cursorChatId: session ? session.cursorChatId : undefined,
+          },
+        })
+      );
+    }
+  }
+
+  stopAgent() {
+    if (!this.activeSessionId || !this.isStreaming) return;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'agent:abort', sessionId: this.activeSessionId }));
+    }
+    this.handleAgentComplete(this.activeSessionId);
+    this.showToast('🛑 Запит до агента зупинено');
+  }
+
+  scrollToBottom() {
+    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+  }
+
+  openNewChatModal(preferredEngine = 'cursor') {
+    const dev = this.getActiveDevice();
+    this.currentSelectedEngine = preferredEngine;
+    this.setModalEngine(preferredEngine);
+
+    if (this.modalDeviceSelect) {
+      this.modalDeviceSelect.innerHTML = '';
+      this.devices.forEach((d) => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        const isOnline = d.status === 'online';
+        opt.innerText = `${isOnline ? '●' : '○'} ${d.name} (${d.os ? d.os.split(' ')[0] : 'Local'})`;
+        if (d.id === this.activeDeviceId) {
+          opt.selected = true;
+        }
+        this.modalDeviceSelect.appendChild(opt);
+      });
+      if (this.modalDeviceStatusBadge && dev) {
+        const isOnline = dev.status === 'online';
+        this.modalDeviceStatusBadge.innerText = isOnline ? '● Онлайн' : '○ Офлайн';
+        this.modalDeviceStatusBadge.style.color = isOnline ? 'var(--success)' : 'var(--text-muted)';
+      }
+    }
+
+    const defaultWs = (dev && dev.defaultWorkspace) || this.workspaceInput.value || '';
+    if (this.modalWorkspaceInput) {
+      this.modalWorkspaceInput.value = defaultWs;
+    }
+
+    if (this.modalSessionTitle) this.modalSessionTitle.value = '';
+    if (this.modalSessionDesc) this.modalSessionDesc.value = '';
+
+    this.newChatModal.style.display = 'flex';
+  }
+
+  setModalEngine(engine) {
+    this.currentSelectedEngine = engine;
+    const isAgy = engine === 'antigravity';
+
+    if (this.selectEngineCursor && this.selectEngineAntigravity) {
+      if (isAgy) {
+        this.selectEngineAntigravity.style.borderColor = 'var(--accent-primary)';
+        this.selectEngineAntigravity.style.background = 'var(--bg-card-hover)';
+        this.selectEngineCursor.style.borderColor = 'var(--border-subtle)';
+        this.selectEngineCursor.style.background = 'var(--bg-card)';
+      } else {
+        this.selectEngineCursor.style.borderColor = 'var(--accent-primary)';
+        this.selectEngineCursor.style.background = 'var(--bg-card-hover)';
+        this.selectEngineAntigravity.style.borderColor = 'var(--border-subtle)';
+        this.selectEngineAntigravity.style.background = 'var(--bg-card)';
+      }
+    }
+
+    if (this.modalModelSelect) {
+      if (isAgy) {
+        this.modalModelSelect.innerHTML = `
+          <option value="auto" selected>Auto (Antigravity обирає найкращу модель)</option>
+          <option value="gemini-3.7-flash">Gemini 3.7 Flash (Новітня надшвидка)</option>
+          <option value="gemini-3.7-flash-thinking">Gemini 3.7 Flash Thinking (Міркування)</option>
+          <option value="gemini-3.1-pro">Gemini 2.5 / 3.1 Pro (Складний кодинг &amp; 1M)</option>
+          <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+          <option value="gemini-2.5-flash-thinking">Gemini 2.5 Flash Thinking</option>
+          <option value="claude-3.7-sonnet">Claude 3.7 Sonnet (via Antigravity)</option>
+        `;
+      } else {
+        this.modalModelSelect.innerHTML = `
+          <option value="auto" selected>Auto (Cursor обирає найкращу модель)</option>
+          <option value="claude-3.7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
+          <option value="claude-4.5-sonnet">Claude Sonnet 4.5 (Рекомендована)</option>
+          <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 Thinking</option>
+          <option value="claude-4-sonnet">Claude Sonnet 4</option>
+          <option value="gpt-5.1">GPT-5.1 Flagship</option>
+          <option value="gpt-5-mini">GPT-5 Mini (Fast)</option>
+          <option value="claude-4.5-opus-high">Claude Opus 4.5</option>
+          <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+        `;
+      }
+    }
+  }
+
+  async submitNewChatModal() {
+    const chosenDeviceId = (this.modalDeviceSelect && this.modalDeviceSelect.value) || (this.getActiveDevice() && this.getActiveDevice().id) || 'default';
+    const chosenDevice = this.devices.find((d) => d.id === chosenDeviceId) || this.getActiveDevice();
+    const isAgy = this.currentSelectedEngine === 'antigravity';
+    const workspace = (this.modalWorkspaceInput && this.modalWorkspaceInput.value.trim()) || (chosenDevice && chosenDevice.defaultWorkspace) || '';
+    const title = (this.modalSessionTitle && this.modalSessionTitle.value.trim()) || (isAgy ? 'Новий чат Antigravity' : 'Новий чат Cursor');
+    const desc = (this.modalSessionDesc && this.modalSessionDesc.value.trim()) || (isAgy ? 'Сесія Google Antigravity (Gemini)' : 'Сесія Cursor AI Agent');
+    const model = (this.modalModelSelect && this.modalModelSelect.value) || 'auto';
+    const mode = (this.modalModeSelect && this.modalModeSelect.value) || 'yolo';
+
+    const newSession = {
+      deviceId: chosenDeviceId,
+      title,
+      description: desc,
+      engine: this.currentSelectedEngine,
+      model,
+      mode,
+      workspacePath: workspace,
     };
 
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'agent:prompt', payload }));
-      this.setStreamingState(true);
-    }
-  }
+    this.submitNewChatBtn.disabled = true;
+    this.submitNewChatBtn.innerHTML = '<span>Створення...</span>';
 
-  triggerCursorAuth() {
-    const activeDev = this.getActiveDevice();
-    const targetDevId = activeDev ? activeDev.id : this.activeDeviceId;
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify(newSession),
+      });
 
-    if (!targetDevId) {
-      alert('Будь ласка, переконайтеся що комп\'ютер підключений');
-      return;
-    }
-
-    this.showAuthModal(null);
-
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(
-        JSON.stringify({
-          type: 'agent:trigger_auth',
-          payload: { deviceId: targetDevId },
-        })
-      );
-    }
-  }
-
-  showAuthModal(url) {
-    if (this.authModalEl) {
-      this.authModalEl.remove();
-    }
-
-    const modal = document.createElement('div');
-    modal.className = 'modal-backdrop';
-    modal.innerHTML = `
-      <div class="login-card glass-panel" style="max-width: 460px;">
-        <div class="login-header">
-          <div class="brand-logo-badge">🔑</div>
-          <h2>Авторизація Cursor CLI</h2>
-          <p>${url ? 'Підтвердіть вхід у ваш акаунт Cursor:' : 'Генерація посилання авторизації з машини...'}</p>
-        </div>
-        ${
-          url
-            ? `
-          <div style="margin-bottom: 18px; text-align: center;">
-            <a href="${url}" target="_blank" class="btn btn-primary btn-block btn-lg" style="text-decoration: none;">
-              <span>🔗 Відкрити сторінку входу Cursor</span>
-            </a>
-          </div>
-          <div class="code-copy-box" style="margin-bottom: 16px;">
-            <pre style="font-size:11px; word-break:break-all; white-space:pre-wrap;">${url}</pre>
-          </div>
-          <p style="font-size: 11.5px; color: var(--text-muted); text-align: center; margin-bottom: 18px;">
-            Після підтвердження у браузері поверніться сюди. Авторизація збережеться автоматично.
-          </p>
-        `
-            : `
-          <div style="text-align:center; padding: 24px;">
-            <div style="font-size:24px; margin-bottom:8px;">⏳</div>
-            <span style="color:var(--text-secondary)">Запуск процесу авторизації на машині...</span>
-          </div>
-        `
+      if (res.ok) {
+        const data = await res.json();
+        this.sessions.unshift(data.session);
+        this.renderSessions();
+        this.selectSession(data.session.id);
+        if (chosenDeviceId && chosenDeviceId !== this.activeDeviceId) {
+          this.selectDevice(chosenDeviceId);
         }
-        <button id="close-auth-modal" class="btn btn-secondary btn-block">Закрити</button>
-      </div>
-    `;
-
-    modal.querySelector('#close-auth-modal').addEventListener('click', () => {
-      modal.remove();
-    });
-
-    document.body.appendChild(modal);
-    this.authModalEl = modal;
-
-    // If URL is ready, open automatically in new tab
-    if (url) {
-      window.open(url, '_blank');
+        this.newChatModal.style.display = 'none';
+        this.promptInput.focus();
+        this.showToast(`✨ Створено новий чат: ${data.session.title}`);
+      } else {
+        alert('Не вдалося створити чат');
+      }
+    } catch {
+      alert('Помилка з\'єднання при створенні чату');
+    } finally {
+      this.submitNewChatBtn.disabled = false;
+      this.submitNewChatBtn.innerHTML = '<span>Створити чат</span>';
     }
   }
 
-  abortAgent() {
-    if (this.activeSessionId && this.ws) {
+  openImportModal() {
+    this.importModal.style.display = 'flex';
+    this.selectedTranscriptFilePath = '';
+    this.selectedTranscriptContent = '';
+    this.importSanitizationReport.style.display = 'none';
+    if (this.importSearchInput) this.importSearchInput.value = '';
+    this.loadLocalTranscripts();
+  }
+
+  loadLocalTranscripts() {
+    this.localTranscriptsList.innerHTML = '<p class="placeholder-text" style="padding:16px; text-align:center;">Сканування сесій на комп\'ютері...</p>';
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.pendingTranscriptReqId = Math.random().toString(36).substring(2, 8);
       this.ws.send(
         JSON.stringify({
-          type: 'agent:abort',
-          payload: { sessionId: this.activeSessionId },
+          type: 'transcripts:list_local',
+          payload: { reqId: this.pendingTranscriptReqId, deviceId: this.activeDeviceId },
         })
       );
-      this.setStreamingState(false);
     }
   }
 
-  setStreamingState(streaming) {
-    this.isStreaming = streaming;
-    this.stopAgentBtn.style.display = streaming ? 'inline-flex' : 'none';
-    this.sendBtn.disabled = streaming;
+  filterTranscriptsList() {
+    const q = (this.importSearchInput ? this.importSearchInput.value : '').toLowerCase().trim();
+    const filtered = this.loadedTranscripts.filter(
+      (t) => !q || (t.title && t.title.toLowerCase().includes(q)) || (t.workspacePath && t.workspacePath.toLowerCase().includes(q)) || (t.filePath && t.filePath.toLowerCase().includes(q))
+    );
+    this.renderFilteredTranscripts(filtered);
   }
 
-  updateStreamingMessage(fullContent) {
-    let lastMsg = this.chatMessages.querySelector('.message.assistant:last-child');
-    if (!lastMsg) {
-      this.appendMessageElement({
-        role: 'assistant',
-        content: fullContent,
-        timestamp: Date.now(),
+  renderLocalTranscripts() {
+    this.loadedTranscripts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    this.filterTranscriptsList();
+  }
+
+  renderFilteredTranscripts(transcripts) {
+    if (this.transcriptsCountBadge) {
+      this.transcriptsCountBadge.innerText = `${transcripts.length} знайдено`;
+    }
+
+    if (!transcripts || transcripts.length === 0) {
+      this.localTranscriptsList.innerHTML = `
+        <div style="padding:20px; text-align:center; color:var(--text-muted); font-size:12px;">
+          Сесій не знайдено за вашим фільтром.<br>
+          Перевірте, чи запущено локальний Worker Daemon.
+        </div>
+      `;
+      return;
+    }
+
+    this.localTranscriptsList.innerHTML = '';
+    transcripts.forEach((t) => {
+      const item = document.createElement('div');
+      item.className = 'session-item';
+      item.style.border = '1px solid var(--border-subtle)';
+      item.style.padding = '10px 14px';
+      item.style.marginBottom = '4px';
+      item.style.borderRadius = '9px';
+
+      const formattedDate = new Date(t.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+      let badge = '<span class="file-badge file-badge-md">AGY</span>';
+      if (t.source === 'claude_code') {
+        badge = '<span class="file-badge file-badge-ts">CLAUDE</span>';
+      } else if (t.source === 'cursor') {
+        badge = '<span class="file-badge file-badge-js">CURSOR</span>';
+      }
+
+      const wsDisplay = t.workspacePath ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${this.escapeHtml(t.workspacePath)}</div>` : '';
+
+      item.innerHTML = `
+        <div class="session-info">
+          <div class="session-header-line" style="display:flex; align-items:center; gap:6px;">
+            ${badge}
+            <strong class="session-title" style="font-size:13px;">${this.escapeHtml(t.title)}</strong>
+          </div>
+          ${wsDisplay}
+          <div class="session-date" style="margin-top:3px;">${formattedDate} • ${t.messageCount} повідомлень</div>
+        </div>
+      `;
+
+      item.addEventListener('click', () => {
+        this.localTranscriptsList.querySelectorAll('.session-item').forEach((el) => el.classList.remove('active'));
+        item.classList.add('active');
+        this.selectedTranscriptFilePath = t.filePath;
+        this.selectedTranscriptWorkspace = t.workspacePath || '';
+        this.importSessionTitle.value = t.title.slice(0, 45);
+
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(
+            JSON.stringify({
+              type: 'transcripts:read_local',
+              payload: { reqId: Math.random().toString(36).substring(2, 8), filePath: t.filePath, deviceId: this.activeDeviceId },
+            })
+          );
+        }
       });
-      lastMsg = this.chatMessages.querySelector('.message.assistant:last-child');
+
+      this.localTranscriptsList.appendChild(item);
+    });
+  }
+
+  async executeImport() {
+    let content = '';
+    const isAuto = this.importTabAuto.classList.contains('active');
+
+    if (isAuto) {
+      if (!this.selectedTranscriptContent) {
+        alert('Будь ласка, оберіть сесію зі списку вище');
+        return;
+      }
+      content = this.selectedTranscriptContent;
+    } else {
+      content = this.importPasteInput.value.trim();
+      if (!content) {
+        alert('Вставте текст або JSONL для імпорту');
+        return;
+      }
     }
 
-    if (lastMsg) {
-      const bubble = lastMsg.querySelector('.message-bubble');
-      if (typeof marked !== 'undefined') {
-        bubble.innerHTML = marked.parse(fullContent);
+    this.executeImportBtn.disabled = true;
+    this.executeImportBtn.innerHTML = '<span>Імпортування...</span>';
+
+    try {
+      const res = await fetch('/api/sessions/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify({
+          rawContent: content,
+          title: this.importSessionTitle.value.trim(),
+          deviceId: this.activeDeviceId,
+          engine: this.importTargetEngine.value,
+          workspacePath: this.selectedTranscriptWorkspace || this.workspaceInput.value,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.session) {
+        this.sessions.unshift(data.session);
+        this.renderSessions();
+        this.selectSession(data.session.id);
+        this.importModal.style.display = 'none';
+        this.showToast(`✨ Успішно імпортовано: ${data.session.title}`);
       } else {
-        bubble.innerHTML = `<p>${this.escapeHtml(fullContent)}</p>`;
+        alert(data.error || 'Помилка при імпорті сесії');
+      }
+    } catch {
+      alert('Помилка з\'єднання при імпорті');
+    } finally {
+      this.executeImportBtn.disabled = false;
+      this.executeImportBtn.innerHTML = '<span>Імпортувати та створити чат</span>';
+    }
+  }
+
+  openLimitsModal() {
+    this.limitsModal.style.display = 'flex';
+    const activeDev = this.getActiveDevice();
+
+    if (activeDev) {
+      if (this.limitsMachineName) this.limitsMachineName.innerText = activeDev.name;
+      if (this.limitsMachineRam && activeDev.memoryUsage) {
+        this.limitsMachineRam.innerText = `${activeDev.memoryUsage.used} MB / ${activeDev.memoryUsage.total} MB`;
+      }
+      if (activeDev.cursorAuthStatus && activeDev.cursorAuthStatus.loggedIn) {
+        if (this.cursorLimitEmail) this.cursorLimitEmail.innerText = activeDev.cursorAuthStatus.email || 'Pro Subscriber';
       }
     }
-    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
   }
 
-  appendToolCallCard(tc) {
-    const lastMsg = this.chatMessages.querySelector('.message.assistant:last-child');
-    if (!lastMsg) return;
-    const bubble = lastMsg.querySelector('.message-bubble');
-
-    let card = document.getElementById(`tool-call-${tc.id}`);
-    if (!card) {
-      card = document.createElement('div');
-      card.className = 'tool-call-card';
-      card.id = `tool-call-${tc.id}`;
-      bubble.appendChild(card);
-    }
-
-    card.innerHTML = `
-      <div class="tool-call-header">
-        <span>🔨 ${this.escapeHtml(tc.name)}</span>
-        <span>⏳ виконується...</span>
-      </div>
-      ${tc.input ? `<div class="tool-call-output">${this.escapeHtml(JSON.stringify(tc.input, null, 2))}</div>` : ''}
-    `;
-    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
-  }
-
-  updateToolCallResult(toolCallId, result, status) {
-    const card = document.getElementById(`tool-call-${toolCallId}`);
-    if (card) {
-      const header = card.querySelector('.tool-call-header span:last-child');
-      if (header) header.innerText = status === 'completed' ? '✅ завершено' : '❌ помилка';
-      let out = card.querySelector('.tool-call-output');
-      if (!out) {
-        out = document.createElement('div');
-        out.className = 'tool-call-output';
-        card.appendChild(out);
+  updateAntigravityLimits(agyLimits) {
+    if (!agyLimits) return;
+    if (agyLimits.fiveHourLimit && this.antigravity5hVal && this.antigravity5hProgress) {
+      const p = agyLimits.fiveHourLimit.percentageRemaining || 36;
+      this.antigravity5hVal.innerText = `${p}%`;
+      this.antigravity5hProgress.style.width = `${p}%`;
+      if (this.antigravity5hReset && agyLimits.fiveHourLimit.resetTimeFormatted) {
+        this.antigravity5hReset.innerText = `Refreshes in ${agyLimits.fiveHourLimit.resetTimeFormatted}`;
       }
-      out.innerText = result;
+    }
+    if (agyLimits.weeklyLimit && this.antigravityWeeklyVal && this.antigravityWeeklyProgress) {
+      const p = agyLimits.weeklyLimit.percentageRemaining || 89;
+      this.antigravityWeeklyVal.innerText = `${p}%`;
+      this.antigravityWeeklyProgress.style.width = `${p}%`;
+      if (this.antigravityWeeklyReset && agyLimits.weeklyLimit.resetTimeFormatted) {
+        this.antigravityWeeklyReset.innerText = `Refreshes in ${agyLimits.weeklyLimit.resetTimeFormatted}`;
+      }
     }
   }
 
-  // ================= FILES EXPLORER LOGIC =================
-  loadFilesTree(dirPath, recordHistory = true) {
-    if (recordHistory && this.currentFsPath && this.currentFsPath !== dirPath) {
-      this.fsHistoryStack.push(this.currentFsPath);
-    }
-    this.currentFsPath = dirPath || '';
+  loadFilesTree(dirPath) {
+    const ws = dirPath || this.workspaceInput.value;
+    if (!ws) return;
+
+    this.activeOpenedDirectory = ws;
+    this.renderBreadcrumbs(ws);
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.filesTree.innerHTML = '<p class="placeholder-text" style="padding:20px; text-align:center;">Завантаження файлів...</p>';
+      this.pendingFsReqId = Math.random().toString(36).substring(2, 8);
       this.ws.send(
         JSON.stringify({
-          type: 'fs:tree',
-          payload: { deviceId: this.activeDeviceId, path: dirPath },
+          type: 'fs:list',
+          payload: { reqId: this.pendingFsReqId, dirPath: ws, deviceId: this.activeDeviceId },
         })
       );
     }
   }
 
-  renderFilesTree(tree, rootPath) {
-    this.currentFsTree = tree || [];
-    this.currentFsRoot = rootPath || '';
-    this.currentFsPath = rootPath || '';
-
-    this.renderBreadcrumbs(rootPath);
-
-    if (!tree || tree.length === 0) {
-      this.filesTree.innerHTML = '<p class="placeholder-text" style="padding:20px; text-align:center;">Папка порожня</p>';
+  displayFiles(items, currentPath) {
+    if (!items || items.length === 0) {
+      this.filesTree.innerHTML = '<p class="placeholder-text" style="padding:24px; text-align:center;">Папка порожня</p>';
+      this.filesCountBadge.innerText = '0 файлів';
       return;
     }
 
-    this.displayFiles(this.currentFsTree);
-  }
-
-  renderBreadcrumbs(rootPath) {
-    if (!rootPath) {
-      this.fsBreadcrumbs.innerHTML = '<span class="breadcrumb-segment">Workspace</span>';
-      return;
-    }
-
-    const separator = rootPath.includes('\\') ? '\\' : '/';
-    const parts = rootPath.split(/[/\\]/).filter(Boolean);
-
-    this.fsBreadcrumbs.innerHTML = '';
-    let accumulated = rootPath.startsWith('/') ? '/' : '';
-
-    parts.forEach((part, index) => {
-      if (index === 0 && !rootPath.startsWith('/')) {
-        accumulated += part;
-      } else {
-        accumulated += (accumulated.endsWith(separator) ? '' : separator) + part;
-      }
-
-      const segment = document.createElement('span');
-      segment.className = 'breadcrumb-segment';
-      segment.innerText = part;
-      const targetPath = accumulated;
-      segment.addEventListener('click', () => {
-        this.loadFilesTree(targetPath);
-      });
-
-      this.fsBreadcrumbs.appendChild(segment);
-
-      if (index < parts.length - 1) {
-        const sep = document.createElement('span');
-        sep.className = 'breadcrumb-separator';
-        sep.innerText = ' / ';
-        this.fsBreadcrumbs.appendChild(sep);
-      }
-    });
-  }
-
-  navigateUpDirectory() {
-    if (!this.currentFsRoot) return;
-    const isWindows = this.currentFsRoot.includes('\\');
-    const separator = isWindows ? '\\' : '/';
-    const parts = this.currentFsRoot.split(/[/\\]/).filter(Boolean);
-
-    if (parts.length > 1) {
-      parts.pop();
-      let parentPath = parts.join(separator);
-      if (this.currentFsRoot.startsWith('/')) {
-        parentPath = '/' + parentPath;
-      }
-      this.loadFilesTree(parentPath);
-    }
-  }
-
-  filterFilesTree(query) {
-    const q = (query || '').toLowerCase().trim();
-    if (!q) {
-      this.displayFiles(this.currentFsTree);
-      return;
-    }
-
-    const filtered = this.currentFsTree.filter((item) =>
-      item.name.toLowerCase().includes(q)
-    );
-    this.displayFiles(filtered);
-  }
-
-  displayFiles(items) {
+    this.filesCountBadge.innerText = `${items.length} файлів`;
     this.filesTree.innerHTML = '';
-    
-    if (this.filesCountBadge) {
-      const count = items.length;
-      let word = 'файлів';
-      if (count % 10 === 1 && count % 100 !== 11) word = 'файл';
-      else if ([2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100)) word = 'файли';
-      this.filesCountBadge.innerText = `${count} ${word}`;
-    }
+    const list = document.createElement('div');
+    list.className = 'tree-list';
 
-    // Sort: directories first, then files
     const sorted = [...items].sort((a, b) => {
       if (a.isDirectory && !b.isDirectory) return -1;
       if (!a.isDirectory && b.isDirectory) return 1;
-      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      return a.name.localeCompare(b.name);
     });
-
-    const list = document.createElement('div');
 
     sorted.forEach((item) => {
       const el = document.createElement('div');
@@ -1465,521 +1659,224 @@ class AgentRemoteApp {
     this.activeOpenedPath = filePath;
     const fileName = filePath.split(/[/\\]/).pop() || filePath;
     this.previewFilename.innerText = fileName;
-    this.previewFileIcon.innerText = this.getFileIcon(fileName);
-    this.previewFileSize.innerText = 'Завантаження...';
+    this.previewFileIcon.innerHTML = this.getFileIcon(fileName);
 
-    if (this.fileEmptyState) this.fileEmptyState.style.display = 'none';
-    if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'flex';
-    if (this.mdRenderedContainer) this.mdRenderedContainer.style.display = 'none';
-    if (this.imgPreviewContainer) this.imgPreviewContainer.style.display = 'none';
-
-    this.lineNumbersGutter.innerHTML = '1';
-    this.previewCodeBlock.innerText = '// Завантаження вмісту файлу...';
-
-    if (this.filesTreePanel && this.filePreviewPanel) {
-      this.filesTreePanel.classList.add('hide-on-mobile');
-      this.filePreviewPanel.classList.add('show-on-mobile');
-    }
+    this.filesTreePanel.classList.add('hide-on-mobile');
+    this.filePreviewPanel.classList.add('show-on-mobile');
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.pendingFileReqId = Math.random().toString(36).substring(2, 8);
       this.ws.send(
         JSON.stringify({
-          type: 'fs:read',
-          payload: { deviceId: this.activeDeviceId, path: filePath },
+          type: 'fs:read_file',
+          payload: { reqId: this.pendingFileReqId, filePath, deviceId: this.activeDeviceId },
         })
       );
     }
   }
 
-  renderOpenedFileContent(filePath, content) {
-    this.currentFileRawContent = content;
-    const fileName = filePath.split(/[/\\]/).pop() || filePath;
-    const ext = fileName.split('.').pop().toLowerCase();
-
-    this.previewFilename.innerText = fileName;
-    this.previewFileIcon.innerText = this.getFileIcon(fileName);
-
-    if (this.fileEmptyState) this.fileEmptyState.style.display = 'none';
-    if (this.copyFileContentBtn) this.copyFileContentBtn.style.display = 'inline-flex';
-    if (this.askAgentFileBtn) this.askAgentFileBtn.style.display = 'inline-flex';
-
-    // 1. Check if Image
-    const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext);
-    if (isImage) {
-      if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'none';
-      if (this.mdRenderedContainer) this.mdRenderedContainer.style.display = 'none';
-      if (this.mdPreviewToggleBtn) this.mdPreviewToggleBtn.style.display = 'none';
-      if (this.imgPreviewContainer) {
-        this.imgPreviewContainer.style.display = 'flex';
-        this.imgPreviewEl.src = ext === 'svg' ? `data:image/svg+xml;utf8,${encodeURIComponent(content)}` : `data:image/${ext};base64,${content}`;
-      }
-      this.previewFileSize.innerText = `Зображення (${ext.toUpperCase()})`;
+  displayFileContent(filePath, content, size, error) {
+    if (error) {
+      this.fileEmptyState.style.display = 'flex';
+      this.codeEditorContainer.style.display = 'none';
+      this.mdRenderedContainer.style.display = 'none';
+      this.imgPreviewContainer.style.display = 'none';
+      this.previewFileSize.innerText = 'Помилка';
+      alert(`Не вдалося відкрити файл: ${error}`);
       return;
     }
 
-    // 2. Setup Code Editor / Line Numbers
-    if (this.imgPreviewContainer) this.imgPreviewContainer.style.display = 'none';
-    const lines = content.split('\n');
-    const lineCount = lines.length;
-    const fileSize = new Blob([content]).size;
-    this.previewFileSize.innerText = `${lineCount} ${lineCount === 1 ? 'рядок' : 'рядків'} • ${this.formatFileSize(fileSize)}`;
+    this.activeOpenedContent = content;
+    this.previewFileSize.innerText = `• ${this.formatFileSize(size)}`;
 
-    // Build line numbers gutter
-    let numbersText = '';
-    for (let i = 1; i <= lineCount; i++) {
-      numbersText += i + '\n';
-    }
-    this.lineNumbersGutter.innerText = numbersText;
-
-    // Highlight code
-    this.previewCodeBlock.innerText = content;
-    this.previewCodeBlock.className = `language-${ext}`;
-    if (typeof hljs !== 'undefined') {
-      try {
-        hljs.highlightElement(this.previewCodeBlock);
-      } catch {}
-    }
-
-    // 3. Markdown Support
+    const ext = filePath.split('.').pop().toLowerCase();
+    const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext);
     const isMd = ['md', 'markdown'].includes(ext);
+
+    this.fileEmptyState.style.display = 'none';
+
+    if (isImage) {
+      this.codeEditorContainer.style.display = 'none';
+      this.mdRenderedContainer.style.display = 'none';
+      this.imgPreviewContainer.style.display = 'flex';
+      this.imgPreviewEl.src = `data:image/${ext === 'svg' ? 'svg+xml' : ext};base64,${content}`;
+      this.mdPreviewToggleBtn.style.display = 'none';
+      this.copyFileContentBtn.style.display = 'none';
+      this.askAgentFileBtn.style.display = 'none';
+      return;
+    }
+
+    this.imgPreviewContainer.style.display = 'none';
+    this.copyFileContentBtn.style.display = 'inline-flex';
+    this.askAgentFileBtn.style.display = 'inline-flex';
+
     if (isMd) {
-      if (this.mdPreviewToggleBtn) {
-        this.mdPreviewToggleBtn.style.display = 'inline-flex';
-        this.isMdRenderedMode = true;
-        this.mdPreviewToggleBtn.innerHTML = '<span>💻 Код</span>';
-      }
-      if (this.mdRenderedContainer) {
-        if (typeof marked !== 'undefined') {
-          this.mdRenderedContainer.innerHTML = marked.parse(content);
-        } else {
-          this.mdRenderedContainer.innerText = content;
-        }
+      this.mdPreviewToggleBtn.style.display = 'inline-flex';
+      if (this.isMarkdownMode) {
+        this.codeEditorContainer.style.display = 'none';
         this.mdRenderedContainer.style.display = 'block';
-        if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'none';
+        this.mdRenderedContainer.innerHTML = window.marked ? marked.parse(content) : content;
+        return;
       }
     } else {
-      if (this.mdPreviewToggleBtn) this.mdPreviewToggleBtn.style.display = 'none';
-      if (this.mdRenderedContainer) this.mdRenderedContainer.style.display = 'none';
-      if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'flex';
-      this.isMdRenderedMode = false;
+      this.mdPreviewToggleBtn.style.display = 'none';
+    }
+
+    this.mdRenderedContainer.style.display = 'none';
+    this.codeEditorContainer.style.display = 'flex';
+
+    const lines = content.split('\n');
+    this.lineNumbersGutter.innerHTML = lines.map((_, i) => `<div>${i + 1}</div>`).join('');
+    this.previewCodeBlock.textContent = content;
+
+    if (window.hljs) {
+      hljs.highlightElement(this.previewCodeBlock);
     }
   }
 
-  toggleMdPreview() {
-    this.isMdRenderedMode = !this.isMdRenderedMode;
-    if (this.isMdRenderedMode) {
-      if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'none';
-      if (this.mdRenderedContainer) this.mdRenderedContainer.style.display = 'block';
-      if (this.mdPreviewToggleBtn) this.mdPreviewToggleBtn.innerHTML = '<span>💻 Код</span>';
-    } else {
-      if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'flex';
-      if (this.mdRenderedContainer) this.mdRenderedContainer.style.display = 'none';
-      if (this.mdPreviewToggleBtn) this.mdPreviewToggleBtn.innerHTML = '<span>👁️ Форматований вигляд</span>';
+  toggleMarkdownPreview() {
+    this.isMarkdownMode = !this.isMarkdownMode;
+    this.mdPreviewToggleBtn.innerHTML = this.isMarkdownMode
+      ? '<span>Код файлу</span>'
+      : '<span>Форматований вигляд</span>';
+    this.displayFileContent(this.activeOpenedPath, this.activeOpenedContent, this.activeOpenedContent.length);
+  }
+
+  renderBreadcrumbs(fullPath) {
+    if (!fullPath) return;
+    const parts = fullPath.split(/[/\\]/).filter(Boolean);
+    let accum = '';
+
+    this.fsBreadcrumbs.innerHTML = '';
+    parts.forEach((p, idx) => {
+      accum += (accum ? '/' : '') + p;
+      const targetPath = accum;
+      const span = document.createElement('span');
+      span.className = 'breadcrumb-segment';
+      span.innerText = p;
+      span.addEventListener('click', () => {
+        this.loadFilesTree(targetPath);
+      });
+      this.fsBreadcrumbs.appendChild(span);
+
+      if (idx < parts.length - 1) {
+        const sep = document.createElement('span');
+        sep.className = 'breadcrumb-separator';
+        sep.innerText = '/';
+        this.fsBreadcrumbs.appendChild(sep);
+      }
+    });
+  }
+
+  filterFilesTree(query) {
+    const q = (query || '').toLowerCase().trim();
+    this.filesTree.querySelectorAll('.tree-node').forEach((node) => {
+      const text = node.innerText.toLowerCase();
+      node.style.display = !q || text.includes(q) ? 'flex' : 'none';
+    });
+  }
+
+  navigateFsUp() {
+    if (!this.activeOpenedDirectory) return;
+    const parent = this.activeOpenedDirectory.replace(/[/\\][^/\\]+$/, '');
+    if (parent && parent !== this.activeOpenedDirectory) {
+      this.loadFilesTree(parent);
     }
   }
 
-  // ================= TERMINAL LOGIC =================
-  execTerminalCommand(cmdText) {
-    const cmd = (cmdText || '').trim();
+  executeTerminalCommand() {
+    const cmd = this.terminalInput.value.trim();
     if (!cmd) return;
 
-    // Record to history
-    if (!this.termHistory.length || this.termHistory[this.termHistory.length - 1] !== cmd) {
-      this.termHistory.push(cmd);
-    }
+    this.termHistory.push(cmd);
     this.termHistoryIndex = -1;
-
-    this.activeCommandId = Math.random().toString(36).substring(2, 8);
-
-    // Append visually styled command line
-    const cmdEl = document.createElement('div');
-    cmdEl.className = 'term-cmd-line';
-    cmdEl.innerHTML = `<span class="term-prompt-icon">❯</span> <span>${this.escapeHtml(cmd)}</span>`;
-    this.terminalOutput.appendChild(cmdEl);
-
     this.terminalInput.value = '';
-    if (this.terminalScreen) {
-      this.terminalScreen.scrollTop = this.terminalScreen.scrollHeight;
-    }
+
+    this.appendTerminalOutput(`\n\x1b[34m❯ ${cmd}\x1b[0m\n`);
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(
         JSON.stringify({
           type: 'terminal:exec',
-          payload: {
-            commandId: this.activeCommandId,
-            deviceId: this.activeDeviceId,
-            command: cmd,
-            cwd: this.workspaceInput.value,
-          },
+          payload: { command: cmd, cwd: this.workspaceInput.value, deviceId: this.activeDeviceId },
         })
       );
     }
   }
 
-  appendTerminalOutput(text, isError) {
-    if (!text) return;
-    
-    if (isError) {
-      const errEl = document.createElement('div');
-      errEl.className = 'term-out-error';
-      errEl.innerText = text;
-      this.terminalOutput.appendChild(errEl);
-    } else {
-      const span = document.createElement('span');
-      span.className = 'term-out-text';
-      span.innerText = text;
-      this.terminalOutput.appendChild(span);
-    }
+  appendTerminalOutput(data) {
+    const pre = document.createElement('span');
+    pre.innerHTML = this.ansiToHtml(data);
+    this.terminalOutput.appendChild(pre);
+    this.terminalScreen.scrollTop = this.terminalScreen.scrollHeight;
+  }
 
-    if (this.terminalScreen) {
-      this.terminalScreen.scrollTop = this.terminalScreen.scrollHeight;
-    } else if (this.terminalOutput) {
-      this.terminalOutput.scrollTop = this.terminalOutput.scrollHeight;
+  ansiToHtml(text) {
+    return this.escapeHtml(text)
+      .replace(/\x1b\[34m/g, '<span style="color:#38bdf8;">')
+      .replace(/\x1b\[32m/g, '<span style="color:#4ade80;">')
+      .replace(/\x1b\[31m/g, '<span style="color:#f87171;">')
+      .replace(/\x1b\[33m/g, '<span style="color:#fbbf24;">')
+      .replace(/\x1b\[0m/g, '</span>')
+      .replace(/\n/g, '<br>');
+  }
+
+  switchTab(tabName) {
+    this.navTabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === tabName));
+    this.tabContents.forEach((c) => c.classList.toggle('active', c.id === `tab-${tabName}`));
+
+    if (tabName === 'files') {
+      this.loadFilesTree();
     }
   }
 
-  // ================= CHAT IMPORT LOGIC =================
-  // ================= NEW CHAT MODAL LOGIC =================
-  openNewChatModal(preferredEngine = 'cursor') {
-    const dev = this.getActiveDevice();
-    this.currentSelectedEngine = preferredEngine;
-    this.setModalEngine(preferredEngine);
-
-    const defaultWs = (dev && dev.defaultWorkspace) || this.workspaceInput.value || '';
-    if (this.modalWorkspaceInput) {
-      this.modalWorkspaceInput.value = defaultWs;
-    }
-
-    if (this.modalSessionTitle) {
-      this.modalSessionTitle.value = '';
-    }
-    if (this.modalSessionDesc) {
-      this.modalSessionDesc.value = '';
-    }
-
-    this.newChatModal.style.display = 'flex';
-  }
-
-  setModalEngine(engine) {
-    this.currentSelectedEngine = engine;
-    const isAgy = engine === 'antigravity';
-
-    if (this.selectEngineCursor && this.selectEngineAntigravity) {
-      if (isAgy) {
-        this.selectEngineAntigravity.style.borderColor = 'var(--accent-primary)';
-        this.selectEngineAntigravity.style.background = 'var(--bg-card-hover)';
-        this.selectEngineCursor.style.borderColor = 'var(--border-subtle)';
-        this.selectEngineCursor.style.background = 'var(--bg-card)';
-      } else {
-        this.selectEngineCursor.style.borderColor = 'var(--accent-primary)';
-        this.selectEngineCursor.style.background = 'var(--bg-card-hover)';
-        this.selectEngineAntigravity.style.borderColor = 'var(--border-subtle)';
-        this.selectEngineAntigravity.style.background = 'var(--bg-card)';
-      }
-    }
-
-    // Adjust default models
-    if (this.modalModelSelect) {
-      if (isAgy) {
-        this.modalModelSelect.innerHTML = `
-          <option value="auto" selected>Auto (Antigravity обирає найкращу модель)</option>
-          <option value="gemini-3.7-flash">Gemini 3.7 Flash (Новітня надшвидка)</option>
-          <option value="gemini-3.7-flash-thinking">Gemini 3.7 Flash Thinking (Міркування)</option>
-          <option value="gemini-3.1-pro">Gemini 2.5 / 3.1 Pro (Складний кодинг &amp; 1M)</option>
-          <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-          <option value="gemini-2.5-flash-thinking">Gemini 2.5 Flash Thinking</option>
-          <option value="claude-3.7-sonnet">Claude 3.7 Sonnet (via Antigravity)</option>
-        `;
-      } else {
-        this.modalModelSelect.innerHTML = `
-          <option value="auto" selected>Auto (Cursor обирає найкращу модель)</option>
-          <option value="claude-3.7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
-          <option value="claude-4.5-sonnet">Claude Sonnet 4.5 (Рекомендована)</option>
-          <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 Thinking</option>
-          <option value="claude-4-sonnet">Claude Sonnet 4</option>
-          <option value="gpt-5.1">GPT-5.1 Flagship</option>
-          <option value="gpt-5-mini">GPT-5 Mini (Fast)</option>
-          <option value="claude-4.5-opus-high">Claude Opus 4.5</option>
-          <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
-        `;
-      }
-    }
-  }
-
-  async submitNewChatModal() {
-    const activeDev = this.getActiveDevice();
-    const isAgy = this.currentSelectedEngine === 'antigravity';
-    const workspace = (this.modalWorkspaceInput && this.modalWorkspaceInput.value.trim()) || (activeDev && activeDev.defaultWorkspace) || '';
-    const title = (this.modalSessionTitle && this.modalSessionTitle.value.trim()) || (isAgy ? 'Новий чат Antigravity' : 'Новий чат Cursor');
-    const desc = (this.modalSessionDesc && this.modalSessionDesc.value.trim()) || (isAgy ? 'Сесія Google Antigravity (Gemini)' : 'Сесія Cursor AI Agent');
-    const model = (this.modalModelSelect && this.modalModelSelect.value) || 'auto';
-    const mode = (this.modalModeSelect && this.modalModeSelect.value) || 'yolo';
-
-    const newSession = {
-      deviceId: activeDev ? activeDev.id : 'default',
-      title,
-      description: desc,
-      engine: this.currentSelectedEngine,
-      model,
-      mode,
-      workspacePath: workspace,
-    };
-
-    this.submitNewChatBtn.disabled = true;
-    this.submitNewChatBtn.innerHTML = '⏳ Створення...';
-
-    try {
-      const res = await fetch('/api/sessions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.token}`,
-        },
-        body: JSON.stringify(newSession),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        this.sessions.unshift(data.session);
-        this.renderSessions();
-        this.selectSession(data.session.id);
-        this.newChatModal.style.display = 'none';
-        this.promptInput.focus();
-        this.showToast(`✨ Створено новий чат: ${data.session.title}`);
-      } else {
-        alert('Не вдалося створити чат');
-      }
-    } catch {
-      alert('Помилка з\'єднання при створенні чату');
-    } finally {
-      this.submitNewChatBtn.disabled = false;
-      this.submitNewChatBtn.innerHTML = '<span>🚀 Створити чат</span>';
-    }
-  }
-
-  // ================= IMPORT CHAT LOGIC =================
-  openImportModal() {
-    this.importModal.style.display = 'flex';
-    this.selectedTranscriptFilePath = '';
-    this.selectedTranscriptContent = '';
-    this.importSanitizationReport.style.display = 'none';
-    this.loadLocalTranscripts();
-  }
-
-  loadLocalTranscripts() {
-    this.localTranscriptsList.innerHTML = '<p class="placeholder-text" style="padding:14px; text-align:center;">Сканування локальних сесій...</p>';
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.pendingTranscriptReqId = Math.random().toString(36).substring(2, 8);
-      this.ws.send(
-        JSON.stringify({
-          type: 'transcripts:list_local',
-          payload: { reqId: this.pendingTranscriptReqId, deviceId: this.activeDeviceId },
-        })
-      );
-    }
-  }
-
-  renderLocalTranscripts(transcripts) {
-    if (!transcripts || transcripts.length === 0) {
-      this.localTranscriptsList.innerHTML = `
-        <div style="padding:20px; text-align:center; color:var(--text-muted); font-size:12px;">
-          Не виявлено локальних сесій на цій машині.<br>
-          Перевірте, чи запущено локальний Worker Daemon.
-        </div>
-      `;
-      return;
-    }
-
-    this.localTranscriptsList.innerHTML = '';
-    transcripts.forEach((t) => {
-      const item = document.createElement('div');
-      item.className = 'session-item';
-      item.style.border = '1px solid var(--border-subtle)';
-      item.style.padding = '10px 14px';
-      item.style.marginBottom = '4px';
-      item.style.borderRadius = '9px';
-      
-      const formattedDate = new Date(t.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-      
-      let badge = '<span class="file-badge file-badge-md">AGY</span>';
-      if (t.source === 'claude_code') {
-        badge = '<span class="file-badge file-badge-ts">CLAUDE</span>';
-      } else if (t.source === 'cursor') {
-        badge = '<span class="file-badge file-badge-js">CURSOR</span>';
-      }
-
-      const wsDisplay = t.workspacePath ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${this.escapeHtml(t.workspacePath)}</div>` : '';
-
-      item.innerHTML = `
-        <div class="session-info">
-          <div class="session-header-line" style="display:flex; align-items:center; gap:6px;">
-            ${badge}
-            <strong class="session-title" style="font-size:13px;">${this.escapeHtml(t.title)}</strong>
-          </div>
-          ${wsDisplay}
-          <div class="session-date" style="margin-top:3px;">${formattedDate} • ${t.messageCount} повідомлень</div>
-        </div>
-      `;
-
-      item.addEventListener('click', () => {
-        this.localTranscriptsList.querySelectorAll('.session-item').forEach((el) => el.classList.remove('active'));
-        item.classList.add('active');
-        this.selectedTranscriptFilePath = t.filePath;
-        this.selectedTranscriptWorkspace = t.workspacePath || '';
-        this.importSessionTitle.value = t.title.slice(0, 45);
-
-        // Request content & preview
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(
-            JSON.stringify({
-              type: 'transcripts:read_local',
-              payload: { reqId: Math.random().toString(36).substring(2, 8), filePath: t.filePath, deviceId: this.activeDeviceId },
-            })
-          );
-        }
-      });
-
-      this.localTranscriptsList.appendChild(item);
-    });
-  }
-
-  async executeImport() {
-    let rawContent = this.selectedTranscriptContent || '';
-    const isPaste = this.importTabPaste.classList.contains('active');
-
-    if (isPaste) {
-      rawContent = this.importPasteInput.value.trim();
-    }
-
-    if (!rawContent && !this.selectedTranscriptFilePath) {
-      alert('Будь ласка, оберіть розмову зі списку або вставте текст діалогу.');
-      return;
-    }
-
-    this.executeImportBtn.disabled = true;
-    this.executeImportBtn.innerHTML = '⏳ Очищення та імпорт...';
-
-    const targetEngine = this.importTargetEngine ? this.importTargetEngine.value : 'cursor';
-    const workspace = this.selectedTranscriptWorkspace || this.workspaceInput.value || '';
-
-    try {
-      const res = await fetch('/api/sessions/import', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.token}`,
-        },
-        body: JSON.stringify({
-          rawContent,
-          title: this.importSessionTitle.value.trim(),
-          deviceId: this.activeDeviceId,
-          engine: targetEngine,
-          model: targetEngine === 'antigravity' ? 'gemini-3.1-pro' : this.modelSelect.value,
-          mode: this.modeSelect.value,
-          workspacePath: workspace,
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.session) {
-        this.sessions.unshift(data.session);
-        this.renderSessions();
-        this.selectSession(data.session.id);
-        this.importModal.style.display = 'none';
-
-        const rep = data.report;
-        this.showToast(`🛡️ Чат (${data.session.title}) успішно імпортовано в ${targetEngine.toUpperCase()}! Очищено ${rep.removedMetadataCount} тегів.`);
-      } else {
-        alert(data.error || 'Помилка імпорту чату');
-      }
-    } catch {
-      alert('Помилка з\'єднання з сервером під час імпорту');
-    } finally {
-      this.executeImportBtn.disabled = false;
-      this.executeImportBtn.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-        <span>Імпортувати та створити чат</span>
-      `;
-    }
-  }
-
-  // ================= LIMITS & SUBSCRIPTIONS LOGIC =================
-  openLimitsModal() {
-    const dev = this.getActiveDevice();
-    this.limitsModal.style.display = 'flex';
-
-    if (!dev) {
-      this.cursorLimitEmail.innerText = 'Немає підключеної машини';
-      this.limitsMachineName.innerText = '-';
-      this.limitsMachineRam.innerText = '-';
-      return;
-    }
-
-    const limits = dev.limitsInfo;
-    this.limitsMachineName.innerText = `${dev.name} (${dev.os || 'Windows'})`;
-    this.limitsMachineRam.innerText = dev.memoryUsage ? `${dev.memoryUsage.used} MB / ${dev.memoryUsage.total} MB` : 'Доступно';
-
-    if (limits && limits.cursor) {
-      this.cursorTierBadge.innerText = (limits.cursor.tier || 'PRO').toUpperCase() + ' TIER';
-      this.cursorLimitEmail.innerText = limits.cursor.email || (dev.cursorAuthStatus && dev.cursorAuthStatus.email) || 'Авторизовано';
-      this.cursorLimitModel.innerText = limits.cursor.defaultModel || 'Claude 4.5 Sonnet';
-      this.cursorLimitVer.innerText = limits.cursor.version || '2026.08.11';
-    } else if (dev.cursorAuthStatus && dev.cursorAuthStatus.email) {
-      this.cursorLimitEmail.innerText = dev.cursorAuthStatus.email;
-      this.cursorTierBadge.innerText = 'PRO TIER';
-    } else {
-      this.cursorLimitEmail.innerText = 'Потрібен вхід (agent login)';
-    }
-
-    if (limits && limits.antigravity) {
-      const agy = limits.antigravity;
-      this.antigravityLimitStatus.innerText = agy.available ? '✓ Доступно на машині' : 'Не виявлено';
-      this.antigravityLimitConvs.innerText = `${agy.brainConversationsCount} діалогів`;
-      this.antigravityLimitSize.innerText = `${agy.brainStorageSizeMb} MB`;
-      if (this.antigravityTierBadge) this.antigravityTierBadge.innerText = (agy.tier || 'PRO QUOTA').toUpperCase();
-
-      if (agy.fiveHourLimit && this.antigravity5hVal) {
-        const fh = agy.fiveHourLimit;
-        this.antigravity5hVal.innerText = `${fh.remaining} / ${fh.total} запитів`;
-        if (this.antigravity5hProgress) this.antigravity5hProgress.style.width = `${fh.percentRemaining}%`;
-        if (this.antigravity5hPercent) this.antigravity5hPercent.innerText = `${fh.percentRemaining}%`;
-        if (this.antigravity5hReset) this.antigravity5hReset.innerText = `Скидання через ${fh.resetsIn}`;
-      }
-
-      if (agy.weeklyLimit && this.antigravityWeeklyVal) {
-        const wk = agy.weeklyLimit;
-        this.antigravityWeeklyVal.innerText = `${wk.remaining} / ${wk.total} запитів`;
-        if (this.antigravityWeeklyProgress) this.antigravityWeeklyProgress.style.width = `${wk.percentRemaining}%`;
-        if (this.antigravityWeeklyPercent) this.antigravityWeeklyPercent.innerText = `${wk.percentRemaining}%`;
-        if (this.antigravityWeeklyReset) this.antigravityWeeklyReset.innerText = wk.resetsIn;
-      }
-    } else {
-      this.antigravityLimitStatus.innerText = dev.antigravityAvailable ? '✓ Доступно на машині' : 'Не виявлено';
-      this.antigravityLimitConvs.innerText = 'Доступно';
-      this.antigravityLimitSize.innerText = '-';
-    }
-  }
-
-  showToast(text) {
+  showToast(msg) {
     const toast = document.createElement('div');
+    toast.className = 'toast-notification';
+    toast.innerText = msg;
     toast.style.position = 'fixed';
     toast.style.bottom = '24px';
     toast.style.right = '24px';
-    toast.style.background = 'var(--accent-gradient)';
-    toast.style.color = '#fff';
-    toast.style.padding = '12px 20px';
-    toast.style.borderRadius = '10px';
-    toast.style.boxShadow = '0 8px 24px rgba(0,0,0,0.5)';
-    toast.style.zIndex = '99999';
+    toast.style.background = '#0f172a';
+    toast.style.color = '#ffffff';
+    toast.style.padding = '10px 18px';
+    toast.style.borderRadius = '9px';
+    toast.style.fontSize = '12.5px';
     toast.style.fontWeight = '600';
-    toast.innerText = text;
+    toast.style.zIndex = '99999';
+    toast.style.boxShadow = '0 4px 16px rgba(0,0,0,0.3)';
+    toast.style.border = '1px solid rgba(255,255,255,0.1)';
+
     document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 4000);
+    setTimeout(() => toast.remove(), 3200);
   }
 
-  escapeHtml(str) {
-    return (str || '')
+  showOAuthModal(url) {
+    if (confirm(`Потрібна авторизація Cursor! Відкрити сторінку входу?\n\n${url}`)) {
+      window.open(url, '_blank');
+    }
+  }
+
+  triggerCursorLogin() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'cursor:auth_start', deviceId: this.activeDeviceId }));
+      this.showToast('🚀 Запущено процес авторизації Cursor...');
+    }
+  }
+
+  resumeChat() {
+    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+    if (!session || !session.cursorChatId) {
+      this.showToast('ℹ️ Немає збереженого ID чату Cursor для цієї сесії');
+      return;
+    }
+    this.promptInput.value = 'Продовж роботу над попереднім завданням';
+    this.sendPrompt();
+  }
+
+  escapeHtml(text) {
+    if (!text) return '';
+    return String(text)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')

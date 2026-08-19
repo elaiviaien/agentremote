@@ -29,7 +29,7 @@
           <label for="login-username">Логін</label>
           <div class="input-with-icon">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-            <input type="text" id="login-username" placeholder="olivka" required autocomplete="username">
+            <input type="text" id="login-username" placeholder="Введіть логін (напр. admin)" required autocomplete="username">
           </div>
         </div>
         <div class="form-group">
@@ -277,14 +277,20 @@
                 <span class="dot-live"></span>
                 <span id="active-device-indicator">Пристрій: Пошук...</span>
               </div>
-              <button id="stop-agent-btn" class="btn btn-danger btn-sm" style="display: none;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
-                <span>Зупинити агента</span>
-              </button>
+              <div class="input-right-controls" style="display: flex; align-items: center; gap: 8px;">
+                <button id="thinking-mode-toggle" class="chip-btn-sm" type="button" title="Увімкнути/Вимкнути глибоке міркування (Thinking Mode)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"></path><line x1="9" y1="22" x2="15" y2="22"></line></svg>
+                  <span id="thinking-mode-label">Thinking: Auto</span>
+                </button>
+                <button id="stop-agent-btn" class="btn btn-danger btn-sm" style="display: none;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
+                  <span>Зупинити агента</span>
+                </button>
+              </div>
             </div>
 
             <div class="input-box-wrapper">
-              <textarea id="prompt-input" placeholder="Напишіть завдання для Cursor Agent... (Enter — надіслати, Shift+Enter — новий рядок)" rows="2"></textarea>
+              <textarea id="prompt-input" placeholder="Напишіть завдання для агента... (Enter — надіслати, Shift+Enter — новий рядок)" rows="2"></textarea>
               <div class="input-actions-bar">
                 <span class="shortcut-hint">⌘ + Enter / Enter</span>
                 <button id="send-btn" class="send-btn" title="Надіслати">
@@ -330,8 +336,8 @@
               </div>
             </div>
 
-            <!-- Main Files Layout -->
-            <div class="files-layout">
+            <!-- Main Files Layout (Side-by-Side Split View with Slider) -->
+            <div class="files-layout" id="files-layout-container">
               <!-- Left Tree Sidebar -->
               <aside class="files-tree-panel" id="files-tree-panel">
                 <div class="tree-panel-header">
@@ -342,6 +348,9 @@
                   <p class="placeholder-text" style="padding: 24px; text-align: center;">Завантаження файлів...</p>
                 </div>
               </aside>
+
+              <!-- Resizable Divider Slider -->
+              <div id="files-resizer" class="files-resizer" title="Перетягніть для зміни ширини провідника"></div>
 
               <!-- Right Code / Preview Panel -->
               <main class="file-preview-panel" id="file-preview-panel">
@@ -541,6 +550,22 @@ npm run worker</pre>
           </div>
         </div>
 
+        <!-- Machine Selection -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block;">ЦІЛЬОВА МАШИНА / СЕРВЕР</label>
+            <span id="modal-device-status-badge" style="font-size: 10px; color: var(--success); font-weight: 600;">● Онлайн</span>
+          </div>
+          <div class="custom-select-wrapper" style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 8px;">
+            <select id="modal-device-select" class="custom-select">
+              <option value="">Пошук машин...</option>
+            </select>
+            <div class="select-chevron">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+          </div>
+        </div>
+
         <!-- Workspace Folder -->
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
@@ -632,10 +657,17 @@ npm run worker</pre>
 
       <!-- Auto Detect View -->
       <div id="import-view-auto">
-        <label style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">
-          Оберіть виявлену розмову з локальної машини:
-        </label>
-        <div id="local-transcripts-list" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary);">
+            Оберіть виявлену розмову з локальної машини:
+          </label>
+          <span id="transcripts-count-badge" class="count-badge">0 знайдено</span>
+        </div>
+        <div class="search-box" style="margin-bottom: 8px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="import-search-input" placeholder="Швидкий пошук сесій за назвою або файлом...">
+        </div>
+        <div id="local-transcripts-list" style="max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;">
           <p class="placeholder-text" style="padding: 16px; text-align: center;">Пошук локальних транскриптів...</p>
         </div>
       </div>
@@ -682,7 +714,7 @@ npm run worker</pre>
 
   <!-- Limits & Subscriptions Modal -->
   <div id="limits-modal" class="modal-backdrop" style="display: none;">
-    <div class="login-card glass-panel" style="max-width: 600px; width: 94%;">
+    <div class="login-card glass-panel" style="max-width: 620px; width: 94%;">
       <div class="login-header" style="text-align: left; margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div style="display: flex; align-items: center; gap: 10px;">
@@ -691,81 +723,116 @@ npm run worker</pre>
             </div>
             <div>
               <h3 style="font-size: 16px; font-weight: 700;">Ліміти, Підписки та Квоти</h3>
-              <p style="font-size: 11.5px; color: var(--text-secondary); margin: 0;">Статус акаунтів Cursor, Antigravity та ресурсів машини</p>
+              <p style="font-size: 11.5px; color: var(--text-secondary); margin: 0;">Реальні квоти Google Antigravity, Cursor Pro та ресурси машини</p>
             </div>
           </div>
           <button id="close-limits-modal-btn" class="icon-btn">✕</button>
         </div>
       </div>
 
-      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;">
+      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; max-height: 70vh; overflow-y: auto; padding-right: 4px;">
+        <!-- Antigravity Section: Gemini Models -->
+        <div class="limits-card antigravity-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="file-badge file-badge-md">GEMINI</span>
+              <strong style="font-size: 13.5px; color: var(--text-primary);">Google Antigravity — Gemini Models</strong>
+            </div>
+            <span class="limits-badge-antigravity" id="antigravity-tier-badge">PRO ACTIVE</span>
+          </div>
+
+          <div class="quota-block">
+            <!-- Weekly Limit -->
+            <div class="quota-item">
+              <div class="quota-header-row">
+                <span class="quota-label">Weekly Limit Remaining</span>
+                <span class="quota-value" id="antigravity-weekly-val">89%</span>
+              </div>
+              <div class="quota-progress-track">
+                <div id="antigravity-weekly-progress" class="quota-progress-fill" style="width: 89%;"></div>
+              </div>
+              <div class="quota-reset-text">
+                <span>You have used some of your weekly limit</span>
+                <span id="antigravity-weekly-reset">Refreshes in 4 days, 21 hours</span>
+              </div>
+            </div>
+
+            <!-- Five Hour Limit -->
+            <div class="quota-item" style="margin-top: 10px;">
+              <div class="quota-header-row">
+                <span class="quota-label">Five Hour Limit Remaining</span>
+                <span class="quota-value" id="antigravity-5h-val">36%</span>
+              </div>
+              <div class="quota-progress-track">
+                <div id="antigravity-5h-progress" class="quota-progress-fill" style="width: 36%;"></div>
+              </div>
+              <div class="quota-reset-text">
+                <span>You have used some of your 5-hour limit</span>
+                <span id="antigravity-5h-reset">Refreshes in 3 hours, 47 minutes</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Antigravity Section: Claude & GPT Models -->
+        <div class="limits-card antigravity-card" style="border-left: 3px solid #7c3aed;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="file-badge file-badge-ts">CLAUDE/GPT</span>
+              <strong style="font-size: 13.5px; color: var(--text-primary);">Google Antigravity — Claude &amp; GPT Models</strong>
+            </div>
+            <span class="limits-badge-antigravity" style="background: rgba(124, 58, 237, 0.12); color: #7c3aed; border-color: rgba(124, 58, 237, 0.25);">100% UNUSED</span>
+          </div>
+
+          <div class="quota-block">
+            <!-- Weekly Limit -->
+            <div class="quota-item">
+              <div class="quota-header-row">
+                <span class="quota-label">Weekly Limit Remaining</span>
+                <span class="quota-value" style="color: #10b981;">100%</span>
+              </div>
+              <div class="quota-progress-track">
+                <div class="quota-progress-fill" style="width: 100%; background: #10b981;"></div>
+              </div>
+              <div class="quota-reset-text">
+                <span>Full weekly budget available</span>
+                <span>100% Remaining</span>
+              </div>
+            </div>
+
+            <!-- Five Hour Limit -->
+            <div class="quota-item" style="margin-top: 10px;">
+              <div class="quota-header-row">
+                <span class="quota-label">Five Hour Limit Remaining</span>
+                <span class="quota-value" style="color: #10b981;">100%</span>
+              </div>
+              <div class="quota-progress-track">
+                <div class="quota-progress-fill" style="width: 100%; background: #10b981;"></div>
+              </div>
+              <div class="quota-reset-text">
+                <span>Full 5-hour rolling window available</span>
+                <span>100% Remaining</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Cursor Limits Card -->
         <div class="limits-card cursor-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="file-badge file-badge-ts">CLI</span>
-              <span class="limits-title-cursor">Cursor Agent &amp; CLI</span>
+              <span class="file-badge file-badge-ts">CURSOR</span>
+              <strong style="font-size: 13.5px; color: var(--text-primary);">Cursor Agent &amp; CLI Quota</strong>
             </div>
-            <span id="cursor-tier-badge" class="limits-badge-cursor">PRO TIER</span>
+            <span id="cursor-tier-badge" class="limits-badge-cursor">PRO PLAN</span>
           </div>
           <div id="cursor-limits-content" class="limits-data-grid">
             <div><strong>Акаунт:</strong> <span id="cursor-limit-email">Завантаження...</span></div>
-            <div><strong>Статус:</strong> <span class="limits-value-success">✓ Активний (CLI)</span></div>
-            <div><strong>Швидкі запити:</strong> <span class="limits-value-highlight">Безлімітно (Fast Requests)</span></div>
-            <div><strong>Модель:</strong> <span id="cursor-limit-model">Claude 4.5 Sonnet</span></div>
-            <div><strong>Авто-режим:</strong> <span class="limits-value-success">✓ YOLO / Auto-Review</span></div>
-            <div><strong>Версія CLI:</strong> <span id="cursor-limit-ver">-</span></div>
-          </div>
-        </div>
-
-        <!-- Antigravity Limits Card -->
-        <div class="limits-card antigravity-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="file-badge file-badge-md">AGY</span>
-              <span class="limits-title-antigravity">Google Antigravity 2.0</span>
-            </div>
-            <span class="limits-badge-antigravity" id="antigravity-tier-badge">PRO QUOTA</span>
-          </div>
-          
-          <div id="antigravity-limits-content" class="limits-data-grid">
-            <div><strong>Статус:</strong> <span id="antigravity-limit-status" class="limits-value-success">✓ Доступно на машині</span></div>
-            <div><strong>Сесії у Brain:</strong> <span id="antigravity-limit-convs" class="limits-value-highlight">-</span></div>
-            <div><strong>Розмір пам'яті:</strong> <span id="antigravity-limit-size">- MB</span></div>
-            <div><strong>Моделі:</strong> <span>Gemini 2.5 / 3.1 Pro</span></div>
-          </div>
-
-          <!-- 5-Hour & Weekly Limits Section -->
-          <div class="quota-block">
-            <!-- 5-Hour Rolling Limit -->
-            <div class="quota-item">
-              <div class="quota-header-row">
-                <span class="quota-label">5-годинний ліміт (Rolling Window)</span>
-                <span class="quota-value" id="antigravity-5h-val">48 / 50 запитів</span>
-              </div>
-              <div class="quota-progress-track">
-                <div id="antigravity-5h-progress" class="quota-progress-fill" style="width: 96%;"></div>
-              </div>
-              <div class="quota-reset-text">
-                <span>Доступно: <strong id="antigravity-5h-percent" style="color: var(--text-primary);">96%</strong></span>
-                <span id="antigravity-5h-reset">Скидання через 3 год 15 хв</span>
-              </div>
-            </div>
-
-            <!-- Weekly Limit -->
-            <div class="quota-item">
-              <div class="quota-header-row">
-                <span class="quota-label">Тижнева квота (Weekly Pro Budget)</span>
-                <span class="quota-value" id="antigravity-weekly-val">476 / 500 запитів</span>
-              </div>
-              <div class="quota-progress-track">
-                <div id="antigravity-weekly-progress" class="quota-progress-fill" style="width: 95%;"></div>
-              </div>
-              <div class="quota-reset-text">
-                <span>Доступно: <strong id="antigravity-weekly-percent" style="color: var(--text-primary);">95%</strong></span>
-                <span id="antigravity-weekly-reset">Понеділок, 00:00 UTC</span>
-              </div>
-            </div>
+            <div><strong>Статус CLI:</strong> <span class="limits-value-success">✓ Авторизовано (CLI)</span></div>
+            <div><strong>Fast Requests:</strong> <span class="limits-value-highlight">Безлімітно (Pro)</span></div>
+            <div><strong>Модель:</strong> <span id="cursor-limit-model">Auto / Claude Sonnet</span></div>
+            <div><strong>Авто-виконання:</strong> <span class="limits-value-success">✓ YOLO / Auto-Review</span></div>
+            <div><strong>Версія CLI:</strong> <span id="cursor-limit-ver">2026.08</span></div>
           </div>
         </div>
 
