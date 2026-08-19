@@ -2,7 +2,7 @@
 <html lang="uk">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
   <title>AgentRemote — Cloud Web IDE for Cursor & AI Agents</title>
   <link rel="stylesheet" href="/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -104,6 +104,9 @@
 
     <!-- Main Body -->
     <div class="app-body">
+      <!-- Mobile Backdrop -->
+      <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
       <!-- Sidebar (Sessions & Config) -->
       <aside class="app-sidebar" id="app-sidebar">
         <div class="sidebar-top">
@@ -297,9 +300,13 @@
               <div class="files-tree" id="files-tree">
                 <p class="placeholder-text">Завантаження файлів...</p>
               </div>
-              <div class="file-preview">
+              <div class="file-preview" id="file-preview-panel">
                 <div class="file-preview-header">
                   <div class="preview-title-col">
+                    <button id="fs-close-preview-mobile" class="btn btn-secondary btn-sm mobile-only" title="До списку файлів">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                      <span>Файли</span>
+                    </button>
                     <span id="preview-file-icon">📄</span>
                     <strong id="preview-filename">Оберіть файл для перегляду</strong>
                   </div>

@@ -44,6 +44,7 @@ class AgentRemoteApp {
     this.modelSelect = document.getElementById('model-select');
     this.modeSelect = document.getElementById('mode-select');
     this.workspaceInput = document.getElementById('workspace-input');
+    this.sidebarBackdrop = document.getElementById('sidebar-backdrop');
 
     // Chat
     this.currentChatTitle = document.getElementById('current-chat-title');
@@ -69,6 +70,8 @@ class AgentRemoteApp {
     this.fsSearchInput = document.getElementById('fs-search-input');
     this.refreshFilesBtn = document.getElementById('refresh-files-btn');
     this.filesTree = document.getElementById('files-tree');
+    this.filePreviewPanel = document.getElementById('file-preview-panel');
+    this.fsClosePreviewMobile = document.getElementById('fs-close-preview-mobile');
     this.previewFilename = document.getElementById('preview-filename');
     this.previewFileIcon = document.getElementById('preview-file-icon');
     this.previewContent = document.getElementById('preview-content');
@@ -105,8 +108,25 @@ class AgentRemoteApp {
 
     // Mobile Sidebar Toggle
     this.toggleSidebarBtn.addEventListener('click', () => {
-      this.appSidebar.classList.toggle('open');
+      const isOpen = this.appSidebar.classList.toggle('open');
+      if (this.sidebarBackdrop) {
+        this.sidebarBackdrop.classList.toggle('active', isOpen);
+      }
     });
+
+    if (this.sidebarBackdrop) {
+      this.sidebarBackdrop.addEventListener('click', () => {
+        this.appSidebar.classList.remove('open');
+        this.sidebarBackdrop.classList.remove('active');
+      });
+    }
+
+    if (this.fsClosePreviewMobile) {
+      this.fsClosePreviewMobile.addEventListener('click', () => {
+        this.filesTree.classList.remove('hide-on-mobile');
+        this.filePreviewPanel.classList.remove('show-on-mobile');
+      });
+    }
 
     // Device Switcher
     this.deviceSelect.addEventListener('change', (e) => {
@@ -211,6 +231,10 @@ class AgentRemoteApp {
     this.tabContents.forEach((c) => c.classList.toggle('active', c.id === `tab-${tabName}`));
 
     if (tabName === 'files') {
+      if (this.filesTree && this.filePreviewPanel) {
+        this.filesTree.classList.remove('hide-on-mobile');
+        this.filePreviewPanel.classList.remove('show-on-mobile');
+      }
       if (!this.currentFsPath) {
         const activeDev = this.getActiveDevice();
         this.currentFsPath = (activeDev && activeDev.defaultWorkspace) || this.workspaceInput.value || '';
@@ -551,6 +575,9 @@ class AgentRemoteApp {
     this.renderSessions();
     this.renderActiveChat();
     this.appSidebar.classList.remove('open');
+    if (this.sidebarBackdrop) {
+      this.sidebarBackdrop.classList.remove('active');
+    }
   }
 
   async createNewSession() {
@@ -1080,6 +1107,11 @@ class AgentRemoteApp {
     this.previewFilename.innerText = fileName;
     this.previewFileIcon.innerText = this.getFileIcon(fileName);
     this.previewContent.innerHTML = '<code>Завантаження вмісту файлу...</code>';
+
+    if (this.filesTree && this.filePreviewPanel) {
+      this.filesTree.classList.add('hide-on-mobile');
+      this.filePreviewPanel.classList.add('show-on-mobile');
+    }
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(
