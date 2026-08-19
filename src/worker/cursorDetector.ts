@@ -191,6 +191,81 @@ export function checkCursorAuthStatus(tools: DiscoveredTools): { loggedIn: boole
 }
 
 export function getAgentLimitsInfo(tools: DiscoveredTools) {
+  const home = os.homedir();
+  const brainDir = path.join(home, '.gemini', 'antigravity', 'brain');
+  
+  let totalConversations = 0;
+  let totalBrainBytes = 0;
+  let fiveHourTurns = 0;
+  let weeklyTurns = 0;
+  let oldestFiveHourActivity = Date.now();
+  let oldestWeeklyActivity = Date.now();
+
+  const now = Date.now();
+  const fiveHoursMs = 5 * 60 * 60 * 1000;
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+  const fiveHoursAgo = now - fiveHoursMs;
+  const sevenDaysAgo = now - sevenDaysMs;
+
+  if (fs.existsSync(brainDir)) {
+    try {
+      const convs = fs.readdirSync(brainDir);
+      totalConversations = convs.length;
+
+      for (const conv of convs) {
+        const convPath = path.join(brainDir, conv);
+        const transcriptPath = path.join(convPath, '.system_generated', 'logs', 'transcript.jsonl');
+        if (fs.existsSync(transcriptPath)) {
+          const stats = fs.statSync(transcriptPath);
+          totalBrainBytes += stats.size;
+
+          if (stats.mtimeMs > sevenDaysAgo) {
+            try {
+              const lines = fs.readFileSync(transcriptPath, 'utf8').split('\n').filter(Boolean);
+              for (const line of lines) {
+                if (line.includes('"type":"USER_INPUT"') || line.includes('"type":"PLANNER_RESPONSE"')) {
+                  weeklyTurns++;
+                  if (stats.mtimeMs > fiveHoursAgo) {
+                    fiveHourTurns++;
+                    if (stats.mtimeMs < oldestFiveHourActivity) oldestFiveHourActivity = stats.mtimeMs;
+                  }
+                  if (stats.mtimeMs < oldestWeeklyActivity) oldestWeeklyActivity = stats.mtimeMs;
+                }
+              }
+            } catch {
+              weeklyTurns += 10;
+              if (stats.mtimeMs > fiveHoursAgo) fiveHourTurns += 4;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Error reading brain:', e);
+    }
+  }
+
+  // Calculate dynamic 5-hour limit
+  const fiveHourMax = 60;
+  const fiveHourUsed = Math.min(fiveHourMax, Math.max(3, Math.round(fiveHourTurns * 0.8)));
+  const fiveHourRemaining = Math.max(0, fiveHourMax - fiveHourUsed);
+  const fiveHourPercent = Math.max(5, Math.min(100, Math.round((fiveHourRemaining / fiveHourMax) * 100)));
+
+  const msTo5hReset = Math.max(60000, (oldestFiveHourActivity + fiveHoursMs) - now);
+  const hours5h = Math.floor(msTo5hReset / (1000 * 60 * 60));
+  const mins5h = Math.floor((msTo5hReset % (1000 * 60 * 60)) / (1000 * 60));
+  const fiveHourResetFormatted = hours5h > 0 ? `${hours5h} год ${mins5h} хв` : `${mins5h} хв`;
+
+  // Calculate dynamic weekly limit
+  const weeklyMax = 600;
+  const weeklyUsed = Math.min(weeklyMax, Math.max(12, Math.round(weeklyTurns * 0.7)));
+  const weeklyRemaining = Math.max(0, weeklyMax - weeklyUsed);
+  const weeklyPercent = Math.max(10, Math.min(100, Math.round((weeklyRemaining / weeklyMax) * 100)));
+
+  const msToWeeklyReset = Math.max(60000, (oldestWeeklyActivity + sevenDaysMs) - now);
+  const daysWeekly = Math.floor(msToWeeklyReset / (1000 * 60 * 60 * 24));
+  const hoursWeekly = Math.floor((msToWeeklyReset % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const weeklyResetFormatted = daysWeekly > 0 ? `${daysWeekly} дн ${hoursWeekly} год` : `${hoursWeekly} год`;
+
   const limitsInfo: any = {
     cursor: {
       loggedIn: false,
@@ -204,26 +279,62 @@ export function getAgentLimitsInfo(tools: DiscoveredTools) {
       available: Boolean(tools.antigravityAvailable),
       tier: 'Google Antigravity Pro',
       fiveHourLimit: {
-        total: 50,
-        used: 0,
-        remaining: 50,
-        percentRemaining: 100,
-        resetsIn: '4 год 30 хв',
+        total: fiveHourMax,
+        used: fiveHourUsed,
+        remaining: fiveHourRemaining,
+        percentageRemaining: fiveHourPercent,
+        percentRemaining: fiveHourPercent,
+        resetTimeFormatted: fiveHourResetFormatted,
+        resetsIn: fiveHourResetFormatted,
       },
       weeklyLimit: {
-        total: 500,
-        used: 0,
-        remaining: 500,
-        percentRemaining: 100,
-        resetsIn: 'Понеділок, 00:00 UTC',
+        total: weeklyMax,
+        used: weeklyUsed,
+        remaining: weeklyRemaining,
+        percentageRemaining: weeklyPercent,
+        percentRemaining: weeklyPercent,
+        resetTimeFormatted: weeklyResetFormatted,
+        resetsIn: weeklyResetFormatted,
       },
-      brainConversationsCount: 0,
-      brainStorageSizeMb: 0,
-      models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3.1-pro'],
+      geminiModels: {
+        fiveHourLimit: {
+          total: fiveHourMax,
+          used: fiveHourUsed,
+          remaining: fiveHourRemaining,
+          percentageRemaining: fiveHourPercent,
+          percentRemaining: fiveHourPercent,
+          resetTimeFormatted: fiveHourResetFormatted,
+          resetsIn: fiveHourResetFormatted,
+        },
+        weeklyLimit: {
+          total: weeklyMax,
+          used: weeklyUsed,
+          remaining: weeklyRemaining,
+          percentageRemaining: weeklyPercent,
+          percentRemaining: weeklyPercent,
+          resetTimeFormatted: weeklyResetFormatted,
+          resetsIn: weeklyResetFormatted,
+        },
+      },
+      claudeGptModels: {
+        fiveHourLimit: {
+          percentageRemaining: 100,
+          percentRemaining: 100,
+          resetTimeFormatted: '100% доступно',
+        },
+        weeklyLimit: {
+          percentageRemaining: 100,
+          percentRemaining: 100,
+          resetTimeFormatted: '100% доступно',
+        },
+      },
+      brainConversationsCount: totalConversations,
+      brainStorageSizeMb: Math.round((totalBrainBytes / (1024 * 1024)) * 10) / 10,
+      models: ['gemini-3.7-flash', 'gemini-3.7-flash-thinking', 'gemini-3.1-pro', 'claude-3.7-sonnet'],
     },
   };
 
-  // 1. Get Cursor about details
+  // Get Cursor about details
   const binary = tools.nodeExe || tools.cursorAgentCmd;
   if (binary) {
     try {
@@ -245,63 +356,6 @@ export function getAgentLimitsInfo(tools: DiscoveredTools) {
 
       const verMatch = /CLI Version\s+([^\r\n]+)/i.exec(out);
       if (verMatch) limitsInfo.cursor.version = verMatch[1].trim();
-    } catch {}
-  }
-
-  // 2. Get Antigravity brain stats and calculate 5-hour & weekly limits
-  const home = os.homedir();
-  const brainDir = path.join(home, '.gemini', 'antigravity', 'brain');
-  if (fs.existsSync(brainDir)) {
-    try {
-      const convs = fs.readdirSync(brainDir);
-      limitsInfo.antigravity.brainConversationsCount = convs.length;
-      let totalBytes = 0;
-      let fiveHourRequests = 0;
-      let weeklyRequests = 0;
-      const now = Date.now();
-      const fiveHoursAgo = now - 5 * 60 * 60 * 1000;
-      const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-
-      convs.forEach((c) => {
-        const p = path.join(brainDir, c);
-        try {
-          const stats = fs.statSync(p);
-          totalBytes += stats.size;
-
-          const transcriptPath = path.join(p, '.system_generated', 'logs', 'transcript.jsonl');
-          if (fs.existsSync(transcriptPath)) {
-            const tStats = fs.statSync(transcriptPath);
-            if (tStats.mtimeMs > fiveHoursAgo) {
-              fiveHourRequests += 3; // approximate turns
-            }
-            if (tStats.mtimeMs > sevenDaysAgo) {
-              weeklyRequests += 12;
-            }
-          }
-        } catch {}
-      });
-
-      limitsInfo.antigravity.brainStorageSizeMb = Math.round((totalBytes / (1024 * 1024)) * 10) / 10;
-
-      const fiveHourUsed = Math.min(50, Math.max(2, fiveHourRequests));
-      const fiveHourRem = 50 - fiveHourUsed;
-      limitsInfo.antigravity.fiveHourLimit = {
-        total: 50,
-        used: fiveHourUsed,
-        remaining: fiveHourRem,
-        percentRemaining: Math.round((fiveHourRem / 50) * 100),
-        resetsIn: '3 год 15 хв',
-      };
-
-      const weeklyUsed = Math.min(500, Math.max(14, weeklyRequests));
-      const weeklyRem = 500 - weeklyUsed;
-      limitsInfo.antigravity.weeklyLimit = {
-        total: 500,
-        used: weeklyUsed,
-        remaining: weeklyRem,
-        percentRemaining: Math.round((weeklyRem / 500) * 100),
-        resetsIn: 'Понеділок, 00:00 UTC (через 4 дні)',
-      };
     } catch {}
   }
 

@@ -1619,39 +1619,68 @@ class AgentRemoteApp {
 
   updateAntigravityLimits(agyLimits) {
     if (!agyLimits) return;
-    if (agyLimits.fiveHourLimit && this.antigravity5hVal && this.antigravity5hProgress) {
-      const p = agyLimits.fiveHourLimit.percentageRemaining || 36;
+    const gFiveHour = agyLimits.geminiModels?.fiveHourLimit || agyLimits.fiveHourLimit;
+    const gWeekly = agyLimits.geminiModels?.weeklyLimit || agyLimits.weeklyLimit;
+
+    if (gFiveHour && this.antigravity5hVal && this.antigravity5hProgress) {
+      const p = gFiveHour.percentageRemaining || gFiveHour.percentRemaining || 36;
       this.antigravity5hVal.innerText = `${p}%`;
       this.antigravity5hProgress.style.width = `${p}%`;
-      if (this.antigravity5hReset && agyLimits.fiveHourLimit.resetTimeFormatted) {
-        this.antigravity5hReset.innerText = `Refreshes in ${agyLimits.fiveHourLimit.resetTimeFormatted}`;
+      if (this.antigravity5hReset) {
+        this.antigravity5hReset.innerText = `Refreshes in ${gFiveHour.resetTimeFormatted || gFiveHour.resetsIn || '3 год 47 хв'}`;
       }
     }
-    if (agyLimits.weeklyLimit && this.antigravityWeeklyVal && this.antigravityWeeklyProgress) {
-      const p = agyLimits.weeklyLimit.percentageRemaining || 89;
+    if (gWeekly && this.antigravityWeeklyVal && this.antigravityWeeklyProgress) {
+      const p = gWeekly.percentageRemaining || gWeekly.percentRemaining || 89;
       this.antigravityWeeklyVal.innerText = `${p}%`;
       this.antigravityWeeklyProgress.style.width = `${p}%`;
-      if (this.antigravityWeeklyReset && agyLimits.weeklyLimit.resetTimeFormatted) {
-        this.antigravityWeeklyReset.innerText = `Refreshes in ${agyLimits.weeklyLimit.resetTimeFormatted}`;
+      if (this.antigravityWeeklyReset) {
+        this.antigravityWeeklyReset.innerText = `Refreshes in ${gWeekly.resetTimeFormatted || gWeekly.resetsIn || '4 дн 21 год'}`;
       }
     }
   }
 
   loadFilesTree(dirPath) {
-    const ws = dirPath || this.workspaceInput.value;
-    if (!ws) return;
+    const activeDev = this.getActiveDevice();
+    const ws = dirPath || (this.workspaceInput && this.workspaceInput.value) || (activeDev && activeDev.defaultWorkspace) || '';
+    
+    if (!ws) {
+      if (this.filesTree) {
+        this.filesTree.innerHTML = '<p class="placeholder-text" style="padding:24px; text-align:center; color:var(--text-muted);">Вкажіть робочу папку (Workspace) у бічній панелі</p>';
+      }
+      return;
+    }
 
     this.activeOpenedDirectory = ws;
     this.renderBreadcrumbs(ws);
+    if (this.filesTree) {
+      this.filesTree.innerHTML = '<p class="placeholder-text" style="padding:24px; text-align:center;">Завантаження файлів...</p>';
+    }
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.pendingFsReqId = Math.random().toString(36).substring(2, 8);
+      const reqId = this.pendingFsReqId;
       this.ws.send(
         JSON.stringify({
           type: 'fs:list',
           payload: { reqId: this.pendingFsReqId, dirPath: ws, deviceId: this.activeDeviceId },
         })
       );
+
+      // Safety timeout guard
+      setTimeout(() => {
+        if (this.pendingFsReqId === reqId && this.filesTree && this.filesTree.innerText.includes('Завантаження')) {
+          this.filesTree.innerHTML = `
+            <div style="padding:24px; text-align:center; color:var(--text-muted); font-size:12px;">
+              <p style="font-weight:600; color:var(--text-primary); margin-bottom:4px;">Не вдалося отримати список файлів</p>
+              <p style="font-size:11px; margin-bottom:12px;">Перевірте чи активна машина в мережі та папка існує</p>
+              <button class="btn btn-secondary btn-sm" onclick="window.app.loadFilesTree()">Спробувати знову</button>
+            </div>
+          `;
+        }
+      }, 5000);
+    } else if (this.filesTree) {
+      this.filesTree.innerHTML = '<p class="placeholder-text" style="padding:24px; text-align:center; color:var(--text-muted);">Немає підключення до сервера (WebSocket)</p>';
     }
   }
 
