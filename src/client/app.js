@@ -662,7 +662,8 @@ class AgentRemoteApp {
   handleWsMessage(msg) {
     switch (msg.type) {
       case 'agent:chunk': {
-        const { sessionId, delta } = msg.payload;
+        const sessionId = msg.payload?.sessionId;
+        const delta = msg.payload?.delta || msg.payload?.chunk || '';
         this.appendAssistantChunk(sessionId, delta);
         break;
       }
@@ -1118,7 +1119,7 @@ class AgentRemoteApp {
     if (sessionId !== this.activeSessionId) return;
 
     if (this.chatMeta) {
-      this.chatMeta.innerHTML = `<span style="color:var(--accent-primary); font-weight:600;">● Агент друкує відповідь...</span>`;
+      this.chatMeta.innerHTML = `<span style="color:var(--accent-primary); font-weight:600;"><span class="pulse-dot"></span> Агент друкує відповідь...</span>`;
     }
 
     let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
@@ -1135,16 +1136,22 @@ class AgentRemoteApp {
     }
 
     const bubble = assistantMsgEl.querySelector('.message-bubble');
-    if (!bubble.rawMarkdown) bubble.rawMarkdown = '';
-    bubble.rawMarkdown += delta;
+    if (!bubble.rawMarkdown) {
+      bubble.rawMarkdown = '';
+      bubble.innerHTML = ''; // Clear initial thinking loader
+    }
 
-    if (window.marked) {
-      bubble.innerHTML = marked.parse(bubble.rawMarkdown);
-      bubble.querySelectorAll('pre code').forEach((b) => {
-        if (window.hljs) hljs.highlightElement(b);
-      });
-    } else {
-      bubble.innerText = bubble.rawMarkdown;
+    if (delta) {
+      bubble.rawMarkdown += delta;
+
+      if (window.marked) {
+        bubble.innerHTML = marked.parse(bubble.rawMarkdown);
+        bubble.querySelectorAll('pre code').forEach((b) => {
+          if (window.hljs) hljs.highlightElement(b);
+        });
+      } else {
+        bubble.innerText = bubble.rawMarkdown;
+      }
     }
 
     this.scrollToBottom();
@@ -1154,7 +1161,7 @@ class AgentRemoteApp {
     if (sessionId !== this.activeSessionId) return;
 
     if (this.chatMeta) {
-      this.chatMeta.innerHTML = `<span style="color:#fbbf24; font-weight:600;">⚡ Виконується: ${this.escapeHtml(toolCall.name || 'дія')}...</span>`;
+      this.chatMeta.innerHTML = `<span style="color:#fbbf24; font-weight:600;"><span class="pulse-dot"></span> Виконується: ${this.escapeHtml(toolCall.name || 'дія')}...</span>`;
     }
 
     let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
@@ -1214,6 +1221,11 @@ class AgentRemoteApp {
     const streamingMsg = this.chatMessages.querySelector('.message.assistant.streaming');
     if (streamingMsg) {
       streamingMsg.classList.remove('streaming');
+      const bubble = streamingMsg.querySelector('.message-bubble');
+      // If bubble is still showing thinking indicator and no text came, show fallback message
+      if (bubble && !bubble.rawMarkdown && bubble.querySelector('.agent-thinking-wrapper')) {
+        bubble.innerHTML = marked ? marked.parse('✅ Завдання успішно виконано агентом.') : '✅ Завдання успішно виконано агентом.';
+      }
     }
 
     const session = this.sessions.find((s) => s.id === sessionId);
@@ -1251,11 +1263,35 @@ class AgentRemoteApp {
     this.renderChatMessageElement('user', text);
     this.promptInput.value = '';
     this.promptInput.style.height = 'auto';
-    this.scrollToBottom();
 
     this.isStreaming = true;
     this.stopAgentBtn.style.display = 'inline-flex';
     this.sendBtn.disabled = true;
+
+    // Immediately render assistant streaming placeholder with animated wave/spinner
+    let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
+    if (!assistantMsgEl) {
+      assistantMsgEl = document.createElement('div');
+      assistantMsgEl.className = 'message assistant streaming';
+      assistantMsgEl.innerHTML = `
+        <div class="message-avatar" style="background:var(--accent-primary); color:#fff; font-weight:700; font-size:10px;">AI</div>
+        <div class="message-bubble-wrapper" style="flex:1; min-width:0;">
+          <div class="message-bubble">
+            <div class="agent-thinking-wrapper" style="display:flex; align-items:center; gap:8px; padding:4px 0; color:var(--text-secondary); font-size:12.5px;">
+              <span class="thinking-spinner"></span>
+              <span>Агент підключається та міркує...</span>
+            </div>
+          </div>
+        </div>
+      `;
+      this.chatMessages.appendChild(assistantMsgEl);
+    }
+
+    if (this.chatMeta) {
+      this.chatMeta.innerHTML = `<span style="color:var(--accent-primary); font-weight:600;"><span class="pulse-dot"></span> Агент думає та аналізує...</span>`;
+    }
+
+    this.scrollToBottom();
 
     const session = this.sessions.find((s) => s.id === this.activeSessionId);
     let effectiveModel = (session && session.model) || this.modelSelect.value || 'auto';
