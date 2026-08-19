@@ -73,6 +73,9 @@ class AgentRemoteApp {
     this.recentFoldersList = document.getElementById('recent-folders-list');
     this.clearRecentFoldersBtn = document.getElementById('clear-recent-folders-btn');
 
+    // Header Brand
+    this.brandLogoBtn = document.getElementById('brand-logo-btn');
+
     // Chat Tab elements
     this.currentChatTitle = document.getElementById('current-chat-title');
     this.sessionBadge = document.getElementById('session-badge');
@@ -175,6 +178,13 @@ class AgentRemoteApp {
     });
 
     this.logoutBtn.addEventListener('click', () => this.logout());
+
+    if (this.brandLogoBtn) {
+      this.brandLogoBtn.addEventListener('click', () => {
+        this.switchTab('chat');
+        if (this.promptInput) this.promptInput.focus();
+      });
+    }
 
     this.navTabs.forEach((tab) => {
       tab.addEventListener('click', () => {
