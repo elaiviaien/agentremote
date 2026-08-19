@@ -45,7 +45,7 @@ export class SessionManager {
       workspacePath: params.workspacePath || '',
       model: params.model || (engine === 'antigravity' ? 'gemini-3.7-flash' : 'claude-4.5-sonnet'),
       mode: params.mode || 'yolo',
-      thinkingEffort: params.thinkingEffort || 'medium',
+      thinkingEffort: params.thinkingEffort || (engine === 'antigravity' ? 'high' : 'medium'),
       messages: [],
     };
     db.saveSession(newSession);

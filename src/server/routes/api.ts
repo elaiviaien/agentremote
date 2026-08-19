@@ -84,6 +84,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
       workspacePath: body.workspacePath,
       model: body.model,
       mode: body.mode,
+      thinkingEffort: body.thinkingEffort,
       cursorChatId: body.cursorChatId,
     });
     return { session };

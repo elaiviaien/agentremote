@@ -83,7 +83,6 @@ class AgentRemoteApp {
     this.sendBtn = document.getElementById('send-btn');
     this.stopAgentBtn = document.getElementById('stop-agent-btn');
     this.loginCursorBtn = document.getElementById('login-cursor-btn');
-    this.resumeChatBtn = document.getElementById('resume-chat-btn');
     this.thinkingEffortSelect = document.getElementById('thinking-effort-select');
     this.thinkingEffortWrapper = document.getElementById('thinking-effort-wrapper');
     this.chatQueueContainer = document.getElementById('chat-queue-container');
@@ -132,23 +131,6 @@ class AgentRemoteApp {
     this.devicesFullList = document.getElementById('devices-full-list');
     this.copyCmdBtn = document.getElementById('copy-cmd-btn');
     this.daemonCommandText = document.getElementById('daemon-command-text');
-
-    // Limits Modal Elements
-    this.openLimitsBtn = document.getElementById('open-limits-btn');
-    this.limitsModal = document.getElementById('limits-modal');
-    this.closeLimitsModalBtn = document.getElementById('close-limits-modal-btn');
-    this.closeLimitsFooterBtn = document.getElementById('close-limits-footer-btn');
-    this.cursorLimitEmail = document.getElementById('cursor-limit-email');
-    this.cursorLimitModel = document.getElementById('cursor-limit-model');
-    this.cursorLimitVer = document.getElementById('cursor-limit-ver');
-    this.antigravity5hVal = document.getElementById('antigravity-5h-val');
-    this.antigravity5hProgress = document.getElementById('antigravity-5h-progress');
-    this.antigravity5hReset = document.getElementById('antigravity-5h-reset');
-    this.antigravityWeeklyVal = document.getElementById('antigravity-weekly-val');
-    this.antigravityWeeklyProgress = document.getElementById('antigravity-weekly-progress');
-    this.antigravityWeeklyReset = document.getElementById('antigravity-weekly-reset');
-    this.limitsMachineName = document.getElementById('limits-machine-name');
-    this.limitsMachineRam = document.getElementById('limits-machine-ram');
 
     // New Chat Modal Elements
     this.newChatModal = document.getElementById('new-chat-modal');
@@ -260,16 +242,6 @@ class AgentRemoteApp {
         this.newChatModal.style.display = 'none';
         this.openImportModal();
       });
-    }
-
-    if (this.openLimitsBtn) {
-      this.openLimitsBtn.addEventListener('click', () => this.openLimitsModal());
-    }
-    if (this.closeLimitsModalBtn) {
-      this.closeLimitsModalBtn.addEventListener('click', () => (this.limitsModal.style.display = 'none'));
-    }
-    if (this.closeLimitsFooterBtn) {
-      this.closeLimitsFooterBtn.addEventListener('click', () => (this.limitsModal.style.display = 'none'));
     }
 
     if (this.closeImportModalBtn) {
@@ -422,7 +394,6 @@ class AgentRemoteApp {
     }
 
     this.loginCursorBtn.addEventListener('click', () => this.triggerCursorLogin());
-    this.resumeChatBtn.addEventListener('click', () => this.resumeChat());
 
     this.newChatBtn.addEventListener('click', () => this.openNewChatModal('cursor'));
     this.newAntigravityChatBtn.addEventListener('click', () => this.openNewChatModal('antigravity'));
@@ -807,13 +778,6 @@ class AgentRemoteApp {
         break;
       }
 
-      case 'agent:limits_update': {
-        if (msg.payload && msg.payload.antigravity) {
-          this.updateAntigravityLimits(msg.payload.antigravity);
-        }
-        break;
-      }
-
       case 'device:registered':
       case 'device:updated': {
         const dev = msg.payload;
@@ -1186,6 +1150,11 @@ class AgentRemoteApp {
       this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
     }
 
+    if (session.engine === 'antigravity') {
+      if (!session.model || session.model === 'auto') session.model = 'gemini-3.7-flash';
+      if (!session.thinkingEffort) session.thinkingEffort = 'high';
+    }
+
     if (session.model) {
       if (this.modelSelect) this.modelSelect.value = session.model;
       if (this.chatModelSelect) this.chatModelSelect.value = session.model;
@@ -1194,7 +1163,7 @@ class AgentRemoteApp {
       this.modeSelect.value = session.mode;
     }
     if (this.thinkingEffortSelect) {
-      this.thinkingEffortSelect.value = session.thinkingEffort || 'medium';
+      this.thinkingEffortSelect.value = session.thinkingEffort || (session.engine === 'antigravity' ? 'high' : 'medium');
     }
 
     this.renderQueue();
@@ -1678,13 +1647,13 @@ class AgentRemoteApp {
     if (this.modalModelSelect) {
       if (isAgy) {
         this.modalModelSelect.innerHTML = `
-          <option value="auto" selected>Auto (Antigravity обирає найкращу модель)</option>
-          <option value="gemini-3.7-flash">Gemini 3.7 Flash (Новітня надшвидка)</option>
+          <option value="gemini-3.7-flash" selected>Gemini 3.7 Flash High (За замовчуванням)</option>
           <option value="gemini-3.7-flash-thinking">Gemini 3.7 Flash Thinking (Міркування)</option>
-          <option value="gemini-3.1-pro">Gemini 2.5 / 3.1 Pro (Складний кодинг &amp; 1M)</option>
+          <option value="gemini-3.1-pro">Gemini 3.1 Pro (Складний кодинг &amp; 1M)</option>
           <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
           <option value="gemini-2.5-flash-thinking">Gemini 2.5 Flash Thinking</option>
           <option value="claude-3.7-sonnet">Claude 3.7 Sonnet (via Antigravity)</option>
+          <option value="auto">Auto</option>
         `;
       } else {
         this.modalModelSelect.innerHTML = `
@@ -1708,9 +1677,10 @@ class AgentRemoteApp {
     const isAgy = this.currentSelectedEngine === 'antigravity';
     const workspace = (this.modalWorkspaceInput && this.modalWorkspaceInput.value.trim()) || (chosenDevice && chosenDevice.defaultWorkspace) || '';
     const title = (this.modalSessionTitle && this.modalSessionTitle.value.trim()) || (isAgy ? 'Новий чат Antigravity' : 'Новий чат Cursor');
-    const desc = (this.modalSessionDesc && this.modalSessionDesc.value.trim()) || (isAgy ? 'Сесія Google Antigravity (Gemini)' : 'Сесія Cursor AI Agent');
-    const model = (this.modalModelSelect && this.modalModelSelect.value) || 'auto';
+    const desc = (this.modalSessionDesc && this.modalSessionDesc.value.trim()) || (isAgy ? 'Сесія Google Antigravity (Gemini 3.7 Flash High)' : 'Сесія Cursor AI Agent');
+    const model = (this.modalModelSelect && this.modalModelSelect.value) || (isAgy ? 'gemini-3.7-flash' : 'auto');
     const mode = (this.modalModeSelect && this.modalModeSelect.value) || 'yolo';
+    const thinkingEffort = isAgy ? 'high' : 'medium';
 
     const newSession = {
       deviceId: chosenDeviceId,
@@ -1719,6 +1689,7 @@ class AgentRemoteApp {
       engine: this.currentSelectedEngine,
       model,
       mode,
+      thinkingEffort,
       workspacePath: workspace,
     };
 
@@ -1952,44 +1923,6 @@ class AgentRemoteApp {
     } finally {
       this.executeImportBtn.disabled = false;
       this.executeImportBtn.innerHTML = '<span>▶ Продовжити сесію</span>';
-    }
-  }
-
-  openLimitsModal() {
-    this.limitsModal.style.display = 'flex';
-    const activeDev = this.getActiveDevice();
-
-    if (activeDev) {
-      if (this.limitsMachineName) this.limitsMachineName.innerText = activeDev.name;
-      if (this.limitsMachineRam && activeDev.memoryUsage) {
-        this.limitsMachineRam.innerText = `${activeDev.memoryUsage.used} MB / ${activeDev.memoryUsage.total} MB`;
-      }
-      if (activeDev.cursorAuthStatus && activeDev.cursorAuthStatus.loggedIn) {
-        if (this.cursorLimitEmail) this.cursorLimitEmail.innerText = activeDev.cursorAuthStatus.email || 'Pro Subscriber';
-      }
-    }
-  }
-
-  updateAntigravityLimits(agyLimits) {
-    if (!agyLimits) return;
-    const gFiveHour = agyLimits.geminiModels?.fiveHourLimit || agyLimits.fiveHourLimit;
-    const gWeekly = agyLimits.geminiModels?.weeklyLimit || agyLimits.weeklyLimit;
-
-    if (gFiveHour && this.antigravity5hVal && this.antigravity5hProgress) {
-      const p = gFiveHour.percentageRemaining || gFiveHour.percentRemaining || 36;
-      this.antigravity5hVal.innerText = `${p}%`;
-      this.antigravity5hProgress.style.width = `${p}%`;
-      if (this.antigravity5hReset) {
-        this.antigravity5hReset.innerText = `Refreshes in ${gFiveHour.resetTimeFormatted || gFiveHour.resetsIn || '3 год 47 хв'}`;
-      }
-    }
-    if (gWeekly && this.antigravityWeeklyVal && this.antigravityWeeklyProgress) {
-      const p = gWeekly.percentageRemaining || gWeekly.percentRemaining || 89;
-      this.antigravityWeeklyVal.innerText = `${p}%`;
-      this.antigravityWeeklyProgress.style.width = `${p}%`;
-      if (this.antigravityWeeklyReset) {
-        this.antigravityWeeklyReset.innerText = `Refreshes in ${gWeekly.resetTimeFormatted || gWeekly.resetsIn || '4 дн 21 год'}`;
-      }
     }
   }
 
@@ -2492,16 +2425,6 @@ class AgentRemoteApp {
       this.ws.send(JSON.stringify({ type: 'agent:trigger_auth', payload: { deviceId: this.activeDeviceId } }));
       this.showToast('🚀 Запущено процес авторизації Cursor...');
     }
-  }
-
-  resumeChat() {
-    const session = this.sessions.find((s) => s.id === this.activeSessionId);
-    if (!session || !session.cursorChatId) {
-      this.showToast('ℹ️ Немає збереженого ID чату Cursor для цієї сесії');
-      return;
-    }
-    this.promptInput.value = 'Продовж роботу над попереднім завданням';
-    this.sendPrompt();
   }
 
   async syncCurrentChatWithIde() {

@@ -100,10 +100,6 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             <span>Імпорт</span>
           </button>
-          <button id="open-limits-btn" class="nav-pill" type="button" title="Ліміти та підписки">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-            <span>Ліміти</span>
-          </button>
           <button class="nav-pill" data-tab="devices">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
             <span>Налаштування</span>
@@ -267,10 +263,6 @@
               <button id="login-cursor-btn" class="btn btn-secondary btn-sm" title="Авторизуватися в Cursor">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                 <span>Увійти в Cursor</span>
-              </button>
-              <button id="resume-chat-btn" class="btn btn-secondary btn-sm" title="Продовжити минулий чат через Cursor CLI">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-                <span>Продовжити чат</span>
               </button>
             </div>
           </div>
@@ -789,145 +781,6 @@ npm run worker</pre>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
           <span>Імпортувати та створити чат</span>
         </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Limits & Subscriptions Modal -->
-  <div id="limits-modal" class="modal-backdrop" style="display: none;">
-    <div class="login-card glass-panel" style="max-width: 620px; width: 94%;">
-      <div class="login-header" style="text-align: left; margin-bottom: 16px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div class="brand-logo-badge" style="width: 36px; height: 36px; margin: 0;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-            </div>
-            <div>
-              <h3 style="font-size: 16px; font-weight: 700;">Ліміти, Підписки та Квоти</h3>
-              <p style="font-size: 11.5px; color: var(--text-secondary); margin: 0;">Реальні квоти Google Antigravity, Cursor Pro та ресурси машини</p>
-            </div>
-          </div>
-          <button id="close-limits-modal-btn" class="icon-btn">✕</button>
-        </div>
-      </div>
-
-      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; max-height: 70vh; overflow-y: auto; padding-right: 4px;">
-        <!-- Antigravity Section: Gemini Models -->
-        <div class="limits-card antigravity-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="file-badge file-badge-md">GEMINI</span>
-              <strong style="font-size: 13.5px; color: var(--text-primary);">Google Antigravity — Gemini Models</strong>
-            </div>
-            <span class="limits-badge-antigravity" id="antigravity-tier-badge">PRO ACTIVE</span>
-          </div>
-
-          <div class="quota-block">
-            <!-- Weekly Limit -->
-            <div class="quota-item">
-              <div class="quota-header-row">
-                <span class="quota-label">Weekly Limit Remaining</span>
-                <span class="quota-value" id="antigravity-weekly-val">89%</span>
-              </div>
-              <div class="quota-progress-track">
-                <div id="antigravity-weekly-progress" class="quota-progress-fill" style="width: 89%;"></div>
-              </div>
-              <div class="quota-reset-text">
-                <span>You have used some of your weekly limit</span>
-                <span id="antigravity-weekly-reset">Refreshes in 4 days, 21 hours</span>
-              </div>
-            </div>
-
-            <!-- Five Hour Limit -->
-            <div class="quota-item" style="margin-top: 10px;">
-              <div class="quota-header-row">
-                <span class="quota-label">Five Hour Limit Remaining</span>
-                <span class="quota-value" id="antigravity-5h-val">36%</span>
-              </div>
-              <div class="quota-progress-track">
-                <div id="antigravity-5h-progress" class="quota-progress-fill" style="width: 36%;"></div>
-              </div>
-              <div class="quota-reset-text">
-                <span>You have used some of your 5-hour limit</span>
-                <span id="antigravity-5h-reset">Refreshes in 3 hours, 47 minutes</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Antigravity Section: Claude & GPT Models -->
-        <div class="limits-card antigravity-card" style="border-left: 3px solid #7c3aed;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="file-badge file-badge-ts">CLAUDE/GPT</span>
-              <strong style="font-size: 13.5px; color: var(--text-primary);">Google Antigravity — Claude &amp; GPT Models</strong>
-            </div>
-            <span class="limits-badge-antigravity" style="background: rgba(124, 58, 237, 0.12); color: #7c3aed; border-color: rgba(124, 58, 237, 0.25);">100% UNUSED</span>
-          </div>
-
-          <div class="quota-block">
-            <!-- Weekly Limit -->
-            <div class="quota-item">
-              <div class="quota-header-row">
-                <span class="quota-label">Weekly Limit Remaining</span>
-                <span class="quota-value" style="color: #10b981;">100%</span>
-              </div>
-              <div class="quota-progress-track">
-                <div class="quota-progress-fill" style="width: 100%; background: #10b981;"></div>
-              </div>
-              <div class="quota-reset-text">
-                <span>Full weekly budget available</span>
-                <span>100% Remaining</span>
-              </div>
-            </div>
-
-            <!-- Five Hour Limit -->
-            <div class="quota-item" style="margin-top: 10px;">
-              <div class="quota-header-row">
-                <span class="quota-label">Five Hour Limit Remaining</span>
-                <span class="quota-value" style="color: #10b981;">100%</span>
-              </div>
-              <div class="quota-progress-track">
-                <div class="quota-progress-fill" style="width: 100%; background: #10b981;"></div>
-              </div>
-              <div class="quota-reset-text">
-                <span>Full 5-hour rolling window available</span>
-                <span>100% Remaining</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Cursor Limits Card -->
-        <div class="limits-card cursor-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="file-badge file-badge-ts">CURSOR</span>
-              <strong style="font-size: 13.5px; color: var(--text-primary);">Cursor Agent &amp; CLI Quota</strong>
-            </div>
-            <span id="cursor-tier-badge" class="limits-badge-cursor">PRO PLAN</span>
-          </div>
-          <div id="cursor-limits-content" class="limits-data-grid">
-            <div><strong>Акаунт:</strong> <span id="cursor-limit-email">Завантаження...</span></div>
-            <div><strong>Статус CLI:</strong> <span class="limits-value-success">✓ Авторизовано (CLI)</span></div>
-            <div><strong>Fast Requests:</strong> <span class="limits-value-highlight">Безлімітно (Pro)</span></div>
-            <div><strong>Модель:</strong> <span id="cursor-limit-model">Auto / Claude Sonnet</span></div>
-            <div><strong>Авто-виконання:</strong> <span class="limits-value-success">✓ YOLO / Auto-Review</span></div>
-            <div><strong>Версія CLI:</strong> <span id="cursor-limit-ver">2026.08</span></div>
-          </div>
-        </div>
-
-        <!-- Machine Hardware Status -->
-        <div class="limits-card machine-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-secondary);">
-            <div><strong>Комп'ютер:</strong> <span id="limits-machine-name" style="color: var(--text-primary); font-weight: 600;">-</span></div>
-            <div><strong>RAM:</strong> <span id="limits-machine-ram" style="color: var(--text-primary); font-weight: 600;">-</span></div>
-          </div>
-        </div>
-      </div>
-
-      <div style="display: flex; justify-content: flex-end;">
-        <button id="close-limits-footer-btn" class="btn btn-secondary">Закрити</button>
       </div>
     </div>
   </div>
