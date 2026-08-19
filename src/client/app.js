@@ -28,6 +28,7 @@ class AgentRemoteApp {
 
     this.initElements();
     this.initEvents();
+    this.initCustomSelects();
     this.initTheme();
     this.initFilesResizer();
     this.checkAuth();
@@ -2630,6 +2631,24 @@ class AgentRemoteApp {
     } catch {}
   }
 
+  initCustomSelects() {
+    const selects = [
+      { el: this.chatModelSelect, opts: { isSm: true } },
+      { el: this.thinkingEffortSelect, opts: { isSm: true } },
+      { el: this.modelSelect, opts: { fullWidth: true } },
+      { el: this.modeSelect, opts: { fullWidth: true } },
+      { el: this.deviceSelect, opts: { fullWidth: true } },
+      { el: this.modalDeviceSelect, opts: { fullWidth: true } },
+      { el: this.modalModelSelect, opts: { fullWidth: true } },
+      { el: this.modalModeSelect, opts: { fullWidth: true } },
+      { el: document.getElementById('import-target-engine'), opts: { fullWidth: true } },
+    ];
+
+    selects.forEach(({ el, opts }) => {
+      if (el) new CustomSelect(el, opts);
+    });
+  }
+
   escapeHtml(text) {
     if (!text) return '';
     return String(text)
@@ -2640,6 +2659,158 @@ class AgentRemoteApp {
       .replace(/'/g, '&#039;');
   }
 }
+
+class CustomSelect {
+  constructor(selectEl, options = {}) {
+    this.select = selectEl;
+    if (!this.select || this.select._customSelectInstance) return;
+    this.select._customSelectInstance = this;
+    this.options = options;
+    this.isSm = this.select.classList.contains('custom-select-sm') || options.isSm;
+    this.isFullWidth = options.fullWidth || this.select.classList.contains('full-width');
+    this.alignRight = options.alignRight;
+
+    this.init();
+  }
+
+  init() {
+    this.wrapper = document.createElement('div');
+    this.wrapper.className = `custom-dropdown-wrapper ${this.isFullWidth ? 'full-width' : ''} ${this.alignRight ? 'align-right' : ''}`;
+
+    this.trigger = document.createElement('button');
+    this.trigger.type = 'button';
+    this.trigger.className = `custom-dropdown-trigger ${this.isSm ? 'custom-dropdown-trigger-sm' : ''}`;
+    this.trigger.innerHTML = `
+      <span class="custom-dropdown-label"></span>
+      <svg class="custom-dropdown-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    `;
+    this.label = this.trigger.querySelector('.custom-dropdown-label');
+
+    this.menu = document.createElement('div');
+    this.menu.className = 'custom-dropdown-menu';
+
+    this.wrapper.appendChild(this.trigger);
+    this.wrapper.appendChild(this.menu);
+
+    // Hide original select and insert wrapper
+    this.select.style.display = 'none';
+    this.select.parentNode.insertBefore(this.wrapper, this.select.nextSibling);
+
+    this.trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggle();
+    });
+
+    this.renderOptions();
+
+    // Listen to changes on native select
+    this.select.addEventListener('change', () => {
+      this.updateSelectedLabel();
+    });
+
+    // Observer for programmatic option changes
+    this.observer = new MutationObserver(() => {
+      this.renderOptions();
+    });
+    this.observer.observe(this.select, { childList: true, subtree: true, attributes: true });
+  }
+
+  renderOptions() {
+    this.menu.innerHTML = '';
+    const optgroups = this.select.querySelectorAll('optgroup');
+
+    if (optgroups.length > 0) {
+      const directOptions = Array.from(this.select.children).filter((c) => c.tagName === 'OPTION');
+      directOptions.forEach((opt) => this.addOptionItem(opt, this.menu));
+
+      optgroups.forEach((group) => {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'custom-dropdown-group';
+        groupEl.innerHTML = `<div class="custom-dropdown-group-title">${group.label}</div>`;
+        group.querySelectorAll('option').forEach((opt) => this.addOptionItem(opt, groupEl));
+        this.menu.appendChild(groupEl);
+      });
+    } else {
+      this.select.querySelectorAll('option').forEach((opt) => {
+        this.addOptionItem(opt, this.menu);
+      });
+    }
+
+    this.updateSelectedLabel();
+  }
+
+  addOptionItem(optionEl, container) {
+    const item = document.createElement('div');
+    const isSelected = optionEl.value === this.select.value;
+    item.className = `custom-dropdown-item ${isSelected ? 'selected' : ''}`;
+    item.dataset.value = optionEl.value;
+    item.innerHTML = `
+      <span class="custom-dropdown-item-label">${optionEl.textContent}</span>
+      <span class="custom-dropdown-item-check"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+    `;
+
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.select.value = optionEl.value;
+      this.select.dispatchEvent(new Event('change', { bubbles: true }));
+      this.updateSelectedLabel();
+      this.close();
+    });
+
+    container.appendChild(item);
+  }
+
+  updateSelectedLabel() {
+    const selectedOpt = this.select.options[this.select.selectedIndex];
+    if (selectedOpt) {
+      this.label.textContent = selectedOpt.textContent;
+    } else {
+      this.label.textContent = 'Оберіть...';
+    }
+
+    this.menu.querySelectorAll('.custom-dropdown-item').forEach((item) => {
+      item.classList.toggle('selected', item.dataset.value === this.select.value);
+    });
+  }
+
+  toggle() {
+    if (this.wrapper.classList.contains('open')) {
+      this.close();
+    } else {
+      this.open();
+    }
+  }
+
+  open() {
+    document.querySelectorAll('.custom-dropdown-wrapper.open').forEach((w) => w.classList.remove('open'));
+
+    const rect = this.wrapper.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if (spaceBelow < 280 && rect.top > 280) {
+      this.wrapper.classList.add('open-upwards');
+    } else {
+      this.wrapper.classList.remove('open-upwards');
+    }
+
+    this.wrapper.classList.add('open');
+  }
+
+  close() {
+    this.wrapper.classList.remove('open');
+  }
+}
+
+// Global click & escape listeners to dismiss custom dropdowns
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.custom-dropdown-wrapper')) {
+    document.querySelectorAll('.custom-dropdown-wrapper.open').forEach((w) => w.classList.remove('open'));
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.custom-dropdown-wrapper.open').forEach((w) => w.classList.remove('open'));
+  }
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   window.app = new AgentRemoteApp();
