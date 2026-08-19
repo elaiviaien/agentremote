@@ -302,9 +302,33 @@
           <!-- Bottom Prompt Input -->
           <div class="chat-input-area">
             <div class="input-controls">
-              <div class="device-pill-small">
-                <span class="dot-live"></span>
-                <span id="active-device-indicator">Пристрій: Пошук...</span>
+              <div class="input-controls-left" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <div class="device-pill-small">
+                  <span class="dot-live"></span>
+                  <span id="active-device-indicator">Пристрій: Пошук...</span>
+                </div>
+                <!-- Inline Chat Model Selector -->
+                <div class="inline-select-wrapper" style="display: flex; align-items: center; gap: 4px;">
+                  <select id="chat-model-select" class="custom-select-sm" title="Змінити модель для цього чату">
+                    <option value="auto">✨ Auto (Найкраща модель)</option>
+                    <optgroup label="Google Antigravity &amp; Gemini">
+                      <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+                      <option value="gemini-3.7-flash-thinking">Gemini 3.7 Flash Thinking</option>
+                      <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    </optgroup>
+                    <optgroup label="Claude (Anthropic)">
+                      <option value="claude-3.7-sonnet">Claude 3.7 Sonnet</option>
+                      <option value="claude-4.5-sonnet">Claude Sonnet 4.5</option>
+                      <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 Thinking</option>
+                      <option value="claude-4.5-opus-high">Claude Opus 4.5</option>
+                    </optgroup>
+                    <optgroup label="OpenAI GPT">
+                      <option value="gpt-5.1">GPT-5.1</option>
+                      <option value="gpt-5-mini">GPT-5 Mini</option>
+                    </optgroup>
+                  </select>
+                </div>
               </div>
               <div class="input-right-controls" style="display: flex; align-items: center; gap: 8px;">
                 <button id="thinking-mode-toggle" class="chip-btn-sm" type="button" title="Увімкнути/Вимкнути глибоке міркування (Thinking Mode)">

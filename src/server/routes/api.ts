@@ -97,6 +97,24 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     return { session };
   });
 
+  fastify.patch('/sessions/:id', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as any;
+    const session = sessionManager.updateSession(id, {
+      title: body.title,
+      description: body.description,
+      engine: body.engine,
+      workspacePath: body.workspacePath,
+      model: body.model,
+      mode: body.mode,
+      cursorChatId: body.cursorChatId,
+    });
+    if (!session) {
+      return reply.status(404).send({ error: 'Session not found' });
+    }
+    return { success: true, session };
+  });
+
   // Delete Session
   fastify.delete('/sessions/:id', { preHandler: [requireAuth] }, async (req) => {
     const { id } = req.params as { id: string };

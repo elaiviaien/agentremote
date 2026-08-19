@@ -64,6 +64,7 @@ class AgentRemoteApp {
     this.sessionList = document.getElementById('session-list');
     this.sessionCount = document.getElementById('session-count');
     this.modelSelect = document.getElementById('model-select');
+    this.chatModelSelect = document.getElementById('chat-model-select');
     this.modeSelect = document.getElementById('mode-select');
     this.workspaceInput = document.getElementById('workspace-input');
     this.workspaceSetBtn = document.getElementById('workspace-set-btn');
@@ -321,13 +322,54 @@ class AgentRemoteApp {
         this.renderRecentFolders();
       });
     }
-    // Close recent folders dropdown on outside click
-    document.addEventListener('click', (e) => {
-      if (this.recentFoldersDropdown && !this.recentFoldersDropdown.contains(e.target) &&
-          e.target !== this.workspaceBrowseBtn && !this.workspaceBrowseBtn?.contains(e.target)) {
-        this.recentFoldersDropdown.style.display = 'none';
+    const onModelChange = (newModel) => {
+      if (this.modelSelect) this.modelSelect.value = newModel;
+      if (this.chatModelSelect) this.chatModelSelect.value = newModel;
+
+      if (this.activeSessionId) {
+        const session = this.sessions.find((s) => s.id === this.activeSessionId);
+        if (session) {
+          session.model = newModel;
+          if (this.chatMeta) {
+            this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
+          }
+          this.renderSessions();
+          fetch(`/api/sessions/${session.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}` },
+            body: JSON.stringify({ model: newModel }),
+          }).catch(() => {});
+          this.showToast(`✨ Модель змінено на: ${newModel}`);
+        }
       }
-    });
+    };
+
+    if (this.modelSelect) {
+      this.modelSelect.addEventListener('change', (e) => onModelChange(e.target.value));
+    }
+    if (this.chatModelSelect) {
+      this.chatModelSelect.addEventListener('change', (e) => onModelChange(e.target.value));
+    }
+
+    if (this.modeSelect) {
+      this.modeSelect.addEventListener('change', (e) => {
+        const newMode = e.target.value;
+        if (this.activeSessionId) {
+          const session = this.sessions.find((s) => s.id === this.activeSessionId);
+          if (session) {
+            session.mode = newMode;
+            if (this.chatMeta) {
+              this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
+            }
+            fetch(`/api/sessions/${session.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}` },
+              body: JSON.stringify({ mode: newMode }),
+            }).catch(() => {});
+          }
+        }
+      });
+    }
 
     this.themeToggleBtn.addEventListener('click', () => this.toggleTheme());
 
@@ -1124,6 +1166,14 @@ class AgentRemoteApp {
       this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
     }
 
+    if (session.model) {
+      if (this.modelSelect) this.modelSelect.value = session.model;
+      if (this.chatModelSelect) this.chatModelSelect.value = session.model;
+    }
+    if (session.mode && this.modeSelect) {
+      this.modeSelect.value = session.mode;
+    }
+
     if (session.messages.length === 0) {
       this.chatMessages.innerHTML = `
         <div class="welcome-box">
@@ -1389,7 +1439,13 @@ class AgentRemoteApp {
     this.scrollToBottom();
 
     const session = this.sessions.find((s) => s.id === this.activeSessionId);
-    let effectiveModel = (session && session.model) || this.modelSelect.value || 'auto';
+    let effectiveModel = (this.chatModelSelect && this.chatModelSelect.value) || 
+                         (this.modelSelect && this.modelSelect.value) || 
+                         (session && session.model) || 'auto';
+
+    if (session) {
+      session.model = effectiveModel;
+    }
 
     if (this.thinkingMode === 'on' && !effectiveModel.includes('thinking')) {
       if (effectiveModel.includes('flash')) effectiveModel = 'gemini-3.7-flash-thinking';
