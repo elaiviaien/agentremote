@@ -117,6 +117,22 @@ class AgentRemoteApp {
     this.antigravityLimitSize = document.getElementById('antigravity-limit-size');
     this.limitsMachineName = document.getElementById('limits-machine-name');
     this.limitsMachineRam = document.getElementById('limits-machine-ram');
+
+    // New Chat Modal Elements
+    this.newChatModal = document.getElementById('new-chat-modal');
+    this.closeNewChatModalBtn = document.getElementById('close-new-chat-modal-btn');
+    this.cancelNewChatBtn = document.getElementById('cancel-new-chat-btn');
+    this.submitNewChatBtn = document.getElementById('submit-new-chat-btn');
+    this.selectEngineCursor = document.getElementById('select-engine-cursor');
+    this.selectEngineAntigravity = document.getElementById('select-engine-antigravity');
+    this.modalWorkspaceInput = document.getElementById('modal-workspace-input');
+    this.modalModelSelect = document.getElementById('modal-model-select');
+    this.modalModeSelect = document.getElementById('modal-mode-select');
+    this.modalSessionTitle = document.getElementById('modal-session-title');
+    this.modalSessionDesc = document.getElementById('modal-session-desc');
+    this.modalOpenImportBtn = document.getElementById('modal-open-import-btn');
+    this.openImportHeaderBtn = document.getElementById('open-import-header-btn');
+    this.currentSelectedEngine = 'cursor';
   }
 
   initEvents() {
@@ -235,17 +251,67 @@ class AgentRemoteApp {
       });
     }
 
-    // New Chat Cursor
+    // New Chat Buttons -> Opens New Chat Modal
     if (this.newChatBtn) {
       this.newChatBtn.addEventListener('click', () => {
-        this.createNewSession('cursor');
+        this.openNewChatModal('cursor');
       });
     }
 
-    // New Chat Antigravity
     if (this.newAntigravityChatBtn) {
       this.newAntigravityChatBtn.addEventListener('click', () => {
-        this.createNewSession('antigravity');
+        this.openNewChatModal('antigravity');
+      });
+    }
+
+    // New Chat Modal Controls
+    if (this.closeNewChatModalBtn) {
+      this.closeNewChatModalBtn.addEventListener('click', () => {
+        this.newChatModal.style.display = 'none';
+      });
+    }
+
+    if (this.cancelNewChatBtn) {
+      this.cancelNewChatBtn.addEventListener('click', () => {
+        this.newChatModal.style.display = 'none';
+      });
+    }
+
+    if (this.submitNewChatBtn) {
+      this.submitNewChatBtn.addEventListener('click', () => {
+        this.submitNewChatModal();
+      });
+    }
+
+    if (this.selectEngineCursor) {
+      this.selectEngineCursor.addEventListener('click', () => {
+        this.setModalEngine('cursor');
+      });
+    }
+
+    if (this.selectEngineAntigravity) {
+      this.selectEngineAntigravity.addEventListener('click', () => {
+        this.setModalEngine('antigravity');
+      });
+    }
+
+    if (this.modalOpenImportBtn) {
+      this.modalOpenImportBtn.addEventListener('click', () => {
+        this.newChatModal.style.display = 'none';
+        this.openImportModal();
+      });
+    }
+
+    // Import Chat Buttons
+    if (this.openImportHeaderBtn) {
+      this.openImportHeaderBtn.addEventListener('click', () => {
+        this.openImportModal();
+      });
+    }
+
+    if (this.importChatBtn) {
+      this.importChatBtn.addEventListener('click', () => {
+        this.openImportModal();
       });
     }
 
@@ -1331,6 +1397,107 @@ class AgentRemoteApp {
   }
 
   // ================= CHAT IMPORT LOGIC =================
+  // ================= NEW CHAT MODAL LOGIC =================
+  openNewChatModal(preferredEngine = 'cursor') {
+    const dev = this.getActiveDevice();
+    this.currentSelectedEngine = preferredEngine;
+    this.setModalEngine(preferredEngine);
+
+    const defaultWs = (dev && dev.defaultWorkspace) || this.workspaceInput.value || '';
+    if (this.modalWorkspaceInput) {
+      this.modalWorkspaceInput.value = defaultWs;
+    }
+
+    if (this.modalSessionTitle) {
+      this.modalSessionTitle.value = '';
+    }
+    if (this.modalSessionDesc) {
+      this.modalSessionDesc.value = '';
+    }
+
+    this.newChatModal.style.display = 'flex';
+  }
+
+  setModalEngine(engine) {
+    this.currentSelectedEngine = engine;
+    const isAgy = engine === 'antigravity';
+
+    if (this.selectEngineCursor && this.selectEngineAntigravity) {
+      if (isAgy) {
+        this.selectEngineAntigravity.style.borderColor = 'var(--accent-primary)';
+        this.selectEngineAntigravity.style.background = 'var(--bg-card-hover)';
+        this.selectEngineCursor.style.borderColor = 'var(--border-subtle)';
+        this.selectEngineCursor.style.background = 'var(--bg-card)';
+      } else {
+        this.selectEngineCursor.style.borderColor = 'var(--accent-primary)';
+        this.selectEngineCursor.style.background = 'var(--bg-card-hover)';
+        this.selectEngineAntigravity.style.borderColor = 'var(--border-subtle)';
+        this.selectEngineAntigravity.style.background = 'var(--bg-card)';
+      }
+    }
+
+    // Adjust default models
+    if (this.modalModelSelect) {
+      if (isAgy) {
+        this.modalModelSelect.value = 'gemini-3.1-pro';
+      } else {
+        this.modalModelSelect.value = 'claude-4.5-sonnet';
+      }
+    }
+  }
+
+  async submitNewChatModal() {
+    const activeDev = this.getActiveDevice();
+    const isAgy = this.currentSelectedEngine === 'antigravity';
+    const workspace = (this.modalWorkspaceInput && this.modalWorkspaceInput.value.trim()) || (activeDev && activeDev.defaultWorkspace) || '';
+    const title = (this.modalSessionTitle && this.modalSessionTitle.value.trim()) || (isAgy ? 'Новий чат Antigravity' : 'Новий чат Cursor');
+    const desc = (this.modalSessionDesc && this.modalSessionDesc.value.trim()) || (isAgy ? 'Сесія Google Antigravity (Gemini)' : 'Сесія Cursor AI Agent');
+    const model = (this.modalModelSelect && this.modalModelSelect.value) || (isAgy ? 'gemini-3.1-pro' : 'claude-4.5-sonnet');
+    const mode = (this.modalModeSelect && this.modalModeSelect.value) || 'yolo';
+
+    const newSession = {
+      deviceId: activeDev ? activeDev.id : 'default',
+      title,
+      description: desc,
+      engine: this.currentSelectedEngine,
+      model,
+      mode,
+      workspacePath: workspace,
+    };
+
+    this.submitNewChatBtn.disabled = true;
+    this.submitNewChatBtn.innerHTML = '⏳ Створення...';
+
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify(newSession),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        this.sessions.unshift(data.session);
+        this.renderSessions();
+        this.selectSession(data.session.id);
+        this.newChatModal.style.display = 'none';
+        this.promptInput.focus();
+        this.showToast(`✨ Створено новий чат: ${data.session.title}`);
+      } else {
+        alert('Не вдалося створити чат');
+      }
+    } catch {
+      alert('Помилка з\'єднання при створенні чату');
+    } finally {
+      this.submitNewChatBtn.disabled = false;
+      this.submitNewChatBtn.innerHTML = '<span>🚀 Створити чат</span>';
+    }
+  }
+
+  // ================= IMPORT CHAT LOGIC =================
   openImportModal() {
     this.importModal.style.display = 'flex';
     this.selectedTranscriptFilePath = '';
