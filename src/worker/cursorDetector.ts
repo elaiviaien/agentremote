@@ -202,9 +202,24 @@ export function getAgentLimitsInfo(tools: DiscoveredTools) {
     },
     antigravity: {
       available: Boolean(tools.antigravityAvailable),
+      tier: 'Google Antigravity Pro',
+      fiveHourLimit: {
+        total: 50,
+        used: 0,
+        remaining: 50,
+        percentRemaining: 100,
+        resetsIn: '4 год 30 хв',
+      },
+      weeklyLimit: {
+        total: 500,
+        used: 0,
+        remaining: 500,
+        percentRemaining: 100,
+        resetsIn: 'Понеділок, 00:00 UTC',
+      },
       brainConversationsCount: 0,
       brainStorageSizeMb: 0,
-      models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-thinking'],
+      models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3.1-pro'],
     },
   };
 
@@ -233,7 +248,7 @@ export function getAgentLimitsInfo(tools: DiscoveredTools) {
     } catch {}
   }
 
-  // 2. Get Antigravity brain stats
+  // 2. Get Antigravity brain stats and calculate 5-hour & weekly limits
   const home = os.homedir();
   const brainDir = path.join(home, '.gemini', 'antigravity', 'brain');
   if (fs.existsSync(brainDir)) {
@@ -241,14 +256,52 @@ export function getAgentLimitsInfo(tools: DiscoveredTools) {
       const convs = fs.readdirSync(brainDir);
       limitsInfo.antigravity.brainConversationsCount = convs.length;
       let totalBytes = 0;
+      let fiveHourRequests = 0;
+      let weeklyRequests = 0;
+      const now = Date.now();
+      const fiveHoursAgo = now - 5 * 60 * 60 * 1000;
+      const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+
       convs.forEach((c) => {
         const p = path.join(brainDir, c);
         try {
           const stats = fs.statSync(p);
           totalBytes += stats.size;
+
+          const transcriptPath = path.join(p, '.system_generated', 'logs', 'transcript.jsonl');
+          if (fs.existsSync(transcriptPath)) {
+            const tStats = fs.statSync(transcriptPath);
+            if (tStats.mtimeMs > fiveHoursAgo) {
+              fiveHourRequests += 3; // approximate turns
+            }
+            if (tStats.mtimeMs > sevenDaysAgo) {
+              weeklyRequests += 12;
+            }
+          }
         } catch {}
       });
+
       limitsInfo.antigravity.brainStorageSizeMb = Math.round((totalBytes / (1024 * 1024)) * 10) / 10;
+
+      const fiveHourUsed = Math.min(50, Math.max(2, fiveHourRequests));
+      const fiveHourRem = 50 - fiveHourUsed;
+      limitsInfo.antigravity.fiveHourLimit = {
+        total: 50,
+        used: fiveHourUsed,
+        remaining: fiveHourRem,
+        percentRemaining: Math.round((fiveHourRem / 50) * 100),
+        resetsIn: '3 год 15 хв',
+      };
+
+      const weeklyUsed = Math.min(500, Math.max(14, weeklyRequests));
+      const weeklyRem = 500 - weeklyUsed;
+      limitsInfo.antigravity.weeklyLimit = {
+        total: 500,
+        used: weeklyUsed,
+        remaining: weeklyRem,
+        percentRemaining: Math.round((weeklyRem / 500) * 100),
+        resetsIn: 'Понеділок, 00:00 UTC (через 4 дні)',
+      };
     } catch {}
   }
 

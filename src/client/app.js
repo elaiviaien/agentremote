@@ -125,9 +125,18 @@ class AgentRemoteApp {
     this.cursorLimitEmail = document.getElementById('cursor-limit-email');
     this.cursorLimitModel = document.getElementById('cursor-limit-model');
     this.cursorLimitVer = document.getElementById('cursor-limit-ver');
+    this.antigravityTierBadge = document.getElementById('antigravity-tier-badge');
     this.antigravityLimitStatus = document.getElementById('antigravity-limit-status');
     this.antigravityLimitConvs = document.getElementById('antigravity-limit-convs');
     this.antigravityLimitSize = document.getElementById('antigravity-limit-size');
+    this.antigravity5hVal = document.getElementById('antigravity-5h-val');
+    this.antigravity5hProgress = document.getElementById('antigravity-5h-progress');
+    this.antigravity5hPercent = document.getElementById('antigravity-5h-percent');
+    this.antigravity5hReset = document.getElementById('antigravity-5h-reset');
+    this.antigravityWeeklyVal = document.getElementById('antigravity-weekly-val');
+    this.antigravityWeeklyProgress = document.getElementById('antigravity-weekly-progress');
+    this.antigravityWeeklyPercent = document.getElementById('antigravity-weekly-percent');
+    this.antigravityWeeklyReset = document.getElementById('antigravity-weekly-reset');
     this.limitsMachineName = document.getElementById('limits-machine-name');
     this.limitsMachineRam = document.getElementById('limits-machine-ram');
 
@@ -1818,9 +1827,27 @@ class AgentRemoteApp {
     }
 
     if (limits && limits.antigravity) {
-      this.antigravityLimitStatus.innerText = limits.antigravity.available ? '✓ Доступно на машині' : 'Не виявлено';
-      this.antigravityLimitConvs.innerText = `${limits.antigravity.brainConversationsCount} діалогів`;
-      this.antigravityLimitSize.innerText = `${limits.antigravity.brainStorageSizeMb} MB`;
+      const agy = limits.antigravity;
+      this.antigravityLimitStatus.innerText = agy.available ? '✓ Доступно на машині' : 'Не виявлено';
+      this.antigravityLimitConvs.innerText = `${agy.brainConversationsCount} діалогів`;
+      this.antigravityLimitSize.innerText = `${agy.brainStorageSizeMb} MB`;
+      if (this.antigravityTierBadge) this.antigravityTierBadge.innerText = (agy.tier || 'PRO QUOTA').toUpperCase();
+
+      if (agy.fiveHourLimit && this.antigravity5hVal) {
+        const fh = agy.fiveHourLimit;
+        this.antigravity5hVal.innerText = `${fh.remaining} / ${fh.total} запитів`;
+        if (this.antigravity5hProgress) this.antigravity5hProgress.style.width = `${fh.percentRemaining}%`;
+        if (this.antigravity5hPercent) this.antigravity5hPercent.innerText = `${fh.percentRemaining}%`;
+        if (this.antigravity5hReset) this.antigravity5hReset.innerText = `Скидання через ${fh.resetsIn}`;
+      }
+
+      if (agy.weeklyLimit && this.antigravityWeeklyVal) {
+        const wk = agy.weeklyLimit;
+        this.antigravityWeeklyVal.innerText = `${wk.remaining} / ${wk.total} запитів`;
+        if (this.antigravityWeeklyProgress) this.antigravityWeeklyProgress.style.width = `${wk.percentRemaining}%`;
+        if (this.antigravityWeeklyPercent) this.antigravityWeeklyPercent.innerText = `${wk.percentRemaining}%`;
+        if (this.antigravityWeeklyReset) this.antigravityWeeklyReset.innerText = wk.resetsIn;
+      }
     } else {
       this.antigravityLimitStatus.innerText = dev.antigravityAvailable ? '✓ Доступно на машині' : 'Не виявлено';
       this.antigravityLimitConvs.innerText = 'Доступно';

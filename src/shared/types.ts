@@ -9,6 +9,21 @@ export interface AgentLimitsInfo {
   };
   antigravity?: {
     available: boolean;
+    tier?: string;
+    fiveHourLimit?: {
+      total: number;
+      used: number;
+      remaining: number;
+      percentRemaining: number;
+      resetsIn: string;
+    };
+    weeklyLimit?: {
+      total: number;
+      used: number;
+      remaining: number;
+      percentRemaining: number;
+      resetsIn: string;
+    };
     brainConversationsCount: number;
     brainStorageSizeMb: number;
     models: string[];

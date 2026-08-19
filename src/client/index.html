@@ -674,13 +674,47 @@ npm run worker</pre>
               <span style="font-size: 18px;">🚀</span>
               <span class="limits-title-antigravity">Google Antigravity 2.0</span>
             </div>
-            <span class="limits-badge-antigravity">GEMINI 2.5</span>
+            <span class="limits-badge-antigravity" id="antigravity-tier-badge">PRO QUOTA</span>
           </div>
+          
           <div id="antigravity-limits-content" class="limits-data-grid">
             <div><strong>Статус:</strong> <span id="antigravity-limit-status" class="limits-value-success">✓ Доступно на машині</span></div>
             <div><strong>Сесії у Brain:</strong> <span id="antigravity-limit-convs" class="limits-value-highlight">-</span></div>
             <div><strong>Розмір пам'яті:</strong> <span id="antigravity-limit-size">- MB</span></div>
-            <div><strong>Моделі:</strong> <span>Gemini 2.5 Pro / Flash</span></div>
+            <div><strong>Моделі:</strong> <span>Gemini 2.5 / 3.1 Pro</span></div>
+          </div>
+
+          <!-- 5-Hour & Weekly Limits Section -->
+          <div class="quota-block">
+            <!-- 5-Hour Rolling Limit -->
+            <div class="quota-item">
+              <div class="quota-header-row">
+                <span class="quota-label">⏱️ 5-годинний ліміт (Rolling Window)</span>
+                <span class="quota-value" id="antigravity-5h-val">48 / 50 запитів</span>
+              </div>
+              <div class="quota-progress-track">
+                <div id="antigravity-5h-progress" class="quota-progress-fill" style="width: 96%;"></div>
+              </div>
+              <div class="quota-reset-text">
+                <span>Доступно: <strong id="antigravity-5h-percent" style="color: var(--text-primary);">96%</strong></span>
+                <span id="antigravity-5h-reset">Скидання через 3 год 15 хв</span>
+              </div>
+            </div>
+
+            <!-- Weekly Limit -->
+            <div class="quota-item">
+              <div class="quota-header-row">
+                <span class="quota-label">📅 Тижнева квота (Weekly Pro Budget)</span>
+                <span class="quota-value" id="antigravity-weekly-val">476 / 500 запитів</span>
+              </div>
+              <div class="quota-progress-track">
+                <div id="antigravity-weekly-progress" class="quota-progress-fill" style="width: 95%;"></div>
+              </div>
+              <div class="quota-reset-text">
+                <span>Доступно: <strong id="antigravity-weekly-percent" style="color: var(--text-primary);">95%</strong></span>
+                <span id="antigravity-weekly-reset">Понеділок, 00:00 UTC</span>
+              </div>
+            </div>
           </div>
         </div>
 
