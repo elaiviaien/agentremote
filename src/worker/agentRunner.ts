@@ -185,7 +185,13 @@ export class AgentRunner {
       if (code === 0) {
         callbacks.onComplete(accumulatedText || fullOutput, cursorChatId, true);
       } else {
-        const errorMsg = `Process exited with code ${code}`;
+        let errorMsg = `Process exited with code ${code}`;
+        if (fullOutput.includes('Authentication required')) {
+          errorMsg = '⚠️ Cursor CLI потребує авторизації. Будь ласка, виконайте `cursor-agent login` у терміналі або встановіть змінну `CURSOR_API_KEY`.';
+          if (!accumulatedText.includes(errorMsg)) {
+            accumulatedText = errorMsg + '\n\n' + accumulatedText;
+          }
+        }
         callbacks.onComplete(accumulatedText || fullOutput || errorMsg, cursorChatId, false, errorMsg);
       }
     });
