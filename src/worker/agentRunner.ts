@@ -11,7 +11,7 @@ export interface StreamCallbacks {
 }
 
 export class AgentRunner {
-  private activeProcesses = new Map<string, ChildProcess>();
+  private activeProcesses = new Map<string, { proc: ChildProcess; isAborted: boolean }>();
 
   constructor(private tools: DiscoveredTools) {}
 
@@ -174,9 +174,11 @@ export class AgentRunner {
       },
     });
 
-    this.activeProcesses.set(sessionId, proc);
+    const processEntry = { proc, isAborted: false };
+    this.activeProcesses.set(sessionId, processEntry);
 
     proc.stdout?.on('data', (data: Buffer) => {
+      if (processEntry.isAborted) return;
       const text = data.toString();
       fullOutput += text;
       buffer += text;
@@ -251,6 +253,7 @@ export class AgentRunner {
     });
 
     proc.stderr?.on('data', (data: Buffer) => {
+      if (processEntry.isAborted) return;
       const errText = data.toString();
       fullOutput += errText;
       console.error(`[AgentRunner] stderr: ${errText}`);
@@ -258,8 +261,14 @@ export class AgentRunner {
     });
 
     proc.on('close', (code) => {
+      const wasAborted = processEntry.isAborted;
       this.activeProcesses.delete(sessionId);
-      console.log(`[AgentRunner] Process for session ${sessionId} exited with code ${code}`);
+      console.log(`[AgentRunner] Process for session ${sessionId} exited with code ${code} (aborted: ${wasAborted})`);
+
+      if (wasAborted) {
+        console.log(`[AgentRunner] Suppressing onComplete callbacks for aborted session ${sessionId}`);
+        return;
+      }
 
       // Flush remainder of buffer
       if (buffer.trim()) {
@@ -282,7 +291,9 @@ export class AgentRunner {
     });
 
     proc.on('error', (err) => {
+      const wasAborted = processEntry.isAborted;
       this.activeProcesses.delete(sessionId);
+      if (wasAborted) return;
       console.error(`[AgentRunner] Spawn error:`, err);
       callbacks.onError(err.message);
       callbacks.onComplete(err.message, cursorChatId, false, err.message);
@@ -290,14 +301,15 @@ export class AgentRunner {
   }
 
   public abort(sessionId: string) {
-    const proc = this.activeProcesses.get(sessionId);
-    if (proc) {
+    const processEntry = this.activeProcesses.get(sessionId);
+    if (processEntry) {
+      processEntry.isAborted = true;
       console.log(`[AgentRunner] Aborting session: ${sessionId}`);
       try {
-        if (process.platform === 'win32' && proc.pid) {
-          spawn('taskkill', ['/pid', proc.pid.toString(), '/f', '/t']);
+        if (process.platform === 'win32' && processEntry.proc.pid) {
+          spawn('taskkill', ['/pid', processEntry.proc.pid.toString(), '/f', '/t']);
         } else {
-          proc.kill('SIGINT');
+          processEntry.proc.kill('SIGINT');
         }
       } catch (err) {
         console.error('Error terminating process:', err);

@@ -1496,20 +1496,33 @@ class AgentRemoteApp {
   }
 
   sendPrompt() {
+    // 1. Debounce protection against rapid double-clicks or multiple Enter triggers
+    const now = Date.now();
+    if (this._lastPromptSubmitTime && now - this._lastPromptSubmitTime < 500) {
+      return;
+    }
+
     const text = this.promptInput.value.trim();
     if (!text || !this.activeSessionId) return;
 
+    this._lastPromptSubmitTime = now;
+    this.promptInput.value = '';
+    this.promptInput.style.height = 'auto';
+
     const session = this.sessions.find((s) => s.id === this.activeSessionId);
 
-    // If agent is currently executing/streaming, add prompt to QUEUE!
+    // 2. If agent is currently executing/streaming, add prompt to QUEUE!
     if (this.isStreaming) {
       if (session) {
         session.promptQueue = session.promptQueue || [];
+        // Prevent accidental duplicate enqueue of the same prompt in a row
+        if (session.promptQueue.length > 0 && session.promptQueue[session.promptQueue.length - 1] === text) {
+          console.warn('[Chat] Suppressed identical duplicate prompt in queue');
+          return;
+        }
         session.promptQueue.push(text);
       }
       this.renderQueue();
-      this.promptInput.value = '';
-      this.promptInput.style.height = 'auto';
 
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(
@@ -1528,8 +1541,6 @@ class AgentRemoteApp {
     }
 
     this.renderChatMessageElement('user', text);
-    this.promptInput.value = '';
-    this.promptInput.style.height = 'auto';
 
     this.isStreaming = true;
     this.stopAgentBtn.style.display = 'inline-flex';

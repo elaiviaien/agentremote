@@ -167,6 +167,7 @@ export class WorkerWsManager {
             }
           }
         } else {
+          sessionManager.updateSession(sessionId, { isStreaming: false, status: 'idle' });
           // Broadcast final updated session state
           const session = sessionManager.getSession(sessionId);
           if (session) {

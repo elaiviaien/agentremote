@@ -88,6 +88,29 @@ export class ClientWsManager {
         }
         sessionManager.updateSession(session.id, { model: session.model, thinkingEffort: session.thinkingEffort });
 
+        // If session is ALREADY streaming or running, automatically enqueue to prevent duplicate runs
+        if (session.isStreaming || session.status === 'running') {
+          console.log(`[ClientWS] Session ${session.id} is already busy. Auto-queuing incoming prompt.`);
+          const currentQueue = session.promptQueue || [];
+          if (currentQueue.length === 0 || currentQueue[currentQueue.length - 1] !== prompt) {
+            sessionManager.enqueuePrompt(session.id, prompt);
+            this.broadcast({
+              type: 'session:updated',
+              payload: sessionManager.getSession(session.id)!,
+            });
+          }
+          break;
+        }
+
+        // Set session status to running
+        sessionManager.updateSession(session.id, {
+          isStreaming: true,
+          status: 'running',
+          model: model || session.model,
+          mode: mode || session.mode,
+          thinkingEffort: thinkingEffort || session.thinkingEffort,
+        });
+
         // Add user message to session
         sessionManager.addMessage(session.id, {
           role: 'user',
@@ -135,6 +158,7 @@ export class ClientWsManager {
             session.id,
             '⚠️ Error: Selected machine is currently offline or unreachable.'
           );
+          sessionManager.updateSession(session.id, { isStreaming: false, status: 'idle' });
           this.broadcast({
             type: 'session:updated',
             payload: sessionManager.getSession(session.id)!,
