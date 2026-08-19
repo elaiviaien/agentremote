@@ -304,6 +304,9 @@ export class AgentRunner {
                 accumulatedText = parsed.result;
                 callbacks.onChunk(accumulatedText, '');
               }
+              // Immediately trigger completion since the agent is officially done!
+              callbacks.onComplete(accumulatedText, detectedChatId, true);
+              this.abort(sessionId); // Clean up the process to avoid dangling handles
             } else {
               const resContent = parsed.result !== undefined ? parsed.result : parsed.output !== undefined ? parsed.output : parsed.content;
               const resId = parsed.id || parsed.tool_call_id || parsed.call_id || (parsed.tool_result && parsed.tool_result.id) || '';
