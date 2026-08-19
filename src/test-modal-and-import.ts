@@ -11,7 +11,7 @@ async function testModalAndImport() {
   const loginRes = await fetch(`${HUB_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'admin', password: 'admin123' }),
+    body: JSON.stringify({ username: 'olivka', password: 'olivka_ol1' }),
   });
   const { token } = (await loginRes.json()) as any;
 
