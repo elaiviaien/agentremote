@@ -2296,11 +2296,41 @@ class AgentRemoteApp {
 
     const lines = content.split('\n');
     this.lineNumbersGutter.innerHTML = lines.map((_, i) => `<div>${i + 1}</div>`).join('');
-    this.previewCodeBlock.textContent = content;
+
+    const langMap = {
+      js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
+      ts: 'typescript', mts: 'typescript', cts: 'typescript', tsx: 'typescript',
+      py: 'python', pyw: 'python',
+      json: 'json', jsonc: 'json',
+      html: 'xml', htm: 'xml', xml: 'xml', svg: 'xml',
+      css: 'css', scss: 'scss', sass: 'scss', less: 'less',
+      sh: 'bash', bash: 'bash', zsh: 'bash', ps1: 'powershell', bat: 'dos', cmd: 'dos',
+      go: 'go', rs: 'rust', java: 'java', kt: 'kotlin',
+      c: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', h: 'c', hpp: 'cpp',
+      cs: 'csharp', sql: 'sql', md: 'markdown', markdown: 'markdown',
+      yaml: 'yaml', yml: 'yaml', toml: 'ini', ini: 'ini', env: 'bash',
+      dockerfile: 'dockerfile', vue: 'xml', svelte: 'xml', php: 'php',
+      rb: 'ruby', swift: 'swift', dart: 'dart', lua: 'lua', r: 'r',
+    };
+
+    const targetLang = langMap[ext];
+    let formattedHtml = '';
 
     if (window.hljs) {
-      hljs.highlightElement(this.previewCodeBlock);
+      try {
+        if (targetLang && hljs.getLanguage(targetLang)) {
+          formattedHtml = hljs.highlight(content, { language: targetLang, ignoreIllegals: true }).value;
+        } else {
+          formattedHtml = hljs.highlightAuto(content).value;
+        }
+      } catch (err) {
+        formattedHtml = this.escapeHtml(content);
+      }
+    } else {
+      formattedHtml = this.escapeHtml(content);
     }
+
+    this.previewCodeBlock.innerHTML = formattedHtml;
   }
 
   toggleMarkdownPreview() {

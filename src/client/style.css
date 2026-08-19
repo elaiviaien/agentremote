@@ -1976,11 +1976,7 @@ body {
   flex: 1;
   overflow: auto;
   position: relative;
-  background: var(--bg-card);
-}
-
-[data-theme="dark"] .code-preview-scroll {
-  background: #0d1117;
+  background: #0d1117 !important;
 }
 
 .file-empty-state {
@@ -2018,7 +2014,8 @@ body {
 .code-editor-container {
   display: flex;
   min-height: 100%;
-  font-family: var(--font-mono) !important;
+  background: #0d1117 !important;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace !important;
   font-size: 13.5px !important;
   line-height: 1.7 !important;
   letter-spacing: 0 !important;
@@ -2028,22 +2025,16 @@ body {
 
 .line-numbers-gutter {
   padding: 20px 14px;
-  background: var(--bg-main);
-  border-right: 1px solid var(--border-subtle);
-  color: var(--text-muted);
+  background: #070a0f !important;
+  border-right: 1px solid #21262d !important;
+  color: #6e7681 !important;
   text-align: right;
   user-select: none;
-  font-family: var(--font-mono);
+  font-family: 'JetBrains Mono', Consolas, monospace;
   font-size: 12.5px;
   line-height: 1.7;
-  min-width: 52px;
+  min-width: 54px;
   flex-shrink: 0;
-}
-
-[data-theme="dark"] .line-numbers-gutter {
-  background: #080c14;
-  border-right-color: #21262d;
-  color: #6e7681;
 }
 
 .code-content-pre {
@@ -2051,19 +2042,86 @@ body {
   padding: 20px 28px !important;
   flex: 1;
   overflow-x: auto;
-  background: transparent !important;
-  color: var(--text-primary);
-  font-family: var(--font-mono) !important;
+  background: #0d1117 !important;
+  color: #e6edf3 !important;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace !important;
   font-size: 13.5px !important;
   line-height: 1.7 !important;
 }
 
 .code-content-pre code {
-  font-family: var(--font-mono) !important;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace !important;
   font-size: 13.5px !important;
   line-height: 1.7 !important;
   background: transparent !important;
   padding: 0 !important;
+  color: #e6edf3 !important;
+}
+
+/* ================= VIBRANT SYNTAX HIGHLIGHTING ================= */
+.code-content-pre .hljs-keyword,
+.code-content-pre .hljs-selector-tag,
+.code-content-pre .hljs-subst {
+  color: #ff7b72 !important; /* Crimson Red / Salmon */
+  font-weight: 600;
+}
+
+.code-content-pre .hljs-string,
+.code-content-pre .hljs-title.class_,
+.code-content-pre .hljs-section,
+.code-content-pre .hljs-attribute,
+.code-content-pre .hljs-literal,
+.code-content-pre .hljs-template-tag,
+.code-content-pre .hljs-template-variable,
+.code-content-pre .hljs-type,
+.code-content-pre .hljs-addition {
+  color: #a5d6ff !important; /* Vivid Sky Blue */
+}
+
+.code-content-pre .hljs-function,
+.code-content-pre .hljs-title.function_,
+.code-content-pre .hljs-title {
+  color: #d2a8ff !important; /* Vibrant Purple */
+  font-weight: 600;
+}
+
+.code-content-pre .hljs-variable,
+.code-content-pre .hljs-params,
+.code-content-pre .hljs-attr {
+  color: #79c0ff !important; /* Soft Cyan Blue */
+}
+
+.code-content-pre .hljs-number {
+  color: #79c0ff !important; /* Cyan / Blue */
+}
+
+.code-content-pre .hljs-comment,
+.code-content-pre .hljs-quote {
+  color: #8b949e !important; /* Muted Slate Gray */
+  font-style: italic;
+}
+
+.code-content-pre .hljs-meta,
+.code-content-pre .hljs-meta .hljs-keyword {
+  color: #ff7b72 !important;
+}
+
+.code-content-pre .hljs-tag {
+  color: #7ee787 !important; /* Emerald Green */
+}
+
+.code-content-pre .hljs-name {
+  color: #7ee787 !important;
+}
+
+.code-content-pre .hljs-symbol,
+.code-content-pre .hljs-bullet {
+  color: #f2cc60 !important; /* Gold */
+}
+
+.code-content-pre .hljs-built_in,
+.code-content-pre .hljs-builtin-name {
+  color: #ffa657 !important; /* Bright Orange */
 }
 
 /* Markdown Rendered View - Spacious & Elegant */
