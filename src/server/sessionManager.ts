@@ -18,7 +18,7 @@ export class SessionManager {
     title?: string;
     workspacePath?: string;
     model?: string;
-    mode?: 'agent' | 'plan' | 'ask' | 'yolo';
+    mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
     cursorChatId?: string;
   }): ChatSession {
     const id = randomUUID();
@@ -36,6 +36,30 @@ export class SessionManager {
     };
     db.saveSession(newSession);
     return newSession;
+  }
+
+  public updateSession(
+    id: string,
+    params: {
+      title?: string;
+      workspacePath?: string;
+      model?: string;
+      mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
+      cursorChatId?: string;
+    }
+  ): ChatSession | null {
+    const session = db.getSession(id);
+    if (!session) return null;
+
+    if (params.title !== undefined) session.title = params.title;
+    if (params.workspacePath !== undefined) session.workspacePath = params.workspacePath;
+    if (params.model !== undefined) session.model = params.model;
+    if (params.mode !== undefined) session.mode = params.mode;
+    if (params.cursorChatId !== undefined) session.cursorChatId = params.cursorChatId;
+
+    session.updatedAt = Date.now();
+    db.saveSession(session);
+    return session;
   }
 
   public addMessage(sessionId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>): ChatMessage | null {

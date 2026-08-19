@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import dotenv from 'dotenv';
 import { DeviceInfo, HubToWorkerMessage, WorkerToHubMessage } from '../shared/types';
-import { detectCursorTools, checkCursorAuthStatus } from './cursorDetector';
+import { detectCursorTools, checkCursorAuthStatus, getAgentLimitsInfo } from './cursorDetector';
 import { AgentRunner } from './agentRunner';
 import { TerminalRunner } from './terminalRunner';
 import { FsBridge } from './fsBridge';
@@ -100,6 +100,7 @@ class WorkerDaemon {
     const totalMem = Math.round(os.totalmem() / 1024 / 1024);
     const freeMem = Math.round(os.freemem() / 1024 / 1024);
     const authStatus = checkCursorAuthStatus(this.tools);
+    const limitsInfo = getAgentLimitsInfo(this.tools);
 
     const deviceInfo: DeviceInfo = {
       id: DEVICE_ID,
@@ -113,6 +114,7 @@ class WorkerDaemon {
       defaultWorkspace: DEFAULT_WORKSPACE,
       cursorCliPath: this.tools.cursorAgentCmd,
       cursorAuthStatus: authStatus,
+      limitsInfo,
       antigravityAvailable: this.tools.antigravityAvailable,
       lastSeen: Date.now(),
       memoryUsage: {

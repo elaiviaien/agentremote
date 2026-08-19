@@ -100,10 +100,20 @@ class AgentRemoteApp {
     this.terminalInput = document.getElementById('terminal-input');
     this.clearTermBtn = document.getElementById('clear-term-btn');
 
-    // Devices View
-    this.devicesFullList = document.getElementById('devices-full-list');
-    this.copyCmdBtn = document.getElementById('copy-cmd-btn');
-    this.daemonCommandText = document.getElementById('daemon-command-text');
+    // Limits Modal Elements
+    this.openLimitsBtn = document.getElementById('open-limits-btn');
+    this.limitsModal = document.getElementById('limits-modal');
+    this.closeLimitsModalBtn = document.getElementById('close-limits-modal-btn');
+    this.closeLimitsFooterBtn = document.getElementById('close-limits-footer-btn');
+    this.cursorTierBadge = document.getElementById('cursor-tier-badge');
+    this.cursorLimitEmail = document.getElementById('cursor-limit-email');
+    this.cursorLimitModel = document.getElementById('cursor-limit-model');
+    this.cursorLimitVer = document.getElementById('cursor-limit-ver');
+    this.antigravityLimitStatus = document.getElementById('antigravity-limit-status');
+    this.antigravityLimitConvs = document.getElementById('antigravity-limit-convs');
+    this.antigravityLimitSize = document.getElementById('antigravity-limit-size');
+    this.limitsMachineName = document.getElementById('limits-machine-name');
+    this.limitsMachineRam = document.getElementById('limits-machine-ram');
   }
 
   initEvents() {
@@ -190,6 +200,25 @@ class AgentRemoteApp {
     if (this.executeImportBtn) {
       this.executeImportBtn.addEventListener('click', () => {
         this.executeImport();
+      });
+    }
+
+    // Limits Modal
+    if (this.openLimitsBtn) {
+      this.openLimitsBtn.addEventListener('click', () => {
+        this.openLimitsModal();
+      });
+    }
+
+    if (this.closeLimitsModalBtn) {
+      this.closeLimitsModalBtn.addEventListener('click', () => {
+        this.limitsModal.style.display = 'none';
+      });
+    }
+
+    if (this.closeLimitsFooterBtn) {
+      this.closeLimitsFooterBtn.addEventListener('click', () => {
+        this.limitsModal.style.display = 'none';
       });
     }
 
@@ -1364,6 +1393,45 @@ class AgentRemoteApp {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
         <span>Імпортувати та створити чат</span>
       `;
+    }
+  }
+
+  // ================= LIMITS & SUBSCRIPTIONS LOGIC =================
+  openLimitsModal() {
+    const dev = this.getActiveDevice();
+    this.limitsModal.style.display = 'flex';
+
+    if (!dev) {
+      this.cursorLimitEmail.innerText = 'Немає підключеної машини';
+      this.limitsMachineName.innerText = '-';
+      this.limitsMachineRam.innerText = '-';
+      return;
+    }
+
+    const limits = dev.limitsInfo;
+    this.limitsMachineName.innerText = `${dev.name} (${dev.os || 'Windows'})`;
+    this.limitsMachineRam.innerText = dev.memoryUsage ? `${dev.memoryUsage.used} MB / ${dev.memoryUsage.total} MB` : 'Доступно';
+
+    if (limits && limits.cursor) {
+      this.cursorTierBadge.innerText = (limits.cursor.tier || 'PRO').toUpperCase() + ' TIER';
+      this.cursorLimitEmail.innerText = limits.cursor.email || (dev.cursorAuthStatus && dev.cursorAuthStatus.email) || 'Авторизовано';
+      this.cursorLimitModel.innerText = limits.cursor.defaultModel || 'Claude 4.5 Sonnet';
+      this.cursorLimitVer.innerText = limits.cursor.version || '2026.08.11';
+    } else if (dev.cursorAuthStatus && dev.cursorAuthStatus.email) {
+      this.cursorLimitEmail.innerText = dev.cursorAuthStatus.email;
+      this.cursorTierBadge.innerText = 'PRO TIER';
+    } else {
+      this.cursorLimitEmail.innerText = 'Потрібен вхід (agent login)';
+    }
+
+    if (limits && limits.antigravity) {
+      this.antigravityLimitStatus.innerText = limits.antigravity.available ? '✓ Доступно на машині' : 'Не виявлено';
+      this.antigravityLimitConvs.innerText = `${limits.antigravity.brainConversationsCount} діалогів`;
+      this.antigravityLimitSize.innerText = `${limits.antigravity.brainStorageSizeMb} MB`;
+    } else {
+      this.antigravityLimitStatus.innerText = dev.antigravityAvailable ? '✓ Доступно на машині' : 'Не виявлено';
+      this.antigravityLimitConvs.innerText = 'Доступно';
+      this.antigravityLimitSize.innerText = '-';
     }
   }
     const toast = document.createElement('div');

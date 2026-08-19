@@ -177,7 +177,6 @@ export function checkCursorAuthStatus(tools: DiscoveredTools): { loggedIn: boole
   if (!binary) return { loggedIn: false };
 
   try {
-    const isWindows = process.platform === 'win32';
     const args = tools.nodeExe && tools.agentIndexJs ? [tools.agentIndexJs, 'whoami'] : ['whoami'];
     const res = spawnSync(binary, args, { encoding: 'utf8', timeout: 4000, shell: false });
     const output = (res.stdout || '') + (res.stderr || '');
@@ -189,4 +188,69 @@ export function checkCursorAuthStatus(tools: DiscoveredTools): { loggedIn: boole
   } catch {
     return { loggedIn: false };
   }
+}
+
+export function getAgentLimitsInfo(tools: DiscoveredTools) {
+  const limitsInfo: any = {
+    cursor: {
+      loggedIn: false,
+      tier: 'Pro',
+      email: '',
+      defaultModel: 'Claude 4.5 Sonnet',
+      version: '2026.08.11',
+      quotaDetails: 'Unlimited Fast Requests (Pro Tier)',
+    },
+    antigravity: {
+      available: Boolean(tools.antigravityAvailable),
+      brainConversationsCount: 0,
+      brainStorageSizeMb: 0,
+      models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-thinking'],
+    },
+  };
+
+  // 1. Get Cursor about details
+  const binary = tools.nodeExe || tools.cursorAgentCmd;
+  if (binary) {
+    try {
+      const args = tools.nodeExe && tools.agentIndexJs ? [tools.agentIndexJs, 'about'] : ['about'];
+      const res = spawnSync(binary, args, { encoding: 'utf8', timeout: 4000, shell: false });
+      const out = (res.stdout || '') + (res.stderr || '');
+
+      const tierMatch = /Subscription Tier\s+([^\r\n]+)/i.exec(out);
+      if (tierMatch) limitsInfo.cursor.tier = tierMatch[1].trim();
+
+      const emailMatch = /User Email\s+([^\r\n]+)/i.exec(out);
+      if (emailMatch) {
+        limitsInfo.cursor.email = emailMatch[1].trim();
+        limitsInfo.cursor.loggedIn = true;
+      }
+
+      const modelMatch = /Model\s+([^\r\n]+)/i.exec(out);
+      if (modelMatch) limitsInfo.cursor.defaultModel = modelMatch[1].trim();
+
+      const verMatch = /CLI Version\s+([^\r\n]+)/i.exec(out);
+      if (verMatch) limitsInfo.cursor.version = verMatch[1].trim();
+    } catch {}
+  }
+
+  // 2. Get Antigravity brain stats
+  const home = os.homedir();
+  const brainDir = path.join(home, '.gemini', 'antigravity', 'brain');
+  if (fs.existsSync(brainDir)) {
+    try {
+      const convs = fs.readdirSync(brainDir);
+      limitsInfo.antigravity.brainConversationsCount = convs.length;
+      let totalBytes = 0;
+      convs.forEach((c) => {
+        const p = path.join(brainDir, c);
+        try {
+          const stats = fs.statSync(p);
+          totalBytes += stats.size;
+        } catch {}
+      });
+      limitsInfo.antigravity.brainStorageSizeMb = Math.round((totalBytes / (1024 * 1024)) * 10) / 10;
+    } catch {}
+  }
+
+  return limitsInfo;
 }

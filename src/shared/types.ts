@@ -1,3 +1,20 @@
+export interface AgentLimitsInfo {
+  cursor?: {
+    loggedIn: boolean;
+    tier?: string;
+    email?: string;
+    defaultModel?: string;
+    version?: string;
+    quotaDetails?: string;
+  };
+  antigravity?: {
+    available: boolean;
+    brainConversationsCount: number;
+    brainStorageSizeMb: number;
+    models: string[];
+  };
+}
+
 export interface DeviceInfo {
   id: string;
   name: string;
@@ -13,6 +30,7 @@ export interface DeviceInfo {
     loggedIn: boolean;
     email?: string;
   };
+  limitsInfo?: AgentLimitsInfo;
   antigravityAvailable?: boolean;
   lastSeen: number;
   cpuUsage?: number;
@@ -32,7 +50,7 @@ export interface ChatSession {
   cursorChatId?: string; // Cursor CLI native chat ID if linked
   workspacePath: string;
   model: string;
-  mode: 'agent' | 'plan' | 'ask' | 'yolo';
+  mode: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
   messages: ChatMessage[];
 }
 
@@ -60,7 +78,7 @@ export interface AgentRunOptions {
   deviceId: string;
   prompt: string;
   model?: string;
-  mode?: 'agent' | 'plan' | 'ask' | 'yolo';
+  mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
   workspacePath?: string;
   cursorChatId?: string;
   continueLastSession?: boolean;

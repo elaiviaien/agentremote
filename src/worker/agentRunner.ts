@@ -139,8 +139,10 @@ export class AgentRunner {
       args.push('--mode', 'plan');
     } else if (mode === 'ask') {
       args.push('--mode', 'ask');
-    } else if (mode === 'yolo') {
+    } else if (mode === 'yolo' || mode === 'auto') {
       args.push('--yolo');
+    } else if (mode === 'auto-review') {
+      args.push('--auto-review');
     }
 
     if (workspacePath) {

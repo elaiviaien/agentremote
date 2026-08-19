@@ -91,6 +91,10 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
             <span>Термінал</span>
           </button>
+          <button id="open-limits-btn" class="nav-pill" type="button" title="Ліміти та підписки">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+            <span>Ліміти</span>
+          </button>
           <button class="nav-pill" data-tab="devices">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
             <span>Налаштування</span>
@@ -184,8 +188,9 @@
             </div>
             <div class="custom-select-wrapper">
               <select id="mode-select" class="custom-select">
-                <option value="agent" selected>🤖 Agent (Повний доступ: код, файли, тести)</option>
-                <option value="yolo">⚡ YOLO (Авто-виконання без підтверджень)</option>
+                <option value="yolo" selected>⚡ Auto / YOLO (Повне авто - запуск та редагування)</option>
+                <option value="auto-review">🤖 Smart Auto (Авто-рев'ю безпечних дій)</option>
+                <option value="agent">🛠️ Agent (Стандартний режим)</option>
                 <option value="plan">📝 Plan Mode (Тільки планування, без редагувань)</option>
                 <option value="ask">❓ Ask Mode (Q&A та пояснення архітектури)</option>
               </select>
@@ -454,6 +459,74 @@ npm run worker</pre>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
           <span>Імпортувати та створити чат</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Limits & Subscriptions Modal -->
+  <div id="limits-modal" class="modal-backdrop" style="display: none;">
+    <div class="login-card glass-panel" style="max-width: 600px; width: 94%;">
+      <div class="login-header" style="text-align: left; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="brand-logo-badge" style="width: 36px; height: 36px; margin: 0; font-size: 16px; background: linear-gradient(135deg, #10b981, #059669);">📊</div>
+            <div>
+              <h3 style="font-size: 16px; font-weight: 700;">Ліміти, Підписки та Квоти</h3>
+              <p style="font-size: 11.5px; color: var(--text-secondary); margin: 0;">Статус акаунтів Cursor, Antigravity та ресурсів машини</p>
+            </div>
+          </div>
+          <button id="close-limits-modal-btn" class="icon-btn">✕</button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;">
+        <!-- Cursor Limits Card -->
+        <div class="card glass-card" style="padding: 14px; border: 1px solid rgba(59, 130, 246, 0.25); background: rgba(15, 23, 42, 0.6);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 16px;">🤖</span>
+              <strong style="font-size: 13.5px; color: #60a5fa;">Cursor Agent & CLI</strong>
+            </div>
+            <span id="cursor-tier-badge" class="count-badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 700;">PRO TIER</span>
+          </div>
+          <div id="cursor-limits-content" style="font-size: 12px; color: var(--text-secondary); display: grid; grid-template-columns: 1fr 1fr; gap: 6px; line-height: 1.5;">
+            <div><strong>Акаунт:</strong> <span id="cursor-limit-email">Завантаження...</span></div>
+            <div><strong>Статус:</strong> <span style="color: #34d399;">✓ Активний (CLI)</span></div>
+            <div><strong>Швидкі запити:</strong> <span style="color: #60a5fa;">Безлімітно (Fast Requests)</span></div>
+            <div><strong>Модель за замовч.:</strong> <span id="cursor-limit-model">Claude 4.5 Sonnet</span></div>
+            <div><strong>Авто-режим:</strong> <span style="color: #34d399;">✓ YOLO / Auto-Review</span></div>
+            <div><strong>Версія CLI:</strong> <span id="cursor-limit-ver">-</span></div>
+          </div>
+        </div>
+
+        <!-- Antigravity Limits Card -->
+        <div class="card glass-card" style="padding: 14px; border: 1px solid rgba(139, 92, 246, 0.25); background: rgba(15, 23, 42, 0.6);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 16px;">🚀</span>
+              <strong style="font-size: 13.5px; color: #a78bfa;">Google Antigravity 2.0</strong>
+            </div>
+            <span class="count-badge" style="background: rgba(139, 92, 246, 0.2); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); font-weight: 700;">GEMINI 2.5</span>
+          </div>
+          <div id="antigravity-limits-content" style="font-size: 12px; color: var(--text-secondary); display: grid; grid-template-columns: 1fr 1fr; gap: 6px; line-height: 1.5;">
+            <div><strong>Статус:</strong> <span id="antigravity-limit-status" style="color: #34d399;">✓ Доступно на машині</span></div>
+            <div><strong>Сесії у Brain:</strong> <span id="antigravity-limit-convs">-</span></div>
+            <div><strong>Розмір пам'яті:</strong> <span id="antigravity-limit-size">- MB</span></div>
+            <div><strong>Моделі:</strong> <span>Gemini 2.5 Pro / Flash</span></div>
+          </div>
+        </div>
+
+        <!-- Machine Hardware Status -->
+        <div class="card glass-card" style="padding: 12px 14px; background: rgba(15, 23, 42, 0.4);">
+          <div style="font-size: 12px; color: var(--text-secondary); display: flex; justify-content: space-between;">
+            <div><strong>💻 Комп'ютер:</strong> <span id="limits-machine-name">-</span></div>
+            <div><strong>🧠 RAM:</strong> <span id="limits-machine-ram">-</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end;">
+        <button id="close-limits-footer-btn" class="btn btn-secondary">Закрити</button>
       </div>
     </div>
   </div>
