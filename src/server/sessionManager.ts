@@ -59,6 +59,9 @@ export class SessionManager {
       mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
       cursorChatId?: string;
       thinkingEffort?: 'low' | 'medium' | 'high' | 'off';
+      isStreaming?: boolean;
+      status?: 'idle' | 'running' | 'completed' | 'error';
+      promptQueue?: string[];
     }
   ): ChatSession | null {
     const session = db.getSession(id);
@@ -72,10 +75,51 @@ export class SessionManager {
     if (params.mode !== undefined) session.mode = params.mode;
     if (params.cursorChatId !== undefined) session.cursorChatId = params.cursorChatId;
     if (params.thinkingEffort !== undefined) session.thinkingEffort = params.thinkingEffort;
+    if (params.isStreaming !== undefined) session.isStreaming = params.isStreaming;
+    if (params.status !== undefined) session.status = params.status;
+    if (params.promptQueue !== undefined) session.promptQueue = params.promptQueue;
 
     session.updatedAt = Date.now();
     db.saveSession(session);
     return session;
+  }
+
+  public enqueuePrompt(sessionId: string, prompt: string): string[] {
+    const session = db.getSession(sessionId);
+    if (!session) return [];
+    session.promptQueue = session.promptQueue || [];
+    session.promptQueue.push(prompt);
+    session.updatedAt = Date.now();
+    db.saveSession(session);
+    return session.promptQueue;
+  }
+
+  public dequeuePrompt(sessionId: string): string | null {
+    const session = db.getSession(sessionId);
+    if (!session || !session.promptQueue || session.promptQueue.length === 0) return null;
+    const next = session.promptQueue.shift();
+    session.updatedAt = Date.now();
+    db.saveSession(session);
+    return next || null;
+  }
+
+  public removeQueuedPrompt(sessionId: string, index: number): string[] {
+    const session = db.getSession(sessionId);
+    if (!session || !session.promptQueue) return [];
+    if (index >= 0 && index < session.promptQueue.length) {
+      session.promptQueue.splice(index, 1);
+      session.updatedAt = Date.now();
+      db.saveSession(session);
+    }
+    return session.promptQueue;
+  }
+
+  public clearQueue(sessionId: string) {
+    const session = db.getSession(sessionId);
+    if (!session) return;
+    session.promptQueue = [];
+    session.updatedAt = Date.now();
+    db.saveSession(session);
   }
 
   public addMessage(sessionId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>): ChatMessage | null {

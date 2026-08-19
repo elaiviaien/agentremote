@@ -111,23 +111,70 @@ export class WorkerWsManager {
       }
 
       case 'agent:complete': {
+        const { sessionId, fullContent, cursorChatId, success, error } = msg.payload;
         sessionManager.finalizeAssistantMessage(
-          msg.payload.sessionId,
-          msg.payload.fullContent,
-          msg.payload.cursorChatId
+          sessionId,
+          fullContent,
+          cursorChatId
         );
         clientWsManager.broadcast({
           type: 'agent:complete',
-          payload: { sessionId: msg.payload.sessionId, success: msg.payload.success, error: msg.payload.error, cursorChatId: msg.payload.cursorChatId } as any,
+          payload: { sessionId, success, error, cursorChatId } as any,
         });
 
-        // Also broadcast full session update to make sure client is 100% in sync
-        const session = sessionManager.getSession(msg.payload.sessionId);
-        if (session) {
-          clientWsManager.broadcast({
-            type: 'session:updated',
-            payload: session,
-          });
+        // Check if there is a queued prompt for this session!
+        const nextPrompt = sessionManager.dequeuePrompt(sessionId);
+        if (nextPrompt) {
+          const session = sessionManager.getSession(sessionId);
+          if (session) {
+            // Add user message for queued prompt
+            sessionManager.addMessage(session.id, {
+              role: 'user',
+              content: nextPrompt,
+            });
+            // Add placeholder assistant message
+            sessionManager.addMessage(session.id, {
+              role: 'assistant',
+              content: '',
+              isStreaming: true,
+              model: session.model,
+            });
+            sessionManager.updateSession(session.id, { isStreaming: true, status: 'running' });
+
+            // Broadcast session update to clients
+            clientWsManager.broadcast({
+              type: 'session:updated',
+              payload: sessionManager.getSession(session.id)!,
+            });
+
+            // Dispatch next prompt to worker
+            const targetDeviceId = session.deviceId || deviceManager.getActiveDeviceId();
+            if (targetDeviceId) {
+              deviceManager.sendToWorker(targetDeviceId, {
+                type: 'agent:start',
+                payload: {
+                  sessionId: session.id,
+                  deviceId: targetDeviceId,
+                  prompt: nextPrompt,
+                  model: session.model,
+                  mode: session.mode,
+                  workspacePath: session.workspacePath,
+                  cursorChatId: session.cursorChatId,
+                  continueLastSession: true,
+                  thinkingEffort: session.thinkingEffort || 'medium',
+                },
+              });
+            }
+          }
+        } else {
+          // Broadcast final updated session state
+          const session = sessionManager.getSession(sessionId);
+          if (session) {
+            clientWsManager.broadcast({
+              type: 'session:updated',
+              payload: session,
+            });
+          }
         }
         break;
       }

@@ -352,11 +352,25 @@
               </div>
             </div>
 
+            <!-- Dynamic Message Queue Container -->
+            <div id="chat-queue-container" class="chat-queue-container" style="display: none; margin-bottom: 8px;">
+              <div class="queue-header" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 8px 8px 0 0;">
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--accent-primary);">
+                  <span class="pulse-dot"></span>
+                  <span>Черга завдань (<span id="queue-count">0</span>)</span>
+                </div>
+                <button id="clear-queue-btn" class="btn btn-secondary btn-xs" style="padding: 2px 8px; font-size: 10.5px;" title="Очистити всі завдання з черги">Очистити</button>
+              </div>
+              <div id="queue-items-list" class="queue-items-list" style="display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; background: var(--bg-card); border: 1px solid rgba(56, 189, 248, 0.2); border-top: none; border-radius: 0 0 8px 8px; max-height: 120px; overflow-y: auto;">
+                <!-- Dynamically populated queued items -->
+              </div>
+            </div>
+
             <div class="input-box-wrapper">
-              <textarea id="prompt-input" placeholder="Напишіть завдання для агента... (Enter — надіслати, Shift+Enter — новий рядок)" rows="2"></textarea>
+              <textarea id="prompt-input" placeholder="Напишіть завдання для агента... (Enter — надіслати / додати в чергу)" rows="2"></textarea>
               <div class="input-actions-bar">
-                <span class="shortcut-hint">⌘ + Enter / Enter</span>
-                <button id="send-btn" class="send-btn" title="Надіслати">
+                <span class="shortcut-hint" id="send-shortcut-hint">⌘ + Enter / Enter</span>
+                <button id="send-btn" class="send-btn" title="Надіслати або додати в чергу">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                 </button>
               </div>

@@ -155,6 +155,51 @@ export class ClientWsManager {
         break;
       }
 
+      case 'agent:queue_prompt': {
+        const { sessionId, prompt } = (msg as any).payload;
+        if (sessionId && prompt) {
+          sessionManager.enqueuePrompt(sessionId, prompt);
+          const session = sessionManager.getSession(sessionId);
+          if (session) {
+            this.broadcast({
+              type: 'session:updated',
+              payload: session,
+            });
+          }
+        }
+        break;
+      }
+
+      case 'agent:remove_queued_prompt': {
+        const { sessionId, index } = (msg as any).payload;
+        if (sessionId !== undefined && index !== undefined) {
+          sessionManager.removeQueuedPrompt(sessionId, index);
+          const session = sessionManager.getSession(sessionId);
+          if (session) {
+            this.broadcast({
+              type: 'session:updated',
+              payload: session,
+            });
+          }
+        }
+        break;
+      }
+
+      case 'agent:clear_queue': {
+        const { sessionId } = (msg as any).payload;
+        if (sessionId) {
+          sessionManager.clearQueue(sessionId);
+          const session = sessionManager.getSession(sessionId);
+          if (session) {
+            this.broadcast({
+              type: 'session:updated',
+              payload: session,
+            });
+          }
+        }
+        break;
+      }
+
       case 'terminal:exec': {
         const { commandId, deviceId, command, cwd } = msg.payload;
         const targetDev = deviceId || deviceManager.getActiveDeviceId();

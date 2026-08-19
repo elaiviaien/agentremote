@@ -84,6 +84,11 @@ class AgentRemoteApp {
     this.resumeChatBtn = document.getElementById('resume-chat-btn');
     this.thinkingEffortSelect = document.getElementById('thinking-effort-select');
     this.thinkingEffortWrapper = document.getElementById('thinking-effort-wrapper');
+    this.chatQueueContainer = document.getElementById('chat-queue-container');
+    this.queueCount = document.getElementById('queue-count');
+    this.queueItemsList = document.getElementById('queue-items-list');
+    this.clearQueueBtn = document.getElementById('clear-queue-btn');
+    this.sendShortcutHint = document.getElementById('send-shortcut-hint');
 
     // Files Tab elements
     this.filesTreePanel = document.getElementById('files-tree-panel');
@@ -404,6 +409,10 @@ class AgentRemoteApp {
           }
         }
       });
+    }
+
+    if (this.clearQueueBtn) {
+      this.clearQueueBtn.addEventListener('click', () => this.clearActiveSessionQueue());
     }
 
     this.loginCursorBtn.addEventListener('click', () => this.triggerCursorLogin());
@@ -1154,7 +1163,15 @@ class AgentRemoteApp {
     const isSessionStreaming = Boolean(session.isStreaming || session.status === 'running');
     this.isStreaming = isSessionStreaming;
     this.stopAgentBtn.style.display = isSessionStreaming ? 'inline-flex' : 'none';
-    this.sendBtn.disabled = isSessionStreaming;
+    this.sendBtn.disabled = false;
+
+    if (isSessionStreaming) {
+      this.sendBtn.title = 'Додати повідомлення у чергу';
+      if (this.sendShortcutHint) this.sendShortcutHint.innerText = 'Enter — додати в чергу';
+    } else {
+      this.sendBtn.title = 'Надіслати';
+      if (this.sendShortcutHint) this.sendShortcutHint.innerText = '⌘ + Enter / Enter';
+    }
 
     this.currentChatTitle.innerText = session.title || 'Чат розробки';
     if (isSessionStreaming && this.chatMeta) {
@@ -1173,6 +1190,8 @@ class AgentRemoteApp {
     if (this.thinkingEffortSelect) {
       this.thinkingEffortSelect.value = session.thinkingEffort || 'medium';
     }
+
+    this.renderQueue();
 
     if (session.messages.length === 0) {
       this.chatMessages.innerHTML = `
@@ -1198,6 +1217,73 @@ class AgentRemoteApp {
       this.renderChatMessageElement(msg.role, msg.content, msg.toolCalls, isLastStreaming);
     });
     this.scrollToBottom();
+  }
+
+  renderQueue() {
+    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+    if (!this.chatQueueContainer || !this.queueItemsList) return;
+
+    const queue = (session && session.promptQueue) || [];
+    if (queue.length === 0) {
+      this.chatQueueContainer.style.display = 'none';
+      return;
+    }
+
+    this.chatQueueContainer.style.display = 'block';
+    if (this.queueCount) this.queueCount.innerText = queue.length;
+
+    this.queueItemsList.innerHTML = '';
+    queue.forEach((promptText, idx) => {
+      const itemEl = document.createElement('div');
+      itemEl.className = 'queue-item';
+      itemEl.innerHTML = `
+        <div class="queue-item-info">
+          <span class="queue-item-num">#${idx + 1}</span>
+          <span class="queue-item-text" title="${this.escapeHtml(promptText)}">${this.escapeHtml(promptText)}</span>
+        </div>
+        <button class="queue-item-del-btn" title="Видалити з черги">✕</button>
+      `;
+
+      itemEl.querySelector('.queue-item-del-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.removeQueuedPrompt(idx);
+      });
+
+      this.queueItemsList.appendChild(itemEl);
+    });
+  }
+
+  removeQueuedPrompt(index) {
+    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+    if (!session || !session.promptQueue) return;
+    session.promptQueue.splice(index, 1);
+    this.renderQueue();
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'agent:remove_queued_prompt',
+          payload: { sessionId: this.activeSessionId, index },
+        })
+      );
+    }
+  }
+
+  clearActiveSessionQueue() {
+    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+    if (!session || !session.promptQueue) return;
+    session.promptQueue = [];
+    this.renderQueue();
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'agent:clear_queue',
+          payload: { sessionId: this.activeSessionId },
+        })
+      );
+    }
+    this.showToast('🗑️ Чергу завдань очищено');
   }
 
   renderChatMessageElement(role, content, toolCalls, isStreaming = false) {
@@ -1359,9 +1445,24 @@ class AgentRemoteApp {
   }
 
   handleAgentComplete(sessionId, cursorChatId) {
-    this.isStreaming = false;
-    this.stopAgentBtn.style.display = 'none';
-    this.sendBtn.disabled = false;
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (session) {
+      if (cursorChatId) session.cursorChatId = cursorChatId;
+      if (this.chatMeta) {
+        this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
+      }
+    }
+
+    const hasQueue = Boolean(session && session.promptQueue && session.promptQueue.length > 0);
+
+    if (!hasQueue) {
+      this.isStreaming = false;
+      this.stopAgentBtn.style.display = 'none';
+      this.sendBtn.disabled = false;
+      if (this.sendShortcutHint) this.sendShortcutHint.innerText = '⌘ + Enter / Enter';
+      this.sendBtn.title = 'Надіслати';
+      this.showToast('✨ Агент завершив виконання завдання');
+    }
 
     const streamingMsg = this.chatMessages.querySelector('.message.assistant.streaming');
     if (streamingMsg) {
@@ -1373,14 +1474,7 @@ class AgentRemoteApp {
       }
     }
 
-    const session = this.sessions.find((s) => s.id === sessionId);
-    if (session) {
-      if (cursorChatId) session.cursorChatId = cursorChatId;
-      if (this.chatMeta) {
-        this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
-      }
-    }
-    this.showToast('✨ Агент завершив виконання завдання');
+    this.renderQueue();
     this.loadSessions();
   }
 
@@ -1403,7 +1497,35 @@ class AgentRemoteApp {
 
   sendPrompt() {
     const text = this.promptInput.value.trim();
-    if (!text || this.isStreaming || !this.activeSessionId) return;
+    if (!text || !this.activeSessionId) return;
+
+    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+
+    // If agent is currently executing/streaming, add prompt to QUEUE!
+    if (this.isStreaming) {
+      if (session) {
+        session.promptQueue = session.promptQueue || [];
+        session.promptQueue.push(text);
+      }
+      this.renderQueue();
+      this.promptInput.value = '';
+      this.promptInput.style.height = 'auto';
+
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(
+          JSON.stringify({
+            type: 'agent:queue_prompt',
+            payload: {
+              sessionId: this.activeSessionId,
+              prompt: text,
+            },
+          })
+        );
+      }
+
+      this.showToast(`🕒 Повідомлення додано в чергу (#${(session && session.promptQueue && session.promptQueue.length) || 1})`);
+      return;
+    }
 
     this.renderChatMessageElement('user', text);
     this.promptInput.value = '';
@@ -1411,7 +1533,9 @@ class AgentRemoteApp {
 
     this.isStreaming = true;
     this.stopAgentBtn.style.display = 'inline-flex';
-    this.sendBtn.disabled = true;
+    this.sendBtn.disabled = false;
+    if (this.sendShortcutHint) this.sendShortcutHint.innerText = 'Enter — додати в чергу';
+    this.sendBtn.title = 'Додати повідомлення у чергу';
 
     // Immediately render assistant streaming placeholder with animated wave/spinner
     let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
@@ -1438,7 +1562,6 @@ class AgentRemoteApp {
 
     this.scrollToBottom();
 
-    const session = this.sessions.find((s) => s.id === this.activeSessionId);
     let effectiveModel = (this.chatModelSelect && this.chatModelSelect.value) || 
                          (this.modelSelect && this.modelSelect.value) || 
                          (session && session.model) || 'auto';

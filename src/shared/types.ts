@@ -72,6 +72,7 @@ export interface ChatSession {
   isStreaming?: boolean;
   status?: 'idle' | 'running' | 'completed' | 'error';
   thinkingEffort?: 'low' | 'medium' | 'high' | 'off';
+  promptQueue?: string[];
 }
 
 export interface ToolCallItem {
@@ -161,6 +162,9 @@ export type ClientToHubMessage =
   | { type: 'agent:trigger_auth'; payload: { deviceId: string } }
   | { type: 'agent:prompt'; payload: AgentRunOptions }
   | { type: 'agent:abort'; payload: { sessionId: string } }
+  | { type: 'agent:queue_prompt'; payload: { sessionId: string; prompt: string } }
+  | { type: 'agent:remove_queued_prompt'; payload: { sessionId: string; index: number } }
+  | { type: 'agent:clear_queue'; payload: { sessionId: string } }
   | { type: 'terminal:exec'; payload: { commandId: string; deviceId: string; command: string; cwd?: string } }
   | { type: 'fs:tree'; payload: { deviceId: string; path?: string } }
   | { type: 'fs:read'; payload: { deviceId: string; path: string } }
