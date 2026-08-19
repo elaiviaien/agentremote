@@ -828,7 +828,9 @@ class AgentRemoteApp {
     document.body.setAttribute('data-theme', theme);
     localStorage.setItem('agentremote_theme', theme);
     if (this.themeIcon) {
-      this.themeIcon.innerText = theme === 'dark' ? '☀️' : '🌙';
+      this.themeIcon.innerHTML = theme === 'dark'
+        ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`
+        : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
     }
   }
 
@@ -853,10 +855,10 @@ class AgentRemoteApp {
       const formattedDate = new Date(s.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const isAntigravity = s.engine === 'antigravity' || (s.model && s.model.includes('gemini'));
       const engineTag = isAntigravity
-        ? '<span class="session-engine-tag antigravity">🚀 AGY</span>'
-        : '<span class="session-engine-tag cursor">🤖 CURSOR</span>';
+        ? '<span class="session-engine-tag antigravity">AGY</span>'
+        : '<span class="session-engine-tag cursor">CURSOR</span>';
 
-      const descText = s.description || (s.workspacePath ? `📂 ${s.workspacePath.split(/[/\\]/).pop()}` : 'Робоча сесія');
+      const descText = s.description || (s.workspacePath ? s.workspacePath.split(/[/\\]/).filter(Boolean).pop() : 'Робоча сесія');
 
       item.innerHTML = `
         <div class="session-info">
@@ -1373,13 +1375,14 @@ class AgentRemoteApp {
     sorted.forEach((item) => {
       const el = document.createElement('div');
       el.className = 'tree-node';
-      const icon = item.isDirectory ? '📁' : this.getFileIcon(item.name);
+      const folderSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-primary); flex-shrink: 0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+      const icon = item.isDirectory ? folderSvg : this.getFileIcon(item.name);
       const sizeText = item.size ? this.formatFileSize(item.size) : '';
 
       el.innerHTML = `
         <div class="node-left">
-          <span style="font-size: 14px;">${icon}</span>
-          <span style="font-weight: ${item.isDirectory ? '600' : '400'};">${this.escapeHtml(item.name)}</span>
+          ${icon}
+          <span style="font-weight: ${item.isDirectory ? '600' : '400'}; margin-left: 2px;">${this.escapeHtml(item.name)}</span>
         </div>
         ${sizeText ? `<span class="node-size">${sizeText}</span>` : ''}
       `;
@@ -1406,31 +1409,31 @@ class AgentRemoteApp {
     switch (ext) {
       case 'ts':
       case 'tsx':
-        return '📘';
+        return '<span class="file-badge file-badge-ts">TS</span>';
       case 'js':
       case 'jsx':
       case 'mjs':
       case 'cjs':
-        return '🟨';
+        return '<span class="file-badge file-badge-js">JS</span>';
       case 'json':
-        return '⚙️';
+        return '<span class="file-badge file-badge-json">JSON</span>';
       case 'html':
       case 'htm':
-        return '🌐';
+        return '<span class="file-badge file-badge-html">HTML</span>';
       case 'css':
       case 'scss':
       case 'less':
-        return '🎨';
+        return '<span class="file-badge file-badge-css">CSS</span>';
       case 'py':
-        return '🐍';
+        return '<span class="file-badge file-badge-py">PY</span>';
       case 'md':
       case 'markdown':
-        return '📝';
+        return '<span class="file-badge file-badge-md">MD</span>';
       case 'sh':
       case 'ps1':
       case 'cmd':
       case 'bat':
-        return '⚡';
+        return '<span class="file-badge file-badge-sh">SH</span>';
       case 'png':
       case 'jpg':
       case 'jpeg':
@@ -1438,16 +1441,16 @@ class AgentRemoteApp {
       case 'svg':
       case 'webp':
       case 'ico':
-        return '🖼️';
+        return '<span class="file-badge file-badge-img">IMG</span>';
       case 'env':
       case 'gitignore':
       case 'dockerignore':
       case 'yml':
       case 'yaml':
       case 'toml':
-        return '🔧';
+        return '<span class="file-badge file-badge-cfg">CFG</span>';
       default:
-        return '📄';
+        return '<span class="file-badge file-badge-doc">FILE</span>';
     }
   }
 
@@ -1781,18 +1784,18 @@ class AgentRemoteApp {
       
       const formattedDate = new Date(t.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       
-      let badge = '<span class="session-engine-tag antigravity">🚀 AGY</span>';
+      let badge = '<span class="file-badge file-badge-md">AGY</span>';
       if (t.source === 'claude_code') {
-        badge = '<span class="session-engine-tag" style="background:rgba(168, 85, 247, 0.15); color:#a855f7; border: 1px solid rgba(168, 85, 247, 0.3);">🟣 CLAUDE CODE</span>';
+        badge = '<span class="file-badge file-badge-ts">CLAUDE</span>';
       } else if (t.source === 'cursor') {
-        badge = '<span class="session-engine-tag cursor">🤖 CURSOR</span>';
+        badge = '<span class="file-badge file-badge-js">CURSOR</span>';
       }
 
-      const wsDisplay = t.workspacePath ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">📂 ${this.escapeHtml(t.workspacePath)}</div>` : '';
+      const wsDisplay = t.workspacePath ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${this.escapeHtml(t.workspacePath)}</div>` : '';
 
       item.innerHTML = `
         <div class="session-info">
-          <div class="session-header-line">
+          <div class="session-header-line" style="display:flex; align-items:center; gap:6px;">
             ${badge}
             <strong class="session-title" style="font-size:13px;">${this.escapeHtml(t.title)}</strong>
           </div>

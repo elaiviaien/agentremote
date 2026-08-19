@@ -1,4 +1,4 @@
-/* Google Antigravity & Cursor Remote — Modern UI Style */
+/* Google Antigravity & Cursor Remote — Clean Engineering UI Style */
 
 :root {
   /* Default: Google Antigravity Clean Light Theme */
@@ -19,47 +19,46 @@
 
   --accent-primary: #2563eb;
   --accent-hover: #1d4ed8;
-  --accent-gradient: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
-  --antigravity-gradient: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+  --accent-subtle: rgba(37, 99, 235, 0.08);
   
   --success: #10b981;
-  --success-glow: rgba(16, 185, 129, 0.25);
+  --success-glow: rgba(16, 185, 129, 0.15);
   --danger: #ef4444;
   --danger-hover: #dc2626;
   --warning: #f59e0b;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
 
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', Consolas, Monaco, monospace;
 }
 
-/* Dark Theme Overrides */
+/* Dark Theme Overrides (GitHub / Cursor Dark) */
 [data-theme="dark"] {
-  --bg-darkest: #07090e;
-  --bg-main: #0b0f17;
-  --bg-sidebar: #0f1623;
-  --bg-card: #141c2c;
-  --bg-card-hover: #1b263b;
-  --bg-input: #0a0e18;
+  --bg-darkest: #0d1117;
+  --bg-main: #0d1117;
+  --bg-sidebar: #161b22;
+  --bg-card: #161b22;
+  --bg-card-hover: #21262d;
+  --bg-input: #0d1117;
   
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-focus: #6366f1;
-  --border-hover: rgba(255, 255, 255, 0.16);
+  --border-subtle: #30363d;
+  --border-focus: #388bfd;
+  --border-hover: #8b949e;
 
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-primary: #f0f6fc;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
 
-  --accent-primary: #6366f1;
-  --accent-hover: #4f46e5;
-  --accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  --accent-primary: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-subtle: rgba(59, 130, 246, 0.12);
   
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.7);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -125,16 +124,15 @@ body {
 }
 
 .brand-logo-badge {
-  width: 54px;
-  height: 54px;
-  border-radius: 14px;
-  background: var(--accent-gradient);
+  width: 50px;
+  height: 50px;
+  border-radius: 12px;
+  background: var(--accent-primary);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   margin: 0 auto 16px;
-  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35);
 }
 
 .login-header {
@@ -244,14 +242,12 @@ body {
 .brand-badge {
   width: 32px;
   height: 32px;
-  border-radius: 9px;
-  background: var(--accent-gradient);
+  border-radius: 8px;
+  background: var(--accent-primary);
   color: #fff;
-  font-size: 15px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.3);
 }
 
 .brand-title {
@@ -435,25 +431,25 @@ body {
 }
 
 .btn-primary {
-  background: var(--accent-gradient);
+  background: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
   color: #ffffff;
-  box-shadow: 0 3px 12px rgba(37, 99, 235, 0.28);
 }
 
 .btn-primary:hover {
-  filter: brightness(1.08);
-  transform: translateY(-1px);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .btn-accent {
-  background: var(--antigravity-gradient);
+  background: #334155;
+  border: 1px solid #334155;
   color: #ffffff;
-  box-shadow: 0 3px 12px rgba(124, 58, 237, 0.28);
 }
 
 .btn-accent:hover {
-  filter: brightness(1.08);
-  transform: translateY(-1px);
+  background: #1e293b;
+  border-color: #1e293b;
 }
 
 .btn-secondary {
@@ -921,10 +917,9 @@ body {
 
 /* Google Antigravity Clean User Bubble */
 .message.user .message-bubble {
-  background: var(--accent-gradient);
+  background: var(--accent-primary);
   color: #ffffff;
-  border-bottom-right-radius: 3px;
-  box-shadow: 0 3px 12px rgba(37, 99, 235, 0.25);
+  border-bottom-right-radius: 4px;
 }
 
 /* Google Antigravity Assistant Bubble */
@@ -1887,7 +1882,7 @@ body {
 .quota-progress-fill {
   height: 100%;
   border-radius: 4px;
-  background: linear-gradient(90deg, #7c3aed, #4f46e5);
+  background: var(--accent-primary);
   transition: width 0.3s ease;
 }
 
@@ -1897,3 +1892,28 @@ body {
   display: flex;
   justify-content: space-between;
 }
+
+/* File Badges & Micro Icons */
+.file-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.2px;
+  display: inline-block;
+  line-height: 1.3;
+}
+
+.file-badge-ts { background: #2563eb; color: #ffffff; }
+.file-badge-js { background: #eab308; color: #000000; }
+.file-badge-json { background: #10b981; color: #ffffff; }
+.file-badge-html { background: #ea580c; color: #ffffff; }
+.file-badge-css { background: #0891b2; color: #ffffff; }
+.file-badge-py { background: #0284c7; color: #ffffff; }
+.file-badge-md { background: #7c3aed; color: #ffffff; }
+.file-badge-sh { background: #475569; color: #ffffff; }
+.file-badge-cfg { background: #64748b; color: #ffffff; }
+.file-badge-img { background: #db2777; color: #ffffff; }
+.file-badge-doc { background: #64748b; color: #ffffff; }
