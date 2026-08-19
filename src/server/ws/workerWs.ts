@@ -252,6 +252,21 @@ export class WorkerWsManager {
         });
         break;
       }
+
+      case 'sessions:sync_update': {
+        const { sessionId, sourceSessionId, sourceFilePath, messages, title } = (msg as any).payload;
+        const targetId = sessionId || sourceSessionId || sourceFilePath;
+        if (targetId && messages) {
+          const updated = sessionManager.syncExternalMessages(targetId, messages, title);
+          if (updated) {
+            clientWsManager.broadcast({
+              type: 'session:updated',
+              payload: updated,
+            });
+          }
+        }
+        break;
+      }
     }
   }
 }

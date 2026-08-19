@@ -75,7 +75,9 @@ class AgentRemoteApp {
 
     // Chat Tab elements
     this.currentChatTitle = document.getElementById('current-chat-title');
+    this.sessionBadge = document.getElementById('session-badge');
     this.chatMeta = document.getElementById('chat-meta');
+    this.syncIdeChatBtn = document.getElementById('sync-ide-chat-btn');
     this.chatMessages = document.getElementById('chat-messages');
     this.promptInput = document.getElementById('prompt-input');
     this.sendBtn = document.getElementById('send-btn');
@@ -413,6 +415,10 @@ class AgentRemoteApp {
 
     if (this.clearQueueBtn) {
       this.clearQueueBtn.addEventListener('click', () => this.clearActiveSessionQueue());
+    }
+
+    if (this.syncIdeChatBtn) {
+      this.syncIdeChatBtn.addEventListener('click', () => this.syncCurrentChatWithIde());
     }
 
     this.loginCursorBtn.addEventListener('click', () => this.triggerCursorLogin());
@@ -2496,6 +2502,32 @@ class AgentRemoteApp {
     }
     this.promptInput.value = 'Продовж роботу над попереднім завданням';
     this.sendPrompt();
+  }
+
+  async syncCurrentChatWithIde() {
+    if (!this.activeSessionId) return;
+    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+    if (!session) return;
+
+    this.showToast('🔄 Синхронізація з локальною IDE...');
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'sessions:force_sync',
+          payload: { sessionId: this.activeSessionId },
+        })
+      );
+    }
+
+    try {
+      const res = await fetch(`/api/sessions/${this.activeSessionId}/sync`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (res.ok) {
+        setTimeout(() => this.loadSessions(), 600);
+      }
+    } catch {}
   }
 
   escapeHtml(text) {

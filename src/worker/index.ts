@@ -8,6 +8,7 @@ import { AgentRunner } from './agentRunner';
 import { TerminalRunner } from './terminalRunner';
 import { FsBridge } from './fsBridge';
 import { TranscriptScanner } from './transcriptScanner';
+import { TranscriptWatcher } from './transcriptWatcher';
 
 dotenv.config();
 
@@ -27,6 +28,23 @@ class WorkerDaemon {
   private tools = detectCursorTools();
   private agentRunner = new AgentRunner(this.tools);
   private terminalRunner = new TerminalRunner();
+  private transcriptWatcher = new TranscriptWatcher((payload) => {
+    this.send({
+      type: 'sessions:sync_update',
+      payload: {
+        sessionId: payload.sessionId,
+        sourceSessionId: payload.sourceSessionId,
+        sourceFilePath: payload.sourceFilePath,
+        messages: payload.messages.map((m, idx) => ({
+          id: `ext_${payload.sourceSessionId || 'msg'}_${idx}_${m.timestamp || Date.now()}`,
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp || Date.now(),
+        })),
+        title: payload.title,
+      },
+    });
+  });
 
   constructor() {
     console.log(`\n======================================================`);
@@ -66,6 +84,7 @@ class WorkerDaemon {
         this.reconnectAttempts = 0;
         this.register();
         this.startHeartbeat();
+        this.transcriptWatcher.start(3500);
       });
 
       this.ws.on('message', (data: WebSocket.Data) => {
@@ -80,6 +99,7 @@ class WorkerDaemon {
       this.ws.on('close', (code, reason) => {
         console.warn(`⚠️ [Worker] Disconnected from Cloud Hub (code: ${code}, reason: ${reason || 'none'})`);
         this.stopHeartbeat();
+        this.transcriptWatcher.stop();
         this.scheduleReconnect();
       });
 
@@ -310,6 +330,12 @@ class WorkerDaemon {
           type: 'transcripts:read_result' as any,
           payload: { reqId, result },
         });
+        break;
+      }
+
+      case 'sessions:force_sync': {
+        const { reqId, sessionId, sourceSessionId, sourceFilePath } = (msg as any).payload;
+        this.transcriptWatcher.forceSync(sourceSessionId, sourceFilePath, sessionId);
         break;
       }
     }

@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import { randomUUID } from 'crypto';
 import { db } from '../db';
 import { verifyPassword, createToken, requireAuth } from '../auth';
 import { deviceManager } from '../deviceManager';
@@ -144,30 +145,49 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     // 1. Check if session already exists for this exact ID / file
     const allExisting = sessionManager.getSessions();
     const existing = allExisting.find((s) => {
-      if (extractedChatId && (s.cursorChatId === extractedChatId || s.id === extractedChatId)) return true;
+      if (extractedChatId && (s.sourceSessionId === extractedChatId || s.cursorChatId === extractedChatId || s.id === extractedChatId)) return true;
+      if (filePath && s.sourceFilePath === filePath) return true;
       if (s.title === sessionTitle && s.workspacePath === (workspacePath || '')) return true;
       return false;
     });
 
     if (existing) {
-      // If found, update workspace or model if specified, and return existing session directly!
+      // If found, update workspace, model, and source pointers if specified
       if (workspacePath && !existing.workspacePath) existing.workspacePath = workspacePath;
       if (model && existing.model !== model) existing.model = model;
-      if (extractedChatId && !existing.cursorChatId) existing.cursorChatId = extractedChatId;
+      if (extractedChatId && !existing.cursorChatId && effectiveEngine === 'cursor') existing.cursorChatId = extractedChatId;
+      if (extractedChatId && !existing.sourceSessionId) existing.sourceSessionId = extractedChatId;
+      if (filePath && !existing.sourceFilePath) existing.sourceFilePath = filePath;
       sessionManager.updateSession(existing.id, {
         workspacePath: existing.workspacePath,
         model: existing.model,
         cursorChatId: existing.cursorChatId,
+        sourceSessionId: existing.sourceSessionId,
+        sourceFilePath: existing.sourceFilePath,
       });
+
+      // Synchronize latest messages from transcript into existing session
+      sessionManager.syncExternalMessages(
+        existing.id,
+        sanitized.messages.map((m) => ({
+          id: Math.random().toString(36).substring(2, 12),
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp || Date.now(),
+        })),
+        sessionTitle
+      );
+
+      const refreshed = sessionManager.getSession(existing.id)!;
 
       return {
         success: true,
-        session: existing,
+        session: refreshed,
         reusedExisting: true,
         report: {
-          title: existing.title,
+          title: refreshed.title,
           sourceType: sanitized.sourceType,
-          messageCount: existing.messages.length,
+          messageCount: refreshed.messages.length,
           removedMetadataCount: 0,
           redactedSecretsCount: 0,
         },
@@ -187,6 +207,8 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
       model: model || (effectiveEngine === 'antigravity' ? 'gemini-3.7-flash' : 'claude-4.5-sonnet'),
       mode: mode || 'yolo',
       cursorChatId: effectiveEngine === 'cursor' ? extractedChatId : undefined,
+      sourceSessionId: extractedChatId || undefined,
+      sourceFilePath: filePath || undefined,
     });
 
     // Populate sanitized messages
@@ -212,6 +234,34 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
         cleanSummaryContext: sanitized.cleanSummaryContext,
       },
     };
+  });
+
+  // Force sync external session endpoint
+  fastify.post('/sessions/:id/sync', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const session = sessionManager.getSession(id);
+    if (!session) {
+      return reply.status(404).send({ error: 'Session not found' });
+    }
+
+    const deviceId = session.deviceId || deviceManager.getActiveDeviceId();
+    if (!deviceId) {
+      return reply.status(400).send({ error: 'Target device offline' });
+    }
+
+    const reqId = randomUUID();
+    deviceManager.sendToWorker(deviceId, {
+      type: 'sessions:force_sync',
+      payload: {
+        reqId,
+        sessionId: session.id,
+        sourceSessionId: session.sourceSessionId,
+        sourceFilePath: session.sourceFilePath,
+        engine: session.engine,
+      },
+    });
+
+    return { success: true, message: 'Sync request dispatched to worker' };
   });
 
   // Preview Sanitization endpoint

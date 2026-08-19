@@ -65,6 +65,8 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
   cursorChatId?: string; // Cursor CLI native chat ID if linked
+  sourceSessionId?: string; // Source conversation ID from Antigravity / Cursor
+  sourceFilePath?: string; // Local transcript file path on worker
   workspacePath: string;
   model: string;
   mode: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
@@ -102,6 +104,7 @@ export interface AgentRunOptions {
   mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
   workspacePath?: string;
   cursorChatId?: string;
+  sourceSessionId?: string;
   continueLastSession?: boolean;
   thinkingEffort?: 'low' | 'medium' | 'high' | 'off';
 }
@@ -124,7 +127,8 @@ export type WorkerToHubMessage =
   | { type: 'fs:write_result'; payload: { reqId: string; success: boolean; error?: string } }
   | { type: 'transcripts:list_result'; payload: { reqId: string; transcripts: any[] } }
   | { type: 'transcripts:read_result'; payload: { reqId: string; result: any } }
-  | { type: 'sessions:discovered'; payload: { deviceId: string; sessions: DiscoveredSession[] } };
+  | { type: 'sessions:discovered'; payload: { deviceId: string; sessions: DiscoveredSession[] } }
+  | { type: 'sessions:sync_update'; payload: { sessionId?: string; sourceSessionId?: string; sourceFilePath?: string; messages: ChatMessage[]; title?: string } };
 
 export interface DiscoveredSession {
   id: string;
@@ -153,7 +157,9 @@ export type HubToWorkerMessage =
   | { type: 'fs:write_file'; payload: { reqId: string; path: string; content: string } }
   | { type: 'transcripts:list_local'; payload: { reqId: string } }
   | { type: 'transcripts:read_local'; payload: { reqId: string; filePath: string } }
-  | { type: 'sessions:scan'; payload: { deviceId: string } };
+  | { type: 'sessions:scan'; payload: { deviceId: string } }
+  | { type: 'sessions:watch'; payload: { sessions: { id: string; engine?: string; sourceSessionId?: string; sourceFilePath?: string; workspacePath?: string; cursorChatId?: string }[] } }
+  | { type: 'sessions:force_sync'; payload: { reqId: string; sessionId: string; sourceSessionId?: string; sourceFilePath?: string; engine?: string } };
 
 // WebSocket message types between Client (Web IDE) and Cloud Hub
 export type ClientToHubMessage =
@@ -165,6 +171,7 @@ export type ClientToHubMessage =
   | { type: 'agent:queue_prompt'; payload: { sessionId: string; prompt: string } }
   | { type: 'agent:remove_queued_prompt'; payload: { sessionId: string; index: number } }
   | { type: 'agent:clear_queue'; payload: { sessionId: string } }
+  | { type: 'sessions:force_sync'; payload: { sessionId: string } }
   | { type: 'terminal:exec'; payload: { commandId: string; deviceId: string; command: string; cwd?: string } }
   | { type: 'fs:tree'; payload: { deviceId: string; path?: string } }
   | { type: 'fs:read'; payload: { deviceId: string; path: string } }

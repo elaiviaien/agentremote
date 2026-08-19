@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws';
+import { randomUUID } from 'crypto';
 import { ClientToHubMessage, HubToClientMessage } from '../../shared/types';
 import { verifyToken } from '../auth';
 import { deviceManager } from '../deviceManager';
@@ -219,6 +220,29 @@ export class ClientWsManager {
               type: 'session:updated',
               payload: session,
             });
+          }
+        }
+        break;
+      }
+
+      case 'sessions:force_sync': {
+        const { sessionId } = (msg as any).payload;
+        if (sessionId) {
+          const session = sessionManager.getSession(sessionId);
+          if (session) {
+            const targetDeviceId = session.deviceId || deviceManager.getActiveDeviceId();
+            if (targetDeviceId) {
+              deviceManager.sendToWorker(targetDeviceId, {
+                type: 'sessions:force_sync',
+                payload: {
+                  reqId: randomUUID(),
+                  sessionId: session.id,
+                  sourceSessionId: session.sourceSessionId,
+                  sourceFilePath: session.sourceFilePath,
+                  engine: session.engine,
+                },
+              });
+            }
           }
         }
         break;

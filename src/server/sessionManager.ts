@@ -22,6 +22,8 @@ export class SessionManager {
     model?: string;
     mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
     cursorChatId?: string;
+    sourceSessionId?: string;
+    sourceFilePath?: string;
     thinkingEffort?: 'low' | 'medium' | 'high' | 'off';
   }): ChatSession {
     const id = randomUUID();
@@ -38,6 +40,8 @@ export class SessionManager {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       cursorChatId: params.cursorChatId,
+      sourceSessionId: params.sourceSessionId,
+      sourceFilePath: params.sourceFilePath,
       workspacePath: params.workspacePath || '',
       model: params.model || (engine === 'antigravity' ? 'gemini-3.7-flash' : 'claude-4.5-sonnet'),
       mode: params.mode || 'yolo',
@@ -58,6 +62,8 @@ export class SessionManager {
       model?: string;
       mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
       cursorChatId?: string;
+      sourceSessionId?: string;
+      sourceFilePath?: string;
       thinkingEffort?: 'low' | 'medium' | 'high' | 'off';
       isStreaming?: boolean;
       status?: 'idle' | 'running' | 'completed' | 'error';
@@ -74,10 +80,47 @@ export class SessionManager {
     if (params.model !== undefined) session.model = params.model;
     if (params.mode !== undefined) session.mode = params.mode;
     if (params.cursorChatId !== undefined) session.cursorChatId = params.cursorChatId;
+    if (params.sourceSessionId !== undefined) session.sourceSessionId = params.sourceSessionId;
+    if (params.sourceFilePath !== undefined) session.sourceFilePath = params.sourceFilePath;
     if (params.thinkingEffort !== undefined) session.thinkingEffort = params.thinkingEffort;
     if (params.isStreaming !== undefined) session.isStreaming = params.isStreaming;
     if (params.status !== undefined) session.status = params.status;
     if (params.promptQueue !== undefined) session.promptQueue = params.promptQueue;
+
+    session.updatedAt = Date.now();
+    db.saveSession(session);
+    return session;
+  }
+
+  public syncExternalMessages(
+    sessionIdOrSourceId: string,
+    newMessages: ChatMessage[],
+    newTitle?: string
+  ): ChatSession | null {
+    const all = db.getSessions();
+    const session = all.find(
+      (s) =>
+        s.id === sessionIdOrSourceId ||
+        s.sourceSessionId === sessionIdOrSourceId ||
+        (s.sourceFilePath && s.sourceFilePath === sessionIdOrSourceId) ||
+        (s.cursorChatId && s.cursorChatId === sessionIdOrSourceId)
+    );
+    if (!session) return null;
+
+    if (newTitle && (session.title.includes('Новий чат') || session.title.includes('Antigravity') || session.title.includes('Imported'))) {
+      session.title = newTitle;
+    }
+
+    if (newMessages && newMessages.length > 0) {
+      session.messages = newMessages.map((m, idx) => ({
+        id: m.id || `sync_${session.id}_${idx}_${Date.now()}`,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp || Date.now(),
+        model: m.model || session.model,
+        toolCalls: m.toolCalls,
+      }));
+    }
 
     session.updatedAt = Date.now();
     db.saveSession(session);
