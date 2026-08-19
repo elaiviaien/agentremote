@@ -10,12 +10,19 @@ class AgentRemoteApp {
     this.isStreaming = false;
     this.activeCommandId = null;
 
+    // File Explorer Navigation State
+    this.currentFsPath = '';
+    this.fsHistoryStack = [];
+    this.currentFsTree = [];
+    this.currentFsRoot = '';
+
     this.initElements();
     this.initEvents();
     this.checkAuth();
   }
 
   initElements() {
+    // Login
     this.loginModal = document.getElementById('login-modal');
     this.loginForm = document.getElementById('login-form');
     this.loginUsername = document.getElementById('login-username');
@@ -23,44 +30,55 @@ class AgentRemoteApp {
     this.loginError = document.getElementById('login-error');
     this.loginBtn = document.getElementById('login-btn');
 
+    // App & Header
     this.appContainer = document.getElementById('app');
-    this.statusDot = document.getElementById('status-dot');
+    this.deviceStatusDot = document.getElementById('device-status-dot');
     this.deviceSelect = document.getElementById('device-select');
-    this.sessionList = document.getElementById('session-list');
-    this.sessionCount = document.getElementById('session-count');
-    this.newChatBtn = document.getElementById('new-chat-btn');
-    this.resumeChatBtn = document.getElementById('resume-chat-btn');
-    this.loginCursorBtn = document.getElementById('login-cursor-btn');
     this.logoutBtn = document.getElementById('logout-btn');
 
+    // Sidebar
+    this.newChatBtn = document.getElementById('new-chat-btn');
+    this.sessionSearch = document.getElementById('session-search');
+    this.sessionList = document.getElementById('session-list');
+    this.sessionCount = document.getElementById('session-count');
+    this.modelSelect = document.getElementById('model-select');
+    this.modeSelect = document.getElementById('mode-select');
+    this.workspaceInput = document.getElementById('workspace-input');
+
+    // Chat
     this.currentChatTitle = document.getElementById('current-chat-title');
     this.chatMeta = document.getElementById('chat-meta');
     this.chatMessages = document.getElementById('chat-messages');
     this.promptInput = document.getElementById('prompt-input');
     this.sendBtn = document.getElementById('send-btn');
     this.stopAgentBtn = document.getElementById('stop-agent-btn');
+    this.loginCursorBtn = document.getElementById('login-cursor-btn');
+    this.resumeChatBtn = document.getElementById('resume-chat-btn');
     this.activeDeviceIndicator = document.getElementById('active-device-indicator');
 
-    this.modelSelect = document.getElementById('model-select');
-    this.modeSelect = document.getElementById('mode-select');
-    this.workspaceInput = document.getElementById('workspace-input');
-
     // Tabs
-    this.navTabs = document.querySelectorAll('.nav-tab');
+    this.navTabs = document.querySelectorAll('.nav-pill');
     this.tabContents = document.querySelectorAll('.tab-content');
     this.toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
     this.appSidebar = document.getElementById('app-sidebar');
 
-    // Files
+    // Files Explorer
+    this.fsBackBtn = document.getElementById('fs-back-btn');
+    this.fsUpBtn = document.getElementById('fs-up-btn');
+    this.fsBreadcrumbs = document.getElementById('fs-breadcrumbs');
+    this.fsSearchInput = document.getElementById('fs-search-input');
+    this.refreshFilesBtn = document.getElementById('refresh-files-btn');
     this.filesTree = document.getElementById('files-tree');
     this.previewFilename = document.getElementById('preview-filename');
+    this.previewFileIcon = document.getElementById('preview-file-icon');
     this.previewContent = document.getElementById('preview-content');
-    this.refreshFilesBtn = document.getElementById('refresh-files-btn');
+    this.copyFileContentBtn = document.getElementById('copy-file-content-btn');
 
     // Terminal
     this.terminalOutput = document.getElementById('terminal-output');
     this.terminalForm = document.getElementById('terminal-form');
     this.terminalInput = document.getElementById('terminal-input');
+    this.clearTermBtn = document.getElementById('clear-term-btn');
 
     // Devices View
     this.devicesFullList = document.getElementById('devices-full-list');
@@ -69,7 +87,7 @@ class AgentRemoteApp {
   }
 
   initEvents() {
-    // Login form
+    // Login
     this.loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       await this.login(this.loginUsername.value, this.loginPassword.value);
@@ -78,20 +96,19 @@ class AgentRemoteApp {
     // Logout
     this.logoutBtn.addEventListener('click', () => this.logout());
 
-    // Tabs
+    // Navigation Tabs
     this.navTabs.forEach((tab) => {
       tab.addEventListener('click', () => {
-        const targetTab = tab.dataset.tab;
-        this.switchTab(targetTab);
+        this.switchTab(tab.dataset.tab);
       });
     });
 
-    // Mobile sidebar toggle
+    // Mobile Sidebar Toggle
     this.toggleSidebarBtn.addEventListener('click', () => {
       this.appSidebar.classList.toggle('open');
     });
 
-    // Device change
+    // Device Switcher
     this.deviceSelect.addEventListener('change', (e) => {
       this.selectDevice(e.target.value);
     });
@@ -106,12 +123,17 @@ class AgentRemoteApp {
       this.resumeCurrentSession();
     });
 
-    // Login Cursor CLI
+    // Login Cursor OAuth
     this.loginCursorBtn.addEventListener('click', () => {
       this.triggerCursorAuth();
     });
 
-    // Prompt Send
+    // Session Search Filter
+    this.sessionSearch.addEventListener('input', () => {
+      this.renderSessions();
+    });
+
+    // Prompt Sending
     this.sendBtn.addEventListener('click', () => this.sendPrompt());
     this.promptInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -120,16 +142,60 @@ class AgentRemoteApp {
       }
     });
 
-    // Stop Agent
+    // Quick Prompt Chips
+    document.querySelectorAll('.chip-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const prompt = btn.dataset.prompt;
+        this.promptInput.value = prompt;
+        this.promptInput.focus();
+      });
+    });
+
+    // Stop Agent Execution
     this.stopAgentBtn.addEventListener('click', () => this.abortAgent());
 
-    // Refresh Files
-    this.refreshFilesBtn.addEventListener('click', () => this.loadFilesTree());
+    // Files Navigation Events
+    this.refreshFilesBtn.addEventListener('click', () => this.loadFilesTree(this.currentFsPath));
+    
+    this.fsBackBtn.addEventListener('click', () => {
+      if (this.fsHistoryStack.length > 0) {
+        const prev = this.fsHistoryStack.pop();
+        this.loadFilesTree(prev, false);
+      } else {
+        this.navigateUpDirectory();
+      }
+    });
 
-    // Terminal command
+    this.fsUpBtn.addEventListener('click', () => {
+      this.navigateUpDirectory();
+    });
+
+    this.fsSearchInput.addEventListener('input', (e) => {
+      this.filterFilesTree(e.target.value);
+    });
+
+    this.copyFileContentBtn.addEventListener('click', () => {
+      const code = this.previewContent.innerText;
+      navigator.clipboard.writeText(code);
+      this.copyFileContentBtn.innerText = 'Скопійовано!';
+      setTimeout(() => (this.copyFileContentBtn.innerText = 'Скопіювати вміст'), 2000);
+    });
+
+    // Terminal Quick Commands
+    document.querySelectorAll('.term-quick-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const cmd = btn.dataset.cmd;
+        this.execTerminalCommand(cmd);
+      });
+    });
+
+    this.clearTermBtn.addEventListener('click', () => {
+      this.terminalOutput.innerHTML = '';
+    });
+
     this.terminalForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      this.execTerminalCommand();
+      this.execTerminalCommand(this.terminalInput.value);
     });
 
     // Copy command
@@ -145,7 +211,11 @@ class AgentRemoteApp {
     this.tabContents.forEach((c) => c.classList.toggle('active', c.id === `tab-${tabName}`));
 
     if (tabName === 'files') {
-      this.loadFilesTree();
+      if (!this.currentFsPath) {
+        const activeDev = this.getActiveDevice();
+        this.currentFsPath = (activeDev && activeDev.defaultWorkspace) || this.workspaceInput.value || '';
+      }
+      this.loadFilesTree(this.currentFsPath);
     }
   }
 
@@ -167,7 +237,7 @@ class AgentRemoteApp {
 
   async login(username, password) {
     this.loginError.innerText = '';
-    this.loginBtn.innerText = 'Вхід...';
+    this.loginBtn.disabled = true;
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -182,10 +252,10 @@ class AgentRemoteApp {
       } else {
         this.loginError.innerText = data.error || 'Невірний логін або пароль';
       }
-    } catch (err) {
+    } catch {
       this.loginError.innerText = 'Помилка з\'єднання з сервером';
     } finally {
-      this.loginBtn.innerText = 'Увійти в IDE';
+      this.loginBtn.disabled = false;
     }
   }
 
@@ -254,6 +324,9 @@ class AgentRemoteApp {
         } else {
           this.devices.push(dev);
         }
+        if (!this.activeDeviceId) {
+          this.activeDeviceId = dev.id;
+        }
         this.renderDevices();
         break;
       }
@@ -292,22 +365,22 @@ class AgentRemoteApp {
         break;
       }
 
-      case 'agent:chunk': {
-        if (this.activeSessionId === msg.payload.sessionId) {
-          this.setStreamingState(true);
-          this.updateStreamingMessage(msg.payload.chunk);
-        }
-        break;
-      }
-
       case 'agent:auth_url': {
         this.showAuthModal(msg.payload.url);
         break;
       }
 
       case 'agent:auth_success': {
-        alert('✅ Успішна авторизація в Cursor CLI!');
+        this.showToast('✅ Авторизація Cursor CLI успішно завершена!');
         if (this.authModalEl) this.authModalEl.remove();
+        break;
+      }
+
+      case 'agent:chunk': {
+        if (this.activeSessionId === msg.payload.sessionId) {
+          this.setStreamingState(true);
+          this.updateStreamingMessage(msg.payload.chunk);
+        }
         break;
       }
 
@@ -338,7 +411,7 @@ class AgentRemoteApp {
       }
 
       case 'terminal:exit': {
-        this.appendTerminalOutput(`\n[Process finished with code ${msg.payload.code}]\n\n`, false);
+        this.appendTerminalOutput(`\n[Process completed: code ${msg.payload.code}]\n\n`, false);
         break;
       }
 
@@ -348,8 +421,10 @@ class AgentRemoteApp {
       }
 
       case 'fs:file': {
-        this.previewFilename.innerText = msg.payload.path;
+        this.previewFilename.innerText = msg.payload.path.split(/[/\\]/).pop();
+        this.previewFileIcon.innerText = this.getFileIcon(msg.payload.path);
         this.previewContent.innerHTML = `<code>${this.escapeHtml(msg.payload.content || msg.payload.error || '')}</code>`;
+        this.copyFileContentBtn.style.display = 'inline-flex';
         break;
       }
     }
@@ -359,14 +434,14 @@ class AgentRemoteApp {
     this.deviceSelect.innerHTML = '';
     if (this.devices.length === 0) {
       this.deviceSelect.innerHTML = '<option value="">Немає підключених машин</option>';
-      this.statusDot.className = 'status-dot offline';
+      this.deviceStatusDot.className = 'device-status-indicator offline';
       this.activeDeviceIndicator.innerText = 'Пристрій: Не підключено';
     } else {
       this.devices.forEach((dev) => {
         const opt = document.createElement('option');
         opt.value = dev.id;
         const isOnline = dev.status === 'online';
-        opt.innerText = `${isOnline ? '🟢' : '🔴'} ${dev.name} (${dev.os || 'Local'})`;
+        opt.innerText = `${isOnline ? '🟢' : '🔴'} ${dev.name} (${dev.os ? dev.os.split(' ')[0] : 'Local'})`;
         if (dev.id === this.activeDeviceId) {
           opt.selected = true;
         }
@@ -375,29 +450,30 @@ class AgentRemoteApp {
 
       const activeDev = this.getActiveDevice();
       const isOnline = activeDev && activeDev.status === 'online';
-      this.statusDot.className = `status-dot ${isOnline ? 'online' : 'offline'}`;
-      this.activeDeviceIndicator.innerText = `Пристрій: ${activeDev ? activeDev.name : 'Не обрано'}`;
+      this.deviceStatusDot.className = `device-status-indicator ${isOnline ? 'online' : 'offline'}`;
+      this.activeDeviceIndicator.innerText = `Пристрій: ${activeDev ? activeDev.name : 'Не обрано'} (${isOnline ? 'ONLINE' : 'OFFLINE'})`;
 
       if (activeDev && activeDev.defaultWorkspace && !this.workspaceInput.value) {
         this.workspaceInput.value = activeDev.defaultWorkspace;
       }
     }
 
-    // Render Full Devices Grid in settings
+    // Render Full Settings Grid
     this.devicesFullList.innerHTML = this.devices
       .map(
         (dev) => `
       <div class="device-card">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <strong>${dev.name}</strong>
-          <span class="status-dot ${dev.status === 'online' ? 'online' : 'offline'}"></span>
+          <strong>💻 ${dev.name}</strong>
+          <span class="device-status-indicator ${dev.status === 'online' ? 'online' : 'offline'}"></span>
         </div>
-        <div style="font-size:12px; color:var(--text-secondary);">
-          <div>OS: ${dev.os || 'Unknown'}</div>
-          <div>Hostname: ${dev.hostname || '-'}</div>
-          <div>Cursor CLI: ${dev.cursorCliPath ? '✅ Виявлено' : '❌ Не знайдено'}</div>
-          <div>Antigravity: ${dev.antigravityAvailable ? '✅ Доступно' : '❌ Не знайдено'}</div>
-          ${dev.memoryUsage ? `<div>RAM: ${dev.memoryUsage.used}MB / ${dev.memoryUsage.total}MB</div>` : ''}
+        <div style="font-size:12px; color:var(--text-secondary); line-height:1.6; margin-top:6px;">
+          <div><strong>ID:</strong> <code>${dev.id}</code></div>
+          <div><strong>OS:</strong> ${dev.os || 'Windows/Linux/macOS'}</div>
+          <div><strong>Cursor CLI:</strong> ${dev.cursorCliPath ? '✅ Виявлено' : '❌ Не знайдено'}</div>
+          <div><strong>Antigravity:</strong> ${dev.antigravityAvailable ? '✅ Доступно' : '❌ Не виявлено'}</div>
+          ${dev.memoryUsage ? `<div><strong>RAM:</strong> ${dev.memoryUsage.used} MB / ${dev.memoryUsage.total} MB</div>` : ''}
+          <div><strong>Робоча папка:</strong> <code>${dev.defaultWorkspace || '-'}</code></div>
         </div>
       </div>
     `
@@ -418,26 +494,35 @@ class AgentRemoteApp {
   }
 
   renderSessions() {
-    this.sessionCount.innerText = this.sessions.length;
-    if (this.sessions.length === 0) {
-      this.sessionList.innerHTML = '<p class="meta-text" style="padding:10px;">Сесій ще немає</p>';
+    const query = (this.sessionSearch.value || '').toLowerCase().trim();
+    const filtered = this.sessions.filter(
+      (s) => !query || (s.title && s.title.toLowerCase().includes(query))
+    );
+
+    this.sessionCount.innerText = filtered.length;
+
+    if (filtered.length === 0) {
+      this.sessionList.innerHTML = '<p class="meta-text" style="padding:12px 6px; text-align:center;">Сесій не знайдено</p>';
       return;
     }
 
     this.sessionList.innerHTML = '';
-    this.sessions.forEach((s) => {
+    filtered.forEach((s) => {
       const item = document.createElement('div');
       item.className = `session-item ${s.id === this.activeSessionId ? 'active' : ''}`;
+      
+      const formattedDate = new Date(s.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       item.innerHTML = `
         <div class="session-info">
           <div class="session-title">${this.escapeHtml(s.title || 'Чат Cursor')}</div>
-          <div class="session-date">${new Date(s.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • ${s.model || 'Claude'}</div>
+          <div class="session-date">${formattedDate} • ${s.model || 'Claude'}</div>
         </div>
-        <button class="session-delete-btn" title="Видалити">✕</button>
+        <button class="session-delete-btn" title="Видалити сесію">✕</button>
       `;
 
       item.addEventListener('click', (e) => {
         if (e.target.classList.contains('session-delete-btn')) {
+          e.stopPropagation();
           this.deleteSession(s.id);
         } else {
           this.selectSession(s.id);
@@ -452,7 +537,6 @@ class AgentRemoteApp {
     this.activeSessionId = sessionId;
     this.renderSessions();
     this.renderActiveChat();
-    // Close sidebar on mobile
     this.appSidebar.classList.remove('open');
   }
 
@@ -479,10 +563,12 @@ class AgentRemoteApp {
       const data = await res.json();
       this.sessions.unshift(data.session);
       this.selectSession(data.session.id);
+      this.promptInput.focus();
     }
   }
 
   async deleteSession(sessionId) {
+    if (!confirm('Видалити цю сесію?')) return;
     await fetch(`/api/sessions/${sessionId}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${this.token}` },
@@ -499,10 +585,10 @@ class AgentRemoteApp {
     const session = this.sessions.find((s) => s.id === this.activeSessionId);
     if (!session) {
       this.currentChatTitle.innerText = 'Новий чат Cursor';
-      this.chatMeta.innerText = 'Оберіть сесію або створіть нову';
+      this.chatMeta.innerText = 'Оберіть сесію або почніть нову';
       this.chatMessages.innerHTML = `
         <div class="welcome-box">
-          <div class="welcome-icon">🤖</div>
+          <div class="welcome-badge">⚡ AgentRemote IDE</div>
           <h3>Створіть або оберіть сесію</h3>
           <p>Натисніть "+ Новий чат Cursor" у бічній панелі щоб почати.</p>
         </div>
@@ -511,16 +597,29 @@ class AgentRemoteApp {
     }
 
     this.currentChatTitle.innerText = session.title || 'Чат Cursor';
-    this.chatMeta.innerText = `ID: ${session.id} | Модель: ${session.model} | Режим: ${session.mode}`;
+    this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model} | ${session.mode.toUpperCase()}`;
 
     if (session.messages.length === 0) {
       this.chatMessages.innerHTML = `
         <div class="welcome-box">
-          <div class="welcome-icon">⚡</div>
-          <h3>Готовий до роботи!</h3>
-          <p>Напишіть запит, і агент запустить виконання на комп'ютері.</p>
+          <div class="welcome-badge">⚡ Готовий до роботи</div>
+          <h3>${this.escapeHtml(session.title)}</h3>
+          <p>Напишіть запит або оберіть одну зі швидких дій нижче:</p>
+          <div class="quick-prompt-chips">
+            <button class="chip-btn" data-prompt="Зроби огляд проекту і поясни структуру коду">📂 Огляд проекту</button>
+            <button class="chip-btn" data-prompt="Перевір git статус та останні коміти">🔍 Перевірити git статус</button>
+            <button class="chip-btn" data-prompt="Запусти тести та перевір білд">⚡ Запустити тести</button>
+            <button class="chip-btn" data-prompt="Знайди та виправ помилки у коді">🐛 Пошук багів</button>
+          </div>
         </div>
       `;
+      // rebind chip buttons
+      this.chatMessages.querySelectorAll('.chip-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.promptInput.value = btn.dataset.prompt;
+          this.promptInput.focus();
+        });
+      });
       return;
     }
 
@@ -544,9 +643,11 @@ class AgentRemoteApp {
       renderedContent = `<p>${this.escapeHtml(msg.content || '')}</p>`;
     }
 
+    const roleName = msg.role === 'user' ? 'Ви' : `🤖 Cursor Agent (${this.modelSelect.value})`;
+
     el.innerHTML = `
       <div class="message-header">
-        <span>${msg.role === 'user' ? 'Ви' : '🤖 Cursor Agent'}</span>
+        <span>${roleName}</span>
         <span>${formattedTime}</span>
       </div>
       <div class="message-bubble">
@@ -600,68 +701,17 @@ class AgentRemoteApp {
     }
   }
 
-  triggerCursorAuth() {
-    if (!this.activeDeviceId) {
-      alert('Будь ласка, оберіть підключену машину');
+  resumeCurrentSession() {
+    if (!this.activeSessionId) {
+      alert('Будь ласка, оберіть сесію для продовження');
       return;
     }
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(
-        JSON.stringify({
-          type: 'agent:trigger_auth',
-          payload: { deviceId: this.activeDeviceId },
-        })
-      );
-      this.showAuthModal(null);
-    }
-  }
-
-  showAuthModal(url) {
-    if (this.authModalEl) {
-      this.authModalEl.remove();
-    }
-
-    const modal = document.createElement('div');
-    modal.className = 'modal-backdrop';
-    modal.innerHTML = `
-      <div class="login-card" style="max-width: 440px;">
-        <div class="login-header">
-          <div class="logo-icon">🔑</div>
-          <h2>Авторизація Cursor CLI</h2>
-          <p>${url ? 'Перейдіть за посиланням для входу у ваш акаунт Cursor:' : 'Отримання посилання авторизації...'}</p>
-        </div>
-        ${
-          url
-            ? `
-          <div style="margin-bottom: 16px; text-align: center;">
-            <a href="${url}" target="_blank" class="btn btn-primary btn-block" style="text-decoration: none; padding: 12px;">
-              🔗 Відкрити сторінку входу Cursor
-            </a>
-          </div>
-          <p style="font-size: 11px; color: var(--text-muted); text-align: center; margin-bottom: 16px;">
-            Після підтвердження в браузері поверніться сюди.
-          </p>
-        `
-            : '<div style="text-align:center; padding: 20px;"><span style="color:var(--text-secondary)">Генерація запиту...</span></div>'
-        }
-        <button id="close-auth-modal" class="btn btn-secondary btn-block">Закрити</button>
-      </div>
-    `;
-
-    modal.querySelector('#close-auth-modal').addEventListener('click', () => {
-      modal.remove();
-    });
-
-    document.body.appendChild(modal);
-    this.authModalEl = modal;
-  }
-
-  resumeCurrentSession() {
-    if (!this.activeSessionId) return;
     const session = this.sessions.find((s) => s.id === this.activeSessionId);
     if (!session) return;
 
-    const resumePrompt = 'Continue previous task.';
+    const resumePrompt = prompt('Введіть наступну інструкцію для продовження чату:', 'Continue previous task.');
+    if (!resumePrompt) return;
+
     const payload = {
       sessionId: this.activeSessionId,
       deviceId: this.activeDeviceId,
@@ -676,6 +726,80 @@ class AgentRemoteApp {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'agent:prompt', payload }));
       this.setStreamingState(true);
+    }
+  }
+
+  triggerCursorAuth() {
+    const activeDev = this.getActiveDevice();
+    const targetDevId = activeDev ? activeDev.id : this.activeDeviceId;
+
+    if (!targetDevId) {
+      alert('Будь ласка, переконайтеся що комп\'ютер підключений');
+      return;
+    }
+
+    this.showAuthModal(null);
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'agent:trigger_auth',
+          payload: { deviceId: targetDevId },
+        })
+      );
+    }
+  }
+
+  showAuthModal(url) {
+    if (this.authModalEl) {
+      this.authModalEl.remove();
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.innerHTML = `
+      <div class="login-card glass-panel" style="max-width: 460px;">
+        <div class="login-header">
+          <div class="brand-logo-badge">🔑</div>
+          <h2>Авторизація Cursor CLI</h2>
+          <p>${url ? 'Підтвердіть вхід у ваш акаунт Cursor:' : 'Генерація посилання авторизації з машини...'}</p>
+        </div>
+        ${
+          url
+            ? `
+          <div style="margin-bottom: 18px; text-align: center;">
+            <a href="${url}" target="_blank" class="btn btn-primary btn-block btn-lg" style="text-decoration: none;">
+              <span>🔗 Відкрити сторінку входу Cursor</span>
+            </a>
+          </div>
+          <div class="code-copy-box" style="margin-bottom: 16px;">
+            <pre style="font-size:11px; word-break:break-all; white-space:pre-wrap;">${url}</pre>
+          </div>
+          <p style="font-size: 11.5px; color: var(--text-muted); text-align: center; margin-bottom: 18px;">
+            Після підтвердження у браузері поверніться сюди. Авторизація збережеться автоматично.
+          </p>
+        `
+            : `
+          <div style="text-align:center; padding: 24px;">
+            <div style="font-size:24px; margin-bottom:8px;">⏳</div>
+            <span style="color:var(--text-secondary)">Запуск процесу авторизації на машині...</span>
+          </div>
+        `
+        }
+        <button id="close-auth-modal" class="btn btn-secondary btn-block">Закрити</button>
+      </div>
+    `;
+
+    modal.querySelector('#close-auth-modal').addEventListener('click', () => {
+      modal.remove();
+    });
+
+    document.body.appendChild(modal);
+    this.authModalEl = modal;
+
+    // If URL is ready, open automatically in new tab
+    if (url) {
+      window.open(url, '_blank');
     }
   }
 
@@ -757,56 +881,182 @@ class AgentRemoteApp {
     }
   }
 
-  // Files Tab
-  loadFilesTree() {
+  // ================= FILES EXPLORER LOGIC =================
+  loadFilesTree(dirPath, recordHistory = true) {
+    if (recordHistory && this.currentFsPath && this.currentFsPath !== dirPath) {
+      this.fsHistoryStack.push(this.currentFsPath);
+    }
+    this.currentFsPath = dirPath || '';
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.filesTree.innerHTML = '<p class="placeholder-text">Завантаження файлів...</p>';
+      this.filesTree.innerHTML = '<p class="placeholder-text" style="padding:20px; text-align:center;">Завантаження файлів...</p>';
       this.ws.send(
         JSON.stringify({
           type: 'fs:tree',
-          payload: { deviceId: this.activeDeviceId, path: this.workspaceInput.value },
+          payload: { deviceId: this.activeDeviceId, path: dirPath },
         })
       );
     }
   }
 
   renderFilesTree(tree, rootPath) {
+    this.currentFsTree = tree || [];
+    this.currentFsRoot = rootPath || '';
+    this.currentFsPath = rootPath || '';
+
+    this.renderBreadcrumbs(rootPath);
+
     if (!tree || tree.length === 0) {
-      this.filesTree.innerHTML = '<p class="placeholder-text">Директорія порожня</p>';
+      this.filesTree.innerHTML = '<p class="placeholder-text" style="padding:20px; text-align:center;">Папка порожня</p>';
       return;
     }
 
-    this.filesTree.innerHTML = `<div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">${rootPath}</div>`;
-    const container = document.createElement('div');
+    this.displayFiles(this.currentFsTree);
+  }
 
-    const renderNode = (node, depth = 0) => {
+  renderBreadcrumbs(rootPath) {
+    if (!rootPath) {
+      this.fsBreadcrumbs.innerHTML = '<span class="breadcrumb-segment">Workspace</span>';
+      return;
+    }
+
+    const separator = rootPath.includes('\\') ? '\\' : '/';
+    const parts = rootPath.split(/[/\\]/).filter(Boolean);
+
+    this.fsBreadcrumbs.innerHTML = '';
+    let accumulated = rootPath.startsWith('/') ? '/' : '';
+
+    parts.forEach((part, index) => {
+      if (index === 0 && !rootPath.startsWith('/')) {
+        accumulated += part;
+      } else {
+        accumulated += (accumulated.endsWith(separator) ? '' : separator) + part;
+      }
+
+      const segment = document.createElement('span');
+      segment.className = 'breadcrumb-segment';
+      segment.innerText = part;
+      const targetPath = accumulated;
+      segment.addEventListener('click', () => {
+        this.loadFilesTree(targetPath);
+      });
+
+      this.fsBreadcrumbs.appendChild(segment);
+
+      if (index < parts.length - 1) {
+        const sep = document.createElement('span');
+        sep.className = 'breadcrumb-separator';
+        sep.innerText = ' / ';
+        this.fsBreadcrumbs.appendChild(sep);
+      }
+    });
+  }
+
+  navigateUpDirectory() {
+    if (!this.currentFsRoot) return;
+    const isWindows = this.currentFsRoot.includes('\\');
+    const separator = isWindows ? '\\' : '/';
+    const parts = this.currentFsRoot.split(/[/\\]/).filter(Boolean);
+
+    if (parts.length > 1) {
+      parts.pop();
+      let parentPath = parts.join(separator);
+      if (this.currentFsRoot.startsWith('/')) {
+        parentPath = '/' + parentPath;
+      }
+      this.loadFilesTree(parentPath);
+    }
+  }
+
+  filterFilesTree(query) {
+    const q = (query || '').toLowerCase().trim();
+    if (!q) {
+      this.displayFiles(this.currentFsTree);
+      return;
+    }
+
+    const filtered = this.currentFsTree.filter((item) =>
+      item.name.toLowerCase().includes(q)
+    );
+    this.displayFiles(filtered);
+  }
+
+  displayFiles(items) {
+    this.filesTree.innerHTML = '';
+    const list = document.createElement('div');
+
+    items.forEach((item) => {
       const el = document.createElement('div');
       el.className = 'tree-node';
-      el.style.paddingLeft = `${depth * 12 + 6}px`;
+      const icon = item.isDirectory ? '📁' : this.getFileIcon(item.name);
+      const sizeText = item.size ? this.formatFileSize(item.size) : '';
+
       el.innerHTML = `
-        <span>${node.isDirectory ? '📁' : '📄'}</span>
-        <span>${this.escapeHtml(node.name)}</span>
+        <div class="node-left">
+          <span>${icon}</span>
+          <span>${this.escapeHtml(item.name)}</span>
+        </div>
+        ${sizeText ? `<span class="node-size">${sizeText}</span>` : ''}
       `;
 
       el.addEventListener('click', () => {
-        if (!node.isDirectory) {
-          this.openFile(node.path);
+        document.querySelectorAll('.tree-node').forEach((n) => n.classList.remove('active'));
+        el.classList.add('active');
+
+        if (item.isDirectory) {
+          this.loadFilesTree(item.path);
+        } else {
+          this.openFile(item.path);
         }
       });
 
-      container.appendChild(el);
-      if (node.children) {
-        node.children.forEach((c) => renderNode(c, depth + 1));
-      }
-    };
+      list.appendChild(el);
+    });
 
-    tree.forEach((n) => renderNode(n));
-    this.filesTree.appendChild(container);
+    this.filesTree.appendChild(list);
+  }
+
+  getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    switch (ext) {
+      case 'ts':
+      case 'tsx':
+        return '📘';
+      case 'js':
+      case 'jsx':
+        return '🟨';
+      case 'json':
+        return '⚙️';
+      case 'html':
+        return '🌐';
+      case 'css':
+      case 'scss':
+        return '🎨';
+      case 'py':
+        return '🐍';
+      case 'md':
+        return '📝';
+      case 'sh':
+      case 'ps1':
+      case 'cmd':
+      case 'bat':
+        return '⚡';
+      default:
+        return '📄';
+    }
+  }
+
+  formatFileSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   openFile(filePath) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.previewFilename.innerText = `Завантаження ${filePath}...`;
+      this.previewFilename.innerText = filePath.split(/[/\\]/).pop();
+      this.previewFileIcon.innerText = this.getFileIcon(filePath);
+      this.previewContent.innerHTML = '<code>Завантаження вмісту файлу...</code>';
       this.ws.send(
         JSON.stringify({
           type: 'fs:read',
@@ -816,9 +1066,9 @@ class AgentRemoteApp {
     }
   }
 
-  // Terminal Tab
-  execTerminalCommand() {
-    const cmd = this.terminalInput.value.trim();
+  // ================= TERMINAL LOGIC =================
+  execTerminalCommand(cmdText) {
+    const cmd = (cmdText || '').trim();
     if (!cmd) return;
 
     this.activeCommandId = Math.random().toString(36).substring(2, 8);
@@ -842,10 +1092,27 @@ class AgentRemoteApp {
 
   appendTerminalOutput(text, isError) {
     const span = document.createElement('span');
-    span.style.color = isError ? '#f85149' : '#a9b7c6';
+    span.style.color = isError ? '#f87171' : '#cbd5e1';
     span.innerText = text;
     this.terminalOutput.appendChild(span);
     this.terminalOutput.scrollTop = this.terminalOutput.scrollHeight;
+  }
+
+  showToast(text) {
+    const toast = document.createElement('div');
+    toast.style.position = 'fixed';
+    toast.style.bottom = '24px';
+    toast.style.right = '24px';
+    toast.style.background = 'var(--accent-gradient)';
+    toast.style.color = '#fff';
+    toast.style.padding = '12px 20px';
+    toast.style.borderRadius = '10px';
+    toast.style.boxShadow = '0 8px 24px rgba(0,0,0,0.5)';
+    toast.style.zIndex = '99999';
+    toast.style.fontWeight = '600';
+    toast.innerText = text;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
   }
 
   escapeHtml(str) {
@@ -858,7 +1125,6 @@ class AgentRemoteApp {
   }
 }
 
-// Start application on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
   window.app = new AgentRemoteApp();
 });

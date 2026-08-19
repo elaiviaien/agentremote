@@ -3,35 +3,44 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>AgentRemote — Remote Cursor & AI IDE</title>
+  <title>AgentRemote — Cloud Web IDE for Cursor & AI Agents</title>
   <link rel="stylesheet" href="/style.css">
-  <!-- Fonts & Icons -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <!-- Marked.js for fast markdown rendering -->
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
   <!-- Login Gate Modal -->
   <div id="login-modal" class="modal-backdrop">
-    <div class="login-card">
+    <div class="login-card glass-panel">
       <div class="login-header">
-        <div class="logo-icon">⚡</div>
+        <div class="brand-logo-badge">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        </div>
         <h2>AgentRemote</h2>
-        <p>Віддалене керування Cursor AI агентами</p>
+        <p>Віддалене керування агентами Cursor & AI IDE</p>
       </div>
       <form id="login-form">
         <div class="form-group">
           <label for="login-username">Логін</label>
-          <input type="text" id="login-username" placeholder="admin" required autocomplete="username">
+          <div class="input-with-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            <input type="text" id="login-username" placeholder="admin" required autocomplete="username">
+          </div>
         </div>
         <div class="form-group">
           <label for="login-password">Пароль</label>
-          <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password">
+          <div class="input-with-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password">
+          </div>
         </div>
         <div id="login-error" class="error-text"></div>
-        <button type="submit" id="login-btn" class="btn btn-primary btn-block">Увійти в IDE</button>
+        <button type="submit" id="login-btn" class="btn btn-primary btn-block btn-lg">
+          <span>Увійти в Web IDE</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
       </form>
     </div>
   </div>
@@ -39,37 +48,52 @@
   <!-- Main Application Wrapper -->
   <div id="app" class="app-container" style="display: none;">
     <!-- Top Header -->
-    <header class="app-header">
+    <header class="app-header glass-header">
       <div class="header-left">
         <button id="toggle-sidebar-btn" class="icon-btn mobile-only" title="Меню">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
         </button>
         <div class="brand">
-          <span class="brand-icon">⚡</span>
-          <span class="brand-text">AgentRemote</span>
-          <span class="badge-serverless">Railway</span>
+          <div class="brand-badge">⚡</div>
+          <span class="brand-title">AgentRemote</span>
+          <span class="hub-status-tag">Railway Hub</span>
         </div>
       </div>
 
       <!-- Center Machine Selector -->
       <div class="header-center">
-        <div class="device-pill" id="device-pill">
-          <span class="status-dot offline" id="status-dot"></span>
-          <select id="device-select" class="device-select">
+        <div class="custom-select-wrapper device-select-wrapper">
+          <div class="device-status-indicator" id="device-status-dot"></div>
+          <select id="device-select" class="custom-select">
             <option value="">Пошук машин...</option>
           </select>
+          <div class="select-chevron">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
         </div>
       </div>
 
-      <!-- Right Actions -->
+      <!-- Right Navigation Tabs -->
       <div class="header-right">
-        <nav class="nav-tabs">
-          <button class="nav-tab active" data-tab="chat">💬 Чат Агента</button>
-          <button class="nav-tab" data-tab="files">📁 Файли</button>
-          <button class="nav-tab" data-tab="terminal">⚡ Термінал</button>
-          <button class="nav-tab" data-tab="devices">⚙️ Пристрої</button>
+        <nav class="nav-pills">
+          <button class="nav-pill active" data-tab="chat">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            <span>Агент</span>
+          </button>
+          <button class="nav-pill" data-tab="files">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <span>Файли</span>
+          </button>
+          <button class="nav-pill" data-tab="terminal">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+            <span>Термінал</span>
+          </button>
+          <button class="nav-pill" data-tab="devices">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <span>Налаштування</span>
+          </button>
         </nav>
-        <button id="logout-btn" class="icon-btn" title="Вийти">
+        <button id="logout-btn" class="icon-btn action-logout" title="Вийти">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         </button>
       </div>
@@ -77,12 +101,17 @@
 
     <!-- Main Body -->
     <div class="app-body">
-      <!-- Sidebar (Past Sessions & Controls) -->
+      <!-- Sidebar (Sessions & Config) -->
       <aside class="app-sidebar" id="app-sidebar">
         <div class="sidebar-top">
-          <button id="new-chat-btn" class="btn btn-primary btn-block">
-            <span>+ Новий чат Cursor</span>
+          <button id="new-chat-btn" class="btn btn-primary btn-block btn-new-chat">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Новий чат Cursor</span>
           </button>
+          <div class="search-box">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="session-search" placeholder="Пошук у чатах...">
+          </div>
         </div>
 
         <!-- Session List -->
@@ -92,34 +121,76 @@
             <span id="session-count" class="count-badge">0</span>
           </div>
           <div id="session-list" class="session-list">
-            <!-- Dynamic session items -->
+            <!-- Dynamic sessions -->
           </div>
         </div>
 
         <!-- Agent Configuration Drawer -->
         <div class="sidebar-footer">
+          <!-- Model Selector -->
           <div class="config-group">
-            <label>Модель</label>
-            <select id="model-select" class="input-sm">
-              <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-              <option value="claude-3-7-sonnet">Claude 3.7 Sonnet</option>
-              <option value="gpt-4o">GPT-4o</option>
-              <option value="o1-preview">OpenAI o1</option>
-              <option value="gpt-5">GPT-5</option>
-            </select>
+            <div class="config-label-row">
+              <label for="model-select">Модель AI</label>
+              <span class="badge-mini">Cursor CLI</span>
+            </div>
+            <div class="custom-select-wrapper">
+              <select id="model-select" class="custom-select">
+                <optgroup label="Anthropic (Рекомендовані)">
+                  <option value="claude-3-7-sonnet" selected>Claude 3.7 Sonnet (Новітня)</option>
+                  <option value="claude-3-7-sonnet-thinking">Claude 3.7 Sonnet (Thinking Mode)</option>
+                  <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                  <option value="claude-3-5-haiku">Claude 3.5 Haiku</option>
+                  <option value="claude-3-opus">Claude 3 Opus</option>
+                </optgroup>
+                <optgroup label="OpenAI">
+                  <option value="gpt-4o">GPT-4o</option>
+                  <option value="gpt-4o-mini">GPT-4o Mini</option>
+                  <option value="o1">OpenAI o1</option>
+                  <option value="o1-preview">OpenAI o1 Preview</option>
+                  <option value="o3-mini">OpenAI o3-mini (High Speed)</option>
+                  <option value="gpt-5">GPT-5 (Next-Gen Preview)</option>
+                </optgroup>
+                <optgroup label="DeepSeek & Gemini">
+                  <option value="deepseek-r1">DeepSeek R1 (Reasoning)</option>
+                  <option value="deepseek-v3">DeepSeek V3</option>
+                  <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                  <option value="gemini-2.0-pro-exp">Gemini 2.0 Pro</option>
+                  <option value="cursor-small">Cursor Small (Fast)</option>
+                </optgroup>
+              </select>
+              <div class="select-chevron">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+            </div>
           </div>
+
+          <!-- Mode Selector -->
           <div class="config-group">
-            <label>Режим роботи</label>
-            <select id="mode-select" class="input-sm">
-              <option value="agent">🤖 Agent (Повний доступ)</option>
-              <option value="yolo">⚡ YOLO (Авто-виконання)</option>
-              <option value="plan">📝 Plan (Тільки планування)</option>
-              <option value="ask">❓ Ask (Питання / Q&A)</option>
-            </select>
+            <div class="config-label-row">
+              <label for="mode-select">Режим агента</label>
+            </div>
+            <div class="custom-select-wrapper">
+              <select id="mode-select" class="custom-select">
+                <option value="agent" selected>🤖 Agent (Повний доступ: код, файли, тести)</option>
+                <option value="yolo">⚡ YOLO (Авто-виконання без підтверджень)</option>
+                <option value="plan">📝 Plan Mode (Тільки планування, без редагувань)</option>
+                <option value="ask">❓ Ask Mode (Q&A та пояснення архітектури)</option>
+              </select>
+              <div class="select-chevron">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+            </div>
           </div>
+
+          <!-- Workspace Path -->
           <div class="config-group">
-            <label>Робоча папка (Workspace)</label>
-            <input type="text" id="workspace-input" class="input-sm" placeholder="За замовчуванням">
+            <div class="config-label-row">
+              <label for="workspace-input">Робоча папка (Workspace)</label>
+            </div>
+            <div class="input-with-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              <input type="text" id="workspace-input" class="custom-input" placeholder="Автовизначення">
+            </div>
           </div>
         </div>
       </aside>
@@ -128,17 +199,23 @@
       <main class="app-main">
         <!-- Tab 1: Chat View -->
         <section id="tab-chat" class="tab-content active">
+          <!-- Chat Header -->
           <div class="chat-header">
             <div class="chat-title-info">
-              <h3 id="current-chat-title">Новий чат Cursor</h3>
-              <span id="chat-meta" class="meta-text">Оберіть сесію або створіть нову</span>
+              <div class="chat-title-row">
+                <h3 id="current-chat-title">Новий чат Cursor</h3>
+                <span id="session-badge" class="session-badge">СЕСІЯ</span>
+              </div>
+              <span id="chat-meta" class="meta-text">Готовий до запуску завдань</span>
             </div>
             <div class="chat-actions">
               <button id="login-cursor-btn" class="btn btn-secondary btn-sm" title="Авторизуватися в Cursor">
-                🔑 Увійти в Cursor
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                <span>Увійти в Cursor</span>
               </button>
-              <button id="resume-chat-btn" class="btn btn-secondary btn-sm" title="Продовжити минулий чат через Cursor CLI">
-                🔄 Продовжити минулий чат
+              <button id="resume-chat-btn" class="btn btn-accent btn-sm" title="Продовжити минулий чат через Cursor CLI">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                <span>Продовжити чат</span>
               </button>
             </div>
           </div>
@@ -146,22 +223,15 @@
           <!-- Message Stream Container -->
           <div id="chat-messages" class="chat-messages">
             <div class="welcome-box">
-              <div class="welcome-icon">🤖</div>
-              <h3>Ласкаво просимо в AgentRemote!</h3>
-              <p>Керуйте агентами Cursor на вашому комп'ютері віддалено з ноутбука чи телефона.</p>
-              <div class="quick-tips">
-                <div class="tip-card">
-                  <strong>💬 Запуск промпта</strong>
-                  <span>Напишіть завдання, і агент виконає його на локальній машині.</span>
-                </div>
-                <div class="tip-card">
-                  <strong>🔄 Продовження сесій</strong>
-                  <span>Усі минулі чати зберігаються і можуть бути продовжені в один клік.</span>
-                </div>
-                <div class="tip-card">
-                  <strong>📱 Мобільна оптимізація</strong>
-                  <span>Повний контроль за процесом з екрана смартфона.</span>
-                </div>
+              <div class="welcome-badge">⚡ AgentRemote IDE</div>
+              <h3>Віддалений AI Асистент для Cursor</h3>
+              <p>Керуйте розробкою на вашому комп'ютері чи сервері прямо з браузера будь-якого пристрою.</p>
+              
+              <div class="quick-prompt-chips">
+                <button class="chip-btn" data-prompt="Зроби огляд проекту і поясни структуру коду">📂 Огляд структури проекту</button>
+                <button class="chip-btn" data-prompt="Перевір git статус та останні зміни">🔍 Перевірити git статус</button>
+                <button class="chip-btn" data-prompt="Запусти тести та перевір чи все збирається">⚡ Запустити білд і тести</button>
+                <button class="chip-btn" data-prompt="Знайди потенційні баги або невикористаний код">🐛 Пошук проблем у коді</button>
               </div>
             </div>
           </div>
@@ -169,36 +239,69 @@
           <!-- Bottom Prompt Input -->
           <div class="chat-input-area">
             <div class="input-controls">
-              <span id="active-device-indicator" class="device-tag">Пристрій: Не обрано</span>
+              <div class="device-pill-small">
+                <span class="dot-live"></span>
+                <span id="active-device-indicator">Пристрій: Пошук...</span>
+              </div>
               <button id="stop-agent-btn" class="btn btn-danger btn-sm" style="display: none;">
-                ⏹ Зупинити агента
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
+                <span>Зупинити агента</span>
               </button>
             </div>
+
             <div class="input-box-wrapper">
-              <textarea id="prompt-input" placeholder="Напишіть завдання для Cursor Agent... (Enter - надіслати, Shift+Enter - новий рядок)" rows="2"></textarea>
-              <button id="send-btn" class="send-btn" title="Надіслати">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-              </button>
+              <textarea id="prompt-input" placeholder="Напишіть завдання для Cursor Agent... (Enter — надіслати, Shift+Enter — новий рядок)" rows="2"></textarea>
+              <div class="input-actions-bar">
+                <span class="shortcut-hint">⌘ + Enter / Enter</span>
+                <button id="send-btn" class="send-btn" title="Надіслати">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                </button>
+              </div>
             </div>
           </div>
         </section>
 
-        <!-- Tab 2: Files Explorer View -->
+        <!-- Tab 2: Files Explorer View (Enhanced with Breadcrumbs & Back button) -->
         <section id="tab-files" class="tab-content">
           <div class="view-panel">
-            <div class="panel-header">
-              <h3>Файловий провідник віддаленої машини</h3>
-              <button id="refresh-files-btn" class="btn btn-secondary btn-sm">Оновити</button>
+            <div class="files-top-toolbar">
+              <div class="files-nav-group">
+                <button id="fs-back-btn" class="btn btn-secondary btn-sm" title="Назад у папку вище">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                  <span>Назад</span>
+                </button>
+                <button id="fs-up-btn" class="btn btn-secondary btn-sm" title="На рівень вгору">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                  <span>Вгору</span>
+                </button>
+                <div class="breadcrumbs" id="fs-breadcrumbs">
+                  <!-- Dynamic Breadcrumb segments -->
+                </div>
+              </div>
+              <div class="files-actions-group">
+                <input type="text" id="fs-search-input" class="search-input-sm" placeholder="Фільтр файлів...">
+                <button id="refresh-files-btn" class="btn btn-secondary btn-sm">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                  <span>Оновити</span>
+                </button>
+              </div>
             </div>
+
             <div class="files-layout">
               <div class="files-tree" id="files-tree">
-                <p class="placeholder-text">Завантаження файлового дерева...</p>
+                <p class="placeholder-text">Завантаження файлів...</p>
               </div>
               <div class="file-preview">
                 <div class="file-preview-header">
-                  <span id="preview-filename">Оберіть файл для перегляду</span>
+                  <div class="preview-title-col">
+                    <span id="preview-file-icon">📄</span>
+                    <strong id="preview-filename">Оберіть файл для перегляду</strong>
+                  </div>
+                  <button id="copy-file-content-btn" class="btn btn-secondary btn-sm" style="display: none;">Скопіювати вміст</button>
                 </div>
-                <pre id="preview-content"><code>// Вміст файлу відобразиться тут</code></pre>
+                <div class="code-preview-scroll">
+                  <pre id="preview-content"><code>// Вміст файлу відобразиться тут</code></pre>
+                </div>
               </div>
             </div>
           </div>
@@ -208,30 +311,40 @@
         <section id="tab-terminal" class="tab-content">
           <div class="view-panel">
             <div class="panel-header">
-              <h3>Віддалена консоль терміналу</h3>
-              <span class="meta-text">Виконання PowerShell / Bash команд</span>
+              <div class="panel-title-group">
+                <h3>Віддалена консоль терміналу</h3>
+                <span class="meta-text">PowerShell &amp; Bash Runner</span>
+              </div>
+              <div class="terminal-quick-cmds">
+                <button class="term-quick-btn" data-cmd="git status">git status</button>
+                <button class="term-quick-btn" data-cmd="npm test">npm test</button>
+                <button class="term-quick-btn" data-cmd="npm run build">npm build</button>
+                <button id="clear-term-btn" class="btn btn-secondary btn-sm">Очистити</button>
+              </div>
             </div>
             <div class="terminal-container">
               <div id="terminal-output" class="terminal-output"></div>
               <form id="terminal-form" class="terminal-input-bar">
-                <span class="terminal-prompt">&gt;</span>
-                <input type="text" id="terminal-input" placeholder="Введіть команду (наприклад, git status або npm run test)..." autocomplete="off">
+                <span class="terminal-prompt">PS &gt;</span>
+                <input type="text" id="terminal-input" placeholder="Введіть команду терміналу..." autocomplete="off">
                 <button type="submit" class="btn btn-primary btn-sm">Виконати</button>
               </form>
             </div>
           </div>
         </section>
 
-        <!-- Tab 4: Devices View -->
+        <!-- Tab 4: Devices & Settings View -->
         <section id="tab-devices" class="tab-content">
           <div class="view-panel">
             <div class="panel-header">
-              <h3>Підключені машини та налаштування</h3>
+              <h3>Підключені машини та конфігурація</h3>
             </div>
             <div class="devices-dashboard">
-              <div class="card">
-                <h4>Підключення нового комп'ютера</h4>
-                <p>Щоб керувати ще одним комп'ютером чи ноутбуком, запустіть на ньому локальний демон:</p>
+              <div class="card glass-card">
+                <div class="card-header-row">
+                  <h4>⚡ Швидке підключення нового комп'ютера / ноутбука</h4>
+                </div>
+                <p>Запустіть одну команду у терміналі комп'ютера, яким хочете керувати віддалено:</p>
                 <div class="code-copy-box">
                   <pre id="daemon-command-text">git clone https://github.com/elaiviaien/agentremote.git
 cd agentremote
@@ -241,8 +354,10 @@ npm run worker</pre>
                 </div>
               </div>
 
-              <div class="card">
-                <h4>Активні машини</h4>
+              <div class="card glass-card">
+                <div class="card-header-row">
+                  <h4>💻 Підключені машини</h4>
+                </div>
                 <div id="devices-full-list" class="devices-grid">
                   <!-- Devices list -->
                 </div>

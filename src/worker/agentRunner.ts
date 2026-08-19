@@ -28,22 +28,33 @@ export class AgentRunner {
     console.log(`[AgentRunner] Running cursor-agent login...`);
     const proc = spawn(this.tools.cursorAgentCmd, ['login'], {
       shell: true,
-      env: { ...process.env },
+      env: { ...process.env, NO_OPEN_BROWSER: '1' },
     });
 
     let detectedUrl = false;
+    let authBuffer = '';
+
     proc.stdout?.on('data', (d) => {
       const text = d.toString();
+      authBuffer += text;
       console.log(`[AgentRunner Login] ${text}`);
-      const match = text.match(/https:\/\/cursor\.com\/loginDeepControl[^\s\r\n]+/);
+      const match = authBuffer.match(/https:\/\/cursor\.com\/loginDeepControl[^\s\r\n"'>]+/);
       if (match && !detectedUrl) {
         detectedUrl = true;
+        console.log(`[AgentRunner] Found OAuth URL: ${match[0]}`);
         onAuthUrl(match[0]);
       }
     });
 
     proc.stderr?.on('data', (d) => {
-      console.error(`[AgentRunner Login Err] ${d.toString()}`);
+      const text = d.toString();
+      authBuffer += text;
+      console.error(`[AgentRunner Login Err] ${text}`);
+      const match = authBuffer.match(/https:\/\/cursor\.com\/loginDeepControl[^\s\r\n"'>]+/);
+      if (match && !detectedUrl) {
+        detectedUrl = true;
+        onAuthUrl(match[0]);
+      }
     });
 
     proc.on('close', (code) => {
@@ -102,7 +113,18 @@ export class AgentRunner {
       return;
     }
 
-    const args: string[] = ['--print', '--output-format', 'stream-json', '--stream-partial-output'];
+    const args: string[] = [
+      '--print',
+      '--output-format',
+      'stream-json',
+      '--stream-partial-output',
+      '--trust',
+      '--approve-mcps',
+    ];
+
+    if (process.env.CURSOR_API_KEY) {
+      args.push('--api-key', process.env.CURSOR_API_KEY);
+    }
 
     if (cursorChatId) {
       args.push('--resume', cursorChatId);
