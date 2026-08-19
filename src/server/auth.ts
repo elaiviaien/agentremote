@@ -11,17 +11,15 @@ export interface TokenPayload {
 }
 
 export function initAuth() {
-  // Check if admin user exists, if not, create default admin from config
-  if (!db.hasUsers()) {
-    const salt = bcrypt.genSaltSync(10);
-    const hash = bcrypt.hashSync(config.adminPassword, salt);
-    db.saveUser({
-      username: config.adminUsername,
-      passwordHash: hash,
-      createdAt: Date.now(),
-    });
-    console.log(`[Auth] Initialized default admin user: '${config.adminUsername}'`);
-  }
+  // Ensure the configured admin user exists and password is in sync
+  const salt = bcrypt.genSaltSync(10);
+  const hash = bcrypt.hashSync(config.adminPassword, salt);
+  db.saveUser({
+    username: config.adminUsername,
+    passwordHash: hash,
+    createdAt: Date.now(),
+  });
+  console.log(`[Auth] Initialized & synced user: '${config.adminUsername}'`);
 }
 
 export function verifyPassword(password: string, hash: string): boolean {
