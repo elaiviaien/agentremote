@@ -1683,21 +1683,25 @@ class AgentRemoteApp {
     if (this.modalModelSelect) {
       if (isAgy) {
         this.modalModelSelect.innerHTML = `
-          <option value="auto" selected>Auto (Antigravity обирає Pro / Flash)</option>
-          <option value="gemini-3.1-pro">Gemini 2.5 / 3.1 Pro (Coding & Logic)</option>
-          <option value="gemini-3.7-flash">Gemini 2.5 / 3.7 Flash (Fast)</option>
-          <option value="gemini-2.5-flash-thinking">Gemini Flash Thinking</option>
+          <option value="auto" selected>Auto (Antigravity обирає найкращу модель)</option>
+          <option value="gemini-3.7-flash">Gemini 3.7 Flash (Новітня надшвидка)</option>
+          <option value="gemini-3.7-flash-thinking">Gemini 3.7 Flash Thinking (Міркування)</option>
+          <option value="gemini-3.1-pro">Gemini 2.5 / 3.1 Pro (Складний кодинг &amp; 1M)</option>
+          <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+          <option value="gemini-2.5-flash-thinking">Gemini 2.5 Flash Thinking</option>
+          <option value="claude-3.7-sonnet">Claude 3.7 Sonnet (via Antigravity)</option>
         `;
       } else {
         this.modalModelSelect.innerHTML = `
           <option value="auto" selected>Auto (Cursor обирає найкращу модель)</option>
+          <option value="claude-3.7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
           <option value="claude-4.5-sonnet">Claude Sonnet 4.5 (Рекомендована)</option>
           <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 Thinking</option>
           <option value="claude-4-sonnet">Claude Sonnet 4</option>
           <option value="gpt-5.1">GPT-5.1 Flagship</option>
           <option value="gpt-5-mini">GPT-5 Mini (Fast)</option>
           <option value="claude-4.5-opus-high">Claude Opus 4.5</option>
-          <option value="gemini-3.7-flash-medium">Gemini 3.7 Flash</option>
+          <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
         `;
       }
     }
