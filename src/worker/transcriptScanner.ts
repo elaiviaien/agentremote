@@ -1,7 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { DatabaseSync } from 'node:sqlite';
+// Dynamic require for node:sqlite supported in Node 22+
+let DatabaseSync: any;
+try {
+  DatabaseSync = require('node:sqlite').DatabaseSync;
+} catch {
+  // fallback if not available
+}
 import { ChatSanitizer, SanitizedChatResult } from '../shared/chatSanitizer';
 
 export interface LocalTranscriptInfo {
