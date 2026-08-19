@@ -8,11 +8,11 @@ try {
 } catch {
   // fallback if not available
 }
-import { ChatSanitizer, SanitizedChatResult } from '../shared/chatSanitizer';
+import { ChatSanitizer, SanitizedChatResult, CleanMessage } from '../shared/chatSanitizer';
 
 export interface LocalTranscriptInfo {
   id: string;
-  source: 'antigravity' | 'cursor';
+  source: 'antigravity' | 'cursor' | 'claude_code';
   title: string;
   updatedAt: number;
   messageCount: number;
@@ -22,12 +22,13 @@ export interface LocalTranscriptInfo {
 
 export class TranscriptScanner {
   /**
-   * Scans both Antigravity transcripts and Cursor IDE workspace sessions
+   * Scans Antigravity transcripts, Cursor IDE workspace sessions, and Claude Code CLI sessions
    */
   public static scanAllLocalTranscripts(): LocalTranscriptInfo[] {
     const antigravity = this.scanAntigravityTranscripts();
     const cursor = this.scanCursorWorkspaceTranscripts();
-    return [...antigravity, ...cursor].sort((a, b) => b.updatedAt - a.updatedAt);
+    const claudeCode = this.scanClaudeCodeTranscripts();
+    return [...antigravity, ...cursor, ...claudeCode].sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   /**
@@ -152,53 +153,125 @@ export class TranscriptScanner {
   }
 
   /**
-   * Reads and sanitizes a local transcript file (Antigravity JSONL or Cursor SQLite DB)
+   * Scans Claude Code CLI sessions from ~/.claude/projects/
    */
-  public static readAndSanitizeLocalTranscript(filePath: string): SanitizedChatResult | null {
-    if (!fs.existsSync(filePath)) return null;
+  public static scanClaudeCodeTranscripts(): LocalTranscriptInfo[] {
+    const results: LocalTranscriptInfo[] = [];
+    const homeDir = os.homedir();
+    const claudeProjectsDir = path.join(homeDir, '.claude', 'projects');
 
-    // Check if it's a Cursor SQLite database
-    if (filePath.endsWith('.vscdb')) {
+    if (!fs.existsSync(claudeProjectsDir)) return results;
+
+    try {
+      const projectDirs = fs.readdirSync(claudeProjectsDir);
+      for (const pDir of projectDirs) {
+        const fullProjPath = path.join(claudeProjectsDir, pDir);
+        if (!fs.statSync(fullProjPath).isDirectory()) continue;
+
+        // Reconstruct approximate workspace path
+        let wsPath = pDir.replace(/--/g, ':\\').replace(/-/g, '\\');
+        if (pDir.startsWith('c--') || pDir.startsWith('C--')) {
+          wsPath = 'C:\\' + pDir.slice(3).replace(/-/g, '\\');
+        }
+
+        const files = fs.readdirSync(fullProjPath);
+        for (const file of files) {
+          if (!file.endsWith('.jsonl')) continue;
+
+          const jsonlPath = path.join(fullProjPath, file);
+          try {
+            const stats = fs.statSync(jsonlPath);
+            if (stats.size < 100) continue; // skip empty/corrupted
+
+            const rawContent = fs.readFileSync(jsonlPath, 'utf8');
+            const sanitized = ChatSanitizer.parseClaudeCodeJsonl(rawContent);
+
+            if (sanitized.messages.length > 0) {
+              results.push({
+                id: `claude-${file.replace('.jsonl', '')}`,
+                source: 'claude_code',
+                title: sanitized.title || `Claude Code: ${path.basename(wsPath)}`,
+                updatedAt: stats.mtimeMs,
+                messageCount: sanitized.messages.length,
+                filePath: jsonlPath,
+                workspacePath: wsPath,
+              });
+            }
+          } catch {
+            // Ignored
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[TranscriptScanner] Error scanning Claude Code projects:', err);
+    }
+
+    return results;
+  }
+
+  /**
+   * Reads and parses a local transcript file by path
+   */
+  public static readLocalTranscript(filePath: string): SanitizedChatResult | null {
+    if (filePath.startsWith('vscdb:')) {
+      const dbPath = filePath.replace('vscdb:', '');
       try {
-        const db = new DatabaseSync(filePath);
-        const genRow: any = db.prepare("SELECT value FROM ItemTable WHERE key = 'aiService.generations'").get();
-        if (genRow) {
-          const gens = JSON.parse(genRow.value);
-          const cleanMessages: any[] = [];
+        if (DatabaseSync && fs.existsSync(dbPath)) {
+          const db = new DatabaseSync(dbPath);
+          const row = db.prepare("SELECT value FROM ItemTable WHERE key = 'workbench.panel.aichat.view.aichat.chatdata'").get() as any;
+          db.close();
+
+          if (!row || !row.value) return null;
+
+          const parsed = JSON.parse(row.value);
+          const cleanMessages: CleanMessage[] = [];
           let totalMetadataRemoved = 0;
           let totalSecretsRedacted = 0;
 
-          if (Array.isArray(gens)) {
-            gens.forEach((g: any) => {
-              if (g.textDescription) {
-                const { cleanText, metadataRemoved, secretsRedacted } = ChatSanitizer.sanitizeText(g.textDescription);
-                totalMetadataRemoved += metadataRemoved;
-                totalSecretsRedacted += secretsRedacted;
-                if (cleanText) {
-                  cleanMessages.push({
-                    role: 'user',
-                    content: cleanText,
-                    timestamp: g.unixMs || Date.now(),
-                  });
-                }
+          if (parsed.tabs && Array.isArray(parsed.tabs)) {
+            parsed.tabs.forEach((tab: any) => {
+              if (tab.bubbles && Array.isArray(tab.bubbles)) {
+                tab.bubbles.forEach((b: any) => {
+                  const rawText = b.text || b.rawText || '';
+                  const role: 'user' | 'assistant' = b.type === 'user' ? 'user' : 'assistant';
+                  const { cleanText, metadataRemoved, secretsRedacted } = ChatSanitizer.sanitizeText(rawText);
+                  totalMetadataRemoved += metadataRemoved;
+                  totalSecretsRedacted += secretsRedacted;
+
+                  if (cleanText) {
+                    cleanMessages.push({
+                      role,
+                      content: cleanText,
+                      timestamp: b.unixMs || Date.now(),
+                    });
+                  }
+                });
               }
             });
           }
 
           const cleanSummaryContext = ChatSanitizer.generateCleanContextSummary(cleanMessages);
-          const title = cleanMessages[0] ? cleanMessages[0].content.slice(0, 45) + '...' : 'Cursor Workspace Chat';
-
           return {
-            title,
+            title: 'Cursor Chat',
             sourceType: 'cursor',
             messages: cleanMessages,
             removedMetadataCount: totalMetadataRemoved,
             redactedSecretsCount: totalSecretsRedacted,
-            cleanSummaryContext,
+            cleanSummaryContext
           };
         }
       } catch (err) {
         console.error('[TranscriptScanner] Error reading Cursor vscdb:', err);
+      }
+    }
+
+    // Claude Code JSONL reader
+    if (filePath.includes('.claude') && filePath.endsWith('.jsonl')) {
+      try {
+        const rawContent = fs.readFileSync(filePath, 'utf8');
+        return ChatSanitizer.parseClaudeCodeJsonl(rawContent);
+      } catch (err) {
+        console.error('[TranscriptScanner] Error reading Claude Code jsonl:', err);
       }
     }
 
@@ -210,5 +283,9 @@ export class TranscriptScanner {
       console.error('[TranscriptScanner] Error reading transcript:', err);
       return null;
     }
+  }
+
+  public static readAndSanitizeLocalTranscript(filePath: string): SanitizedChatResult | null {
+    return this.readLocalTranscript(filePath);
   }
 }

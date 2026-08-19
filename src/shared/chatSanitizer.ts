@@ -9,7 +9,7 @@ export interface CleanMessage {
 
 export interface SanitizedChatResult {
   title: string;
-  sourceType: 'antigravity' | 'claude' | 'chatgpt' | 'cursor' | 'generic';
+  sourceType: 'antigravity' | 'claude_code' | 'claude' | 'chatgpt' | 'cursor' | 'generic';
   messages: CleanMessage[];
   removedMetadataCount: number;
   redactedSecretsCount: number;
@@ -153,6 +153,113 @@ export class ChatSanitizer {
     return {
       title: detectedTitle,
       sourceType: 'antigravity',
+      messages: cleanMessages,
+      removedMetadataCount: totalMetadataRemoved,
+      redactedSecretsCount: totalSecretsRedacted,
+      cleanSummaryContext,
+    };
+  }
+
+  /**
+   * Parses Claude Code CLI project transcript (.jsonl)
+   */
+  public static parseClaudeCodeJsonl(jsonlContent: string): SanitizedChatResult {
+    const lines = jsonlContent.split('\n');
+    const cleanMessages: CleanMessage[] = [];
+    let totalMetadataRemoved = 0;
+    let totalSecretsRedacted = 0;
+    let detectedTitle = '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      try {
+        const entry = JSON.parse(trimmed);
+
+        // Check for AI generated title
+        if (entry.type === 'ai-title' && entry.aiTitle) {
+          detectedTitle = entry.aiTitle;
+          continue;
+        }
+
+        // Process User messages
+        if (entry.type === 'user' && entry.message) {
+          let userText = '';
+          if (typeof entry.message.content === 'string') {
+            userText = entry.message.content;
+          } else if (Array.isArray(entry.message.content)) {
+            userText = entry.message.content
+              .filter((c: any) => c.type === 'text')
+              .map((c: any) => c.text)
+              .join('\n');
+          }
+
+          if (userText) {
+            const { cleanText, metadataRemoved, secretsRedacted } = this.sanitizeText(userText);
+            totalMetadataRemoved += metadataRemoved;
+            totalSecretsRedacted += secretsRedacted;
+
+            if (cleanText) {
+              cleanMessages.push({
+                role: 'user',
+                content: cleanText,
+                timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
+              });
+
+              if (!detectedTitle) {
+                detectedTitle = cleanText.split('\n')[0].slice(0, 45) + '...';
+              }
+            }
+          }
+        }
+        // Process Assistant messages
+        else if (entry.type === 'assistant' && entry.message) {
+          let assistantText = '';
+          if (typeof entry.message.content === 'string') {
+            assistantText = entry.message.content;
+          } else if (Array.isArray(entry.message.content)) {
+            assistantText = entry.message.content
+              .filter((c: any) => c.type === 'text')
+              .map((c: any) => c.text)
+              .join('\n');
+          }
+
+          if (assistantText) {
+            const { cleanText, metadataRemoved, secretsRedacted } = this.sanitizeText(assistantText);
+            totalMetadataRemoved += metadataRemoved;
+            totalSecretsRedacted += secretsRedacted;
+
+            if (cleanText) {
+              const lastMsg = cleanMessages[cleanMessages.length - 1];
+              if (lastMsg && lastMsg.role === 'assistant') {
+                lastMsg.content += '\n\n' + cleanText;
+              } else {
+                cleanMessages.push({
+                  role: 'assistant',
+                  content: cleanText,
+                  timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
+                });
+              }
+            }
+          }
+        } else {
+          totalMetadataRemoved++;
+        }
+      } catch {
+        // Ignored unparseable line
+      }
+    }
+
+    if (!detectedTitle) {
+      detectedTitle = cleanMessages[0] ? cleanMessages[0].content.slice(0, 40) + '...' : 'Claude Code Imported Session';
+    }
+
+    const cleanSummaryContext = this.generateCleanContextSummary(cleanMessages);
+
+    return {
+      title: detectedTitle,
+      sourceType: 'claude_code',
       messages: cleanMessages,
       removedMetadataCount: totalMetadataRemoved,
       redactedSecretsCount: totalSecretsRedacted,

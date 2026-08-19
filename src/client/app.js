@@ -1522,9 +1522,9 @@ class AgentRemoteApp {
   renderLocalTranscripts(transcripts) {
     if (!transcripts || transcripts.length === 0) {
       this.localTranscriptsList.innerHTML = `
-        <div style="padding:16px; text-align:center; color:var(--text-muted); font-size:12px;">
-          Локальних транскриптів Antigravity не знайдено на цій машині.<br>
-          Ви можете вставити текст експорту у вкладці "Вставити текст / файл".
+        <div style="padding:20px; text-align:center; color:var(--text-muted); font-size:12px;">
+          Не виявлено локальних сесій на цій машині.<br>
+          Перевірте, чи запущено локальний Worker Daemon.
         </div>
       `;
       return;
@@ -1535,13 +1535,29 @@ class AgentRemoteApp {
       const item = document.createElement('div');
       item.className = 'session-item';
       item.style.border = '1px solid var(--border-subtle)';
-      item.style.padding = '8px 12px';
+      item.style.padding = '10px 14px';
+      item.style.marginBottom = '4px';
+      item.style.borderRadius = '9px';
       
       const formattedDate = new Date(t.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      
+      let badge = '<span class="session-engine-tag antigravity">🚀 AGY</span>';
+      if (t.source === 'claude_code') {
+        badge = '<span class="session-engine-tag" style="background:rgba(168, 85, 247, 0.15); color:#a855f7; border: 1px solid rgba(168, 85, 247, 0.3);">🟣 CLAUDE CODE</span>';
+      } else if (t.source === 'cursor') {
+        badge = '<span class="session-engine-tag cursor">🤖 CURSOR</span>';
+      }
+
+      const wsDisplay = t.workspacePath ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">📂 ${this.escapeHtml(t.workspacePath)}</div>` : '';
+
       item.innerHTML = `
         <div class="session-info">
-          <div class="session-title" style="font-size:12.5px; font-weight:600;">🚀 ${this.escapeHtml(t.title)}</div>
-          <div class="session-date">${formattedDate} • ${t.messageCount} повідомлень</div>
+          <div class="session-header-line">
+            ${badge}
+            <strong class="session-title" style="font-size:13px;">${this.escapeHtml(t.title)}</strong>
+          </div>
+          ${wsDisplay}
+          <div class="session-date" style="margin-top:3px;">${formattedDate} • ${t.messageCount} повідомлень</div>
         </div>
       `;
 
@@ -1549,6 +1565,7 @@ class AgentRemoteApp {
         this.localTranscriptsList.querySelectorAll('.session-item').forEach((el) => el.classList.remove('active'));
         item.classList.add('active');
         this.selectedTranscriptFilePath = t.filePath;
+        this.selectedTranscriptWorkspace = t.workspacePath || '';
         this.importSessionTitle.value = t.title.slice(0, 45);
 
         // Request content & preview
@@ -1582,6 +1599,9 @@ class AgentRemoteApp {
     this.executeImportBtn.disabled = true;
     this.executeImportBtn.innerHTML = '⏳ Очищення та імпорт...';
 
+    const targetEngine = this.importTargetEngine ? this.importTargetEngine.value : 'cursor';
+    const workspace = this.selectedTranscriptWorkspace || this.workspaceInput.value || '';
+
     try {
       const res = await fetch('/api/sessions/import', {
         method: 'POST',
@@ -1593,9 +1613,10 @@ class AgentRemoteApp {
           rawContent,
           title: this.importSessionTitle.value.trim(),
           deviceId: this.activeDeviceId,
-          model: this.modelSelect.value,
+          engine: targetEngine,
+          model: targetEngine === 'antigravity' ? 'gemini-3.1-pro' : this.modelSelect.value,
           mode: this.modeSelect.value,
-          workspacePath: this.workspaceInput.value,
+          workspacePath: workspace,
         }),
       });
 
@@ -1607,7 +1628,7 @@ class AgentRemoteApp {
         this.importModal.style.display = 'none';
 
         const rep = data.report;
-        this.showToast(`🛡️ Чат успішно імпортовано! Очищено ${rep.removedMetadataCount} системних тегів (${rep.messageCount} повід.).`);
+        this.showToast(`🛡️ Чат (${data.session.title}) успішно імпортовано в ${targetEngine.toUpperCase()}! Очищено ${rep.removedMetadataCount} тегів.`);
       } else {
         alert(data.error || 'Помилка імпорту чату');
       }

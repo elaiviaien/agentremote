@@ -115,13 +115,17 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
 
     const sanitized = ChatSanitizer.sanitizeAny(rawContent);
     const sessionTitle = title || sanitized.title || 'Імпортований чат';
+    const sourceLabel = sanitized.sourceType === 'claude_code' ? 'Claude Code' : sanitized.sourceType === 'cursor' ? 'Cursor IDE' : sanitized.sourceType === 'antigravity' ? 'Antigravity' : 'Зовнішнього агента';
+    const sessionDesc = body.description || `Імпортовано з ${sourceLabel} • ${sanitized.messages.length} повідомлень`;
 
     const session = sessionManager.createSession({
       deviceId: deviceId || deviceManager.getActiveDeviceId() || 'default',
       title: sessionTitle,
+      description: sessionDesc,
+      engine: body.engine || 'cursor',
       workspacePath: workspacePath || '',
-      model: model || 'claude-4.5-sonnet',
-      mode: mode || 'ask',
+      model: model || (body.engine === 'antigravity' ? 'gemini-3.1-pro' : 'claude-4.5-sonnet'),
+      mode: mode || 'yolo',
     });
 
     // Populate sanitized messages
