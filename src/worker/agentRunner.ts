@@ -182,26 +182,30 @@ export class AgentRunner {
         try {
           const parsed = JSON.parse(trimmed);
 
-          // 1. Check assistant message object
+          // 1. Assistant message object
           if (parsed.type === 'assistant' && parsed.message?.content) {
-            if (Array.isArray(parsed.message.content)) {
-              const chunk = parsed.message.content.map((c: any) => c.text || '').join('');
-              if (chunk) {
-                accumulatedText += chunk;
-                callbacks.onChunk(accumulatedText, chunk);
+            const rawContent = Array.isArray(parsed.message.content)
+              ? parsed.message.content.map((c: any) => c.text || '').join('')
+              : (parsed.message.content || '');
+
+            if (rawContent) {
+              if (parsed.timestamp_ms) {
+                // Incremental stream delta
+                accumulatedText += rawContent;
+                callbacks.onChunk(accumulatedText, rawContent);
+              } else {
+                // Full message summary at the end of turn
+                accumulatedText = rawContent;
+                callbacks.onChunk(accumulatedText, '');
               }
-            } else if (typeof parsed.message.content === 'string') {
-              accumulatedText = parsed.message.content;
-              callbacks.onChunk(accumulatedText, parsed.message.content);
             }
           }
-          // 2. Check direct delta/text
-          else if (parsed.delta || parsed.text || parsed.content) {
-            const delta = parsed.delta || parsed.text || parsed.content;
-            accumulatedText += delta;
-            callbacks.onChunk(accumulatedText, delta);
+          // 2. Direct delta / text chunk
+          else if (parsed.delta) {
+            accumulatedText += parsed.delta;
+            callbacks.onChunk(accumulatedText, parsed.delta);
           }
-          // 3. Check tool use/call
+          // 3. Tool use / call
           else if (parsed.type === 'tool_use' || parsed.tool_call || parsed.type === 'call') {
             const toolCall: ToolCallItem = {
               id: parsed.id || Math.random().toString(36).substring(2, 8),
@@ -212,12 +216,12 @@ export class AgentRunner {
             };
             callbacks.onToolCall(toolCall);
           }
-          // 4. Check tool result
+          // 4. Tool result & Final result
           else if (parsed.type === 'tool_result' || parsed.result) {
             if (parsed.type === 'result' && parsed.subtype === 'success') {
-              if (parsed.result && !accumulatedText) {
+              if (parsed.result) {
                 accumulatedText = parsed.result;
-                callbacks.onChunk(accumulatedText, parsed.result);
+                callbacks.onChunk(accumulatedText, '');
               }
             } else {
               callbacks.onToolResult(
