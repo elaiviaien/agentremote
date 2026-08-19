@@ -19,6 +19,7 @@ export function initAuth() {
     passwordHash: hash,
     createdAt: Date.now(),
   });
+  db.flush();
   console.log(`[Auth] Initialized & synced user: '${config.adminUsername}'`);
 }
 
