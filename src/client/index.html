@@ -565,7 +565,7 @@ npm run worker</pre>
       </div>
 
       <!-- Sanitization Report Box -->
-      <div id="import-sanitization-report" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 8px 12px; font-size: 11.5px; color: #34d399; margin-bottom: 16px; display: none;">
+      <div id="import-sanitization-report" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 8px 12px; font-size: 11.5px; color: var(--success); margin-bottom: 16px; display: none;">
         <span>🛡️ <strong>Санітизація активна:</strong> Усі системні теги, внутрішні інструменти та секретні токени буде очищено перед імпортом.</span>
       </div>
 
@@ -597,46 +597,46 @@ npm run worker</pre>
 
       <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;">
         <!-- Cursor Limits Card -->
-        <div class="card glass-card" style="padding: 14px; border: 1px solid rgba(59, 130, 246, 0.25); background: rgba(15, 23, 42, 0.6);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div class="limits-card cursor-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 16px;">🤖</span>
-              <strong style="font-size: 13.5px; color: #60a5fa;">Cursor Agent & CLI</strong>
+              <span style="font-size: 18px;">🤖</span>
+              <span class="limits-title-cursor">Cursor Agent & CLI</span>
             </div>
-            <span id="cursor-tier-badge" class="count-badge" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 700;">PRO TIER</span>
+            <span id="cursor-tier-badge" class="limits-badge-cursor">PRO TIER</span>
           </div>
-          <div id="cursor-limits-content" style="font-size: 12px; color: var(--text-secondary); display: grid; grid-template-columns: 1fr 1fr; gap: 6px; line-height: 1.5;">
+          <div id="cursor-limits-content" class="limits-data-grid">
             <div><strong>Акаунт:</strong> <span id="cursor-limit-email">Завантаження...</span></div>
-            <div><strong>Статус:</strong> <span style="color: #34d399;">✓ Активний (CLI)</span></div>
-            <div><strong>Швидкі запити:</strong> <span style="color: #60a5fa;">Безлімітно (Fast Requests)</span></div>
-            <div><strong>Модель за замовч.:</strong> <span id="cursor-limit-model">Claude 4.5 Sonnet</span></div>
-            <div><strong>Авто-режим:</strong> <span style="color: #34d399;">✓ YOLO / Auto-Review</span></div>
+            <div><strong>Статус:</strong> <span class="limits-value-success">✓ Активний (CLI)</span></div>
+            <div><strong>Швидкі запити:</strong> <span class="limits-value-highlight">Безлімітно (Fast Requests)</span></div>
+            <div><strong>Модель:</strong> <span id="cursor-limit-model">Claude 4.5 Sonnet</span></div>
+            <div><strong>Авто-режим:</strong> <span class="limits-value-success">✓ YOLO / Auto-Review</span></div>
             <div><strong>Версія CLI:</strong> <span id="cursor-limit-ver">-</span></div>
           </div>
         </div>
 
         <!-- Antigravity Limits Card -->
-        <div class="card glass-card" style="padding: 14px; border: 1px solid rgba(139, 92, 246, 0.25); background: rgba(15, 23, 42, 0.6);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div class="limits-card antigravity-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 16px;">🚀</span>
-              <strong style="font-size: 13.5px; color: #a78bfa;">Google Antigravity 2.0</strong>
+              <span style="font-size: 18px;">🚀</span>
+              <span class="limits-title-antigravity">Google Antigravity 2.0</span>
             </div>
-            <span class="count-badge" style="background: rgba(139, 92, 246, 0.2); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); font-weight: 700;">GEMINI 2.5</span>
+            <span class="limits-badge-antigravity">GEMINI 2.5</span>
           </div>
-          <div id="antigravity-limits-content" style="font-size: 12px; color: var(--text-secondary); display: grid; grid-template-columns: 1fr 1fr; gap: 6px; line-height: 1.5;">
-            <div><strong>Статус:</strong> <span id="antigravity-limit-status" style="color: #34d399;">✓ Доступно на машині</span></div>
-            <div><strong>Сесії у Brain:</strong> <span id="antigravity-limit-convs">-</span></div>
+          <div id="antigravity-limits-content" class="limits-data-grid">
+            <div><strong>Статус:</strong> <span id="antigravity-limit-status" class="limits-value-success">✓ Доступно на машині</span></div>
+            <div><strong>Сесії у Brain:</strong> <span id="antigravity-limit-convs" class="limits-value-highlight">-</span></div>
             <div><strong>Розмір пам'яті:</strong> <span id="antigravity-limit-size">- MB</span></div>
             <div><strong>Моделі:</strong> <span>Gemini 2.5 Pro / Flash</span></div>
           </div>
         </div>
 
         <!-- Machine Hardware Status -->
-        <div class="card glass-card" style="padding: 12px 14px; background: rgba(15, 23, 42, 0.4);">
-          <div style="font-size: 12px; color: var(--text-secondary); display: flex; justify-content: space-between;">
-            <div><strong>💻 Комп'ютер:</strong> <span id="limits-machine-name">-</span></div>
-            <div><strong>🧠 RAM:</strong> <span id="limits-machine-ram">-</span></div>
+        <div class="limits-card machine-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-secondary);">
+            <div><strong>💻 Комп'ютер:</strong> <span id="limits-machine-name" style="color: var(--text-primary); font-weight: 600;">-</span></div>
+            <div><strong>🧠 RAM:</strong> <span id="limits-machine-ram" style="color: var(--text-primary); font-weight: 600;">-</span></div>
           </div>
         </div>
       </div>

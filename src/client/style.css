@@ -1287,3 +1287,110 @@ body {
     display: flex;
   }
 }
+
+/* ================= LIMITS & QUOTAS MODAL STYLING ================= */
+.limits-card {
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+  transition: all 0.2s ease;
+}
+
+.limits-card.cursor-card {
+  border-color: rgba(37, 99, 235, 0.25);
+  background: var(--bg-main);
+}
+
+[data-theme="dark"] .limits-card.cursor-card {
+  border-color: rgba(99, 102, 241, 0.3);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.limits-card.antigravity-card {
+  border-color: rgba(124, 58, 237, 0.25);
+  background: var(--bg-main);
+}
+
+[data-theme="dark"] .limits-card.antigravity-card {
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.limits-card.machine-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  padding: 12px 16px;
+}
+
+.limits-title-cursor {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--accent-primary);
+}
+
+.limits-title-antigravity {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #7c3aed;
+}
+
+[data-theme="dark"] .limits-title-antigravity {
+  color: #a78bfa;
+}
+
+.limits-badge-cursor {
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  font-weight: 700;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+[data-theme="dark"] .limits-badge-cursor {
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.limits-badge-antigravity {
+  background: rgba(124, 58, 237, 0.1);
+  color: #7c3aed;
+  border: 1px solid rgba(124, 58, 237, 0.25);
+  font-weight: 700;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+[data-theme="dark"] .limits-badge-antigravity {
+  background: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.limits-data-grid {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  line-height: 1.5;
+}
+
+.limits-data-grid strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.limits-value-highlight {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.limits-value-success {
+  color: var(--success);
+  font-weight: 600;
+}
