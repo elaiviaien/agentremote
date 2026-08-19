@@ -70,14 +70,11 @@
 
       <!-- Center Machine Selector -->
       <div class="header-center">
-        <div class="custom-select-wrapper device-select-wrapper">
+        <div class="device-select-header-box">
           <div class="device-status-indicator" id="device-status-dot"></div>
-          <select id="device-select" class="custom-select">
+          <select id="device-select" class="custom-select full-width">
             <option value="">Пошук машин...</option>
           </select>
-          <div class="select-chevron">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
-          </div>
         </div>
       </div>
 
@@ -161,33 +158,28 @@
               <label for="model-select">Модель AI</label>
               <span class="badge-mini">Cursor CLI</span>
             </div>
-            <div class="custom-select-wrapper">
-              <select id="model-select" class="custom-select">
-                <option value="auto" selected>Auto (AI обирає найкращу модель)</option>
-                <optgroup label="Google Antigravity &amp; Gemini">
-                  <option value="gemini-3.7-flash">Gemini 3.7 Flash (Новітня надшвидка)</option>
-                  <option value="gemini-3.7-flash-thinking">Gemini 3.7 Flash Thinking (Міркування)</option>
-                  <option value="gemini-3.1-pro">Gemini 2.5 / 3.1 Pro (Складний кодинг)</option>
-                  <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                  <option value="gemini-2.5-flash-thinking">Gemini 2.5 Flash Thinking</option>
-                </optgroup>
-                <optgroup label="Claude (Anthropic)">
-                  <option value="claude-3.7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
-                  <option value="claude-4.5-sonnet">Claude Sonnet 4.5</option>
-                  <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 (Thinking)</option>
-                  <option value="claude-4-sonnet">Claude Sonnet 4</option>
-                  <option value="claude-4.5-opus-high">Claude Opus 4.5</option>
-                </optgroup>
-                <optgroup label="OpenAI GPT">
-                  <option value="gpt-5.1">GPT-5.1 (Flagship)</option>
-                  <option value="gpt-5.1-high">GPT-5.1 High Reasoning</option>
-                  <option value="gpt-5-mini">GPT-5 Mini (Fast)</option>
-                </optgroup>
-              </select>
-              <div class="select-chevron">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
-              </div>
-            </div>
+            <select id="model-select" class="custom-select full-width">
+              <option value="auto" selected>Auto (AI обирає найкращу модель)</option>
+              <optgroup label="Google Antigravity &amp; Gemini">
+                <option value="gemini-3.7-flash">Gemini 3.7 Flash (Новітня надшвидка)</option>
+                <option value="gemini-3.7-flash-thinking">Gemini 3.7 Flash Thinking (Міркування)</option>
+                <option value="gemini-3.1-pro">Gemini 2.5 / 3.1 Pro (Складний кодинг)</option>
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                <option value="gemini-2.5-flash-thinking">Gemini 2.5 Flash Thinking</option>
+              </optgroup>
+              <optgroup label="Claude (Anthropic)">
+                <option value="claude-3.7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
+                <option value="claude-4.5-sonnet">Claude Sonnet 4.5</option>
+                <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 (Thinking)</option>
+                <option value="claude-4-sonnet">Claude Sonnet 4</option>
+                <option value="claude-4.5-opus-high">Claude Opus 4.5</option>
+              </optgroup>
+              <optgroup label="OpenAI GPT">
+                <option value="gpt-5.1">GPT-5.1 (Flagship)</option>
+                <option value="gpt-5.1-high">GPT-5.1 High Reasoning</option>
+                <option value="gpt-5-mini">GPT-5 Mini (Fast)</option>
+              </optgroup>
+            </select>
           </div>
 
           <!-- Mode Selector -->
@@ -195,18 +187,13 @@
             <div class="config-label-row">
               <label for="mode-select">Режим агента</label>
             </div>
-            <div class="custom-select-wrapper">
-              <select id="mode-select" class="custom-select">
-                <option value="yolo" selected>Auto / YOLO (Повне авто - запуск та редагування)</option>
-                <option value="auto-review">Smart Auto (Авто-рев'ю безпечних дій)</option>
-                <option value="agent">Agent (Стандартний режим)</option>
-                <option value="plan">Plan Mode (Тільки планування, без редагувань)</option>
-                <option value="ask">Ask Mode (Q&amp;A та пояснення архітектури)</option>
-              </select>
-              <div class="select-chevron">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
-              </div>
-            </div>
+            <select id="mode-select" class="custom-select full-width">
+              <option value="yolo" selected>Auto / YOLO (Повне авто - запуск та редагування)</option>
+              <option value="auto-review">Smart Auto (Авто-рев'ю безпечних дій)</option>
+              <option value="agent">Agent (Стандартний режим)</option>
+              <option value="plan">Plan Mode (Тільки планування, без редагувань)</option>
+              <option value="ask">Ask Mode (Q&amp;A та пояснення архітектури)</option>
+            </select>
           </div>
 
           <!-- Workspace Path -->
@@ -625,14 +612,9 @@ npm run worker</pre>
             <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block;">ЦІЛЬОВА МАШИНА / СЕРВЕР</label>
             <span id="modal-device-status-badge" style="font-size: 10px; color: var(--success); font-weight: 600;">● Онлайн</span>
           </div>
-          <div class="custom-select-wrapper" style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 8px;">
-            <select id="modal-device-select" class="custom-select">
-              <option value="">Пошук машин...</option>
-            </select>
-            <div class="select-chevron">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            </div>
-          </div>
+          <select id="modal-device-select" class="custom-select full-width">
+            <option value="">Пошук машин...</option>
+          </select>
         </div>
 
         <!-- Workspace Folder -->
@@ -651,28 +633,24 @@ npm run worker</pre>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
           <div>
             <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 4px;">МОДЕЛЬ</label>
-            <div class="custom-select-wrapper" style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 8px;">
-              <select id="modal-model-select" class="custom-select">
-                <option value="auto" selected>Auto (Cursor обирає найкращу модель)</option>
-                <option value="claude-4.5-sonnet">Claude Sonnet 4.5</option>
-                <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 Thinking</option>
-                <option value="gemini-3.1-pro">Gemini 2.5 / 3.1 Pro</option>
-                <option value="gpt-5.1">GPT-5.1 Flagship</option>
-                <option value="claude-4.5-opus-high">Claude Opus 4.5</option>
-              </select>
-            </div>
+            <select id="modal-model-select" class="custom-select full-width">
+              <option value="auto" selected>Auto (Cursor обирає найкращу модель)</option>
+              <option value="claude-4.5-sonnet">Claude Sonnet 4.5</option>
+              <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 Thinking</option>
+              <option value="gemini-3.1-pro">Gemini 2.5 / 3.1 Pro</option>
+              <option value="gpt-5.1">GPT-5.1 Flagship</option>
+              <option value="claude-4.5-opus-high">Claude Opus 4.5</option>
+            </select>
           </div>
           <div>
             <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 4px;">РЕЖИМ</label>
-            <div class="custom-select-wrapper" style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 8px;">
-              <select id="modal-mode-select" class="custom-select">
-                <option value="yolo" selected>Auto / YOLO (Повне авто)</option>
-                <option value="auto-review">Smart Auto (Авто-рев'ю)</option>
-                <option value="agent">Standard Agent</option>
-                <option value="plan">Plan Mode</option>
-                <option value="ask">Ask Mode</option>
-              </select>
-            </div>
+            <select id="modal-mode-select" class="custom-select full-width">
+              <option value="yolo" selected>Auto / YOLO (Повне авто)</option>
+              <option value="auto-review">Smart Auto (Авто-рев'ю)</option>
+              <option value="agent">Standard Agent</option>
+              <option value="plan">Plan Mode</option>
+              <option value="ask">Ask Mode</option>
+            </select>
           </div>
         </div>
 
@@ -753,12 +731,10 @@ npm run worker</pre>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
         <div>
           <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">ЦІЛЬОВИЙ АГЕНТ</label>
-          <div class="custom-select-wrapper" style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 8px;">
-            <select id="import-target-engine" class="custom-select">
-              <option value="cursor">Cursor Agent</option>
-              <option value="antigravity">Antigravity Agent</option>
-            </select>
-          </div>
+          <select id="import-target-engine" class="custom-select full-width">
+            <option value="cursor">Cursor Agent</option>
+            <option value="antigravity">Antigravity Agent</option>
+          </select>
         </div>
         <div>
           <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">НАЗВА СЕСІЇ (ОПЦІЙНО)</label>
