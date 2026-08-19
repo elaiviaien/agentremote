@@ -330,11 +330,21 @@
                   </select>
                 </div>
               </div>
-              <div class="input-right-controls" style="display: flex; align-items: center; gap: 8px;">
-                <button id="thinking-mode-toggle" class="chip-btn-sm" type="button" title="Увімкнути/Вимкнути глибоке міркування (Thinking Mode)">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"></path><line x1="9" y1="22" x2="15" y2="22"></line></svg>
-                  <span id="thinking-mode-label">Thinking: Auto</span>
-                </button>
+              <div class="input-right-controls" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <!-- Thinking Effort Selector -->
+                <div id="thinking-effort-wrapper" class="inline-select-wrapper" style="display: flex; align-items: center; gap: 4px;">
+                  <span style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 3px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"></path><line x1="9" y1="22" x2="15" y2="22"></line></svg>
+                    <span>Effort:</span>
+                  </span>
+                  <select id="thinking-effort-select" class="custom-select-sm" title="Thinking Effort (Рівень міркування моделі)">
+                    <option value="medium" selected>🧠 Medium (Збалансовано)</option>
+                    <option value="high">🚀 High (Глибоке міркування)</option>
+                    <option value="low">⚡ Low (Швидко)</option>
+                    <option value="off">🚫 Off (Вимкнено)</option>
+                  </select>
+                </div>
+
                 <button id="stop-agent-btn" class="btn btn-danger btn-sm" style="display: none;">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
                   <span>Зупинити агента</span>

@@ -71,6 +71,7 @@ export interface ChatSession {
   messages: ChatMessage[];
   isStreaming?: boolean;
   status?: 'idle' | 'running' | 'completed' | 'error';
+  thinkingEffort?: 'low' | 'medium' | 'high' | 'off';
 }
 
 export interface ToolCallItem {
@@ -101,6 +102,7 @@ export interface AgentRunOptions {
   workspacePath?: string;
   cursorChatId?: string;
   continueLastSession?: boolean;
+  thinkingEffort?: 'low' | 'medium' | 'high' | 'off';
 }
 
 // WebSocket message types between Worker and Cloud Hub

@@ -82,8 +82,8 @@ class AgentRemoteApp {
     this.stopAgentBtn = document.getElementById('stop-agent-btn');
     this.loginCursorBtn = document.getElementById('login-cursor-btn');
     this.resumeChatBtn = document.getElementById('resume-chat-btn');
-    this.thinkingModeToggle = document.getElementById('thinking-mode-toggle');
-    this.thinkingModeLabel = document.getElementById('thinking-mode-label');
+    this.thinkingEffortSelect = document.getElementById('thinking-effort-select');
+    this.thinkingEffortWrapper = document.getElementById('thinking-effort-wrapper');
 
     // Files Tab elements
     this.filesTreePanel = document.getElementById('files-tree-panel');
@@ -388,23 +388,20 @@ class AgentRemoteApp {
     this.sendBtn.addEventListener('click', () => this.sendPrompt());
     this.stopAgentBtn.addEventListener('click', () => this.stopAgent());
 
-    if (this.thinkingModeToggle) {
-      this.thinkingModeToggle.addEventListener('click', () => {
-        if (this.thinkingMode === 'auto') {
-          this.thinkingMode = 'on';
-          this.thinkingModeLabel.innerText = 'Thinking: ON';
-          this.thinkingModeToggle.classList.add('active');
-          this.showToast('🧠 Thinking Mode увімкнено (максимальне міркування)');
-        } else if (this.thinkingMode === 'on') {
-          this.thinkingMode = 'off';
-          this.thinkingModeLabel.innerText = 'Thinking: OFF';
-          this.thinkingModeToggle.classList.remove('active');
-          this.showToast('⚡ Thinking Mode вимкнено (швидкі відповіді)');
-        } else {
-          this.thinkingMode = 'auto';
-          this.thinkingModeLabel.innerText = 'Thinking: Auto';
-          this.thinkingModeToggle.classList.remove('active');
-          this.showToast('🤖 Thinking Mode: Auto (за замовчуванням)');
+    if (this.thinkingEffortSelect) {
+      this.thinkingEffortSelect.addEventListener('change', (e) => {
+        const effort = e.target.value;
+        if (this.activeSessionId) {
+          const session = this.sessions.find((s) => s.id === this.activeSessionId);
+          if (session) {
+            session.thinkingEffort = effort;
+            fetch(`/api/sessions/${session.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}` },
+              body: JSON.stringify({ thinkingEffort: effort }),
+            }).catch(() => {});
+            this.showToast(`🧠 Thinking Effort: ${effort.toUpperCase()}`);
+          }
         }
       });
     }
@@ -1173,6 +1170,9 @@ class AgentRemoteApp {
     if (session.mode && this.modeSelect) {
       this.modeSelect.value = session.mode;
     }
+    if (this.thinkingEffortSelect) {
+      this.thinkingEffortSelect.value = session.thinkingEffort || 'medium';
+    }
 
     if (session.messages.length === 0) {
       this.chatMessages.innerHTML = `
@@ -1442,14 +1442,12 @@ class AgentRemoteApp {
     let effectiveModel = (this.chatModelSelect && this.chatModelSelect.value) || 
                          (this.modelSelect && this.modelSelect.value) || 
                          (session && session.model) || 'auto';
+    let effectiveEffort = (this.thinkingEffortSelect && this.thinkingEffortSelect.value) ||
+                          (session && session.thinkingEffort) || 'medium';
 
     if (session) {
       session.model = effectiveModel;
-    }
-
-    if (this.thinkingMode === 'on' && !effectiveModel.includes('thinking')) {
-      if (effectiveModel.includes('flash')) effectiveModel = 'gemini-3.7-flash-thinking';
-      else if (effectiveModel.includes('claude')) effectiveModel = 'claude-4.5-sonnet-thinking';
+      session.thinkingEffort = effectiveEffort;
     }
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -1464,6 +1462,7 @@ class AgentRemoteApp {
             mode: (session && session.mode) || this.modeSelect.value || 'yolo',
             workspacePath: (session && session.workspacePath) || this.workspaceInput.value,
             cursorChatId: session ? session.cursorChatId : undefined,
+            thinkingEffort: effectiveEffort,
           },
         })
       );

@@ -92,7 +92,7 @@ export class AgentRunner {
   }
 
   public run(options: AgentRunOptions, callbacks: StreamCallbacks) {
-    const { sessionId, prompt, model, mode, workspacePath, cursorChatId, continueLastSession } = options;
+    const { sessionId, prompt, model, mode, workspacePath, cursorChatId, continueLastSession, thinkingEffort } = options;
 
     if (this.activeProcesses.has(sessionId)) {
       this.abort(sessionId);
@@ -132,7 +132,13 @@ export class AgentRunner {
     }
 
     if (model && model !== 'auto' && model !== 'default') {
-      args.push('--model', model);
+      let finalModel = model;
+      if (thinkingEffort && (model.includes('gemini') || model.includes('claude') || model.includes('thinking'))) {
+        if (!finalModel.includes('[')) {
+          finalModel = `${finalModel}[effort=${thinkingEffort}]`;
+        }
+      }
+      args.push('--model', finalModel);
     }
 
     if (mode === 'plan') {

@@ -22,6 +22,7 @@ export class SessionManager {
     model?: string;
     mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
     cursorChatId?: string;
+    thinkingEffort?: 'low' | 'medium' | 'high' | 'off';
   }): ChatSession {
     const id = randomUUID();
     const engine = params.engine || 'cursor';
@@ -38,8 +39,9 @@ export class SessionManager {
       updatedAt: Date.now(),
       cursorChatId: params.cursorChatId,
       workspacePath: params.workspacePath || '',
-      model: params.model || (engine === 'antigravity' ? 'gemini-2.5-pro' : 'claude-4.5-sonnet'),
+      model: params.model || (engine === 'antigravity' ? 'gemini-3.7-flash' : 'claude-4.5-sonnet'),
       mode: params.mode || 'yolo',
+      thinkingEffort: params.thinkingEffort || 'medium',
       messages: [],
     };
     db.saveSession(newSession);
@@ -56,6 +58,7 @@ export class SessionManager {
       model?: string;
       mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
       cursorChatId?: string;
+      thinkingEffort?: 'low' | 'medium' | 'high' | 'off';
     }
   ): ChatSession | null {
     const session = db.getSession(id);
@@ -68,6 +71,7 @@ export class SessionManager {
     if (params.model !== undefined) session.model = params.model;
     if (params.mode !== undefined) session.mode = params.mode;
     if (params.cursorChatId !== undefined) session.cursorChatId = params.cursorChatId;
+    if (params.thinkingEffort !== undefined) session.thinkingEffort = params.thinkingEffort;
 
     session.updatedAt = Date.now();
     db.saveSession(session);

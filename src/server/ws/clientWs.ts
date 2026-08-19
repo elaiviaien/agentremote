@@ -65,7 +65,7 @@ export class ClientWsManager {
 
       case 'agent:run' as any:
       case 'agent:prompt': {
-        const { sessionId, deviceId, prompt, model, mode, workspacePath, cursorChatId, continueLastSession } = (msg as any).payload;
+        const { sessionId, deviceId, prompt, model, mode, workspacePath, cursorChatId, continueLastSession, thinkingEffort } = (msg as any).payload;
         
         let session = sessionManager.getSession(sessionId);
         if (!session) {
@@ -75,8 +75,18 @@ export class ClientWsManager {
             model,
             mode,
             cursorChatId,
+            thinkingEffort,
           });
         }
+
+        // Update session's active model / thinkingEffort if passed
+        if (model && session.model !== model) {
+          session.model = model;
+        }
+        if (thinkingEffort && session.thinkingEffort !== thinkingEffort) {
+          session.thinkingEffort = thinkingEffort;
+        }
+        sessionManager.updateSession(session.id, { model: session.model, thinkingEffort: session.thinkingEffort });
 
         // Add user message to session
         sessionManager.addMessage(session.id, {
@@ -116,6 +126,7 @@ export class ClientWsManager {
             workspacePath: workspacePath || session.workspacePath,
             cursorChatId: cursorChatId || session.cursorChatId,
             continueLastSession,
+            thinkingEffort: thinkingEffort || session.thinkingEffort || 'medium',
           },
         });
 
