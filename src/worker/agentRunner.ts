@@ -218,28 +218,44 @@ export class AgentRunner {
             accumulatedText += parsed.delta;
             callbacks.onChunk(accumulatedText, parsed.delta);
           }
-          // 3. Tool use / call
-          else if (parsed.type === 'tool_use' || parsed.tool_call || parsed.type === 'call') {
+          // 3. Tool use / call / action
+          else if (parsed.type === 'tool_use' || parsed.tool_call || parsed.type === 'call' || parsed.type === 'action') {
+            const rawInput = parsed.input || parsed.arguments || parsed.parameters || parsed.args || {};
+            const toolName = parsed.name || parsed.tool || parsed.type || 'Tool Execution';
+            
+            let summary = '';
+            if (typeof rawInput === 'object' && rawInput !== null) {
+              summary = rawInput.toolSummary || rawInput.command || rawInput.CommandLine || rawInput.path || rawInput.TargetFile || rawInput.AbsolutePath || rawInput.query || rawInput.pattern || '';
+            } else if (typeof rawInput === 'string') {
+              summary = rawInput.slice(0, 100);
+            }
+
+            const action = (typeof rawInput === 'object' && rawInput !== null && rawInput.toolAction) || '';
+
             const toolCall: ToolCallItem = {
-              id: parsed.id || Math.random().toString(36).substring(2, 8),
+              id: parsed.id || parsed.tool_call_id || Math.random().toString(36).substring(2, 8),
               type: parsed.tool || parsed.name || 'tool',
-              name: parsed.name || parsed.tool || 'Tool Execution',
-              input: parsed.input || parsed.arguments,
+              name: toolName,
+              summary: summary || undefined,
+              action: action || undefined,
+              input: rawInput,
               status: 'running',
+              startTime: Date.now(),
             };
             callbacks.onToolCall(toolCall);
           }
           // 4. Tool result & Final result
-          else if (parsed.type === 'tool_result' || parsed.result) {
+          else if (parsed.type === 'tool_result' || parsed.result || parsed.type === 'tool_output') {
             if (parsed.type === 'result' && parsed.subtype === 'success') {
               if (parsed.result) {
                 accumulatedText = parsed.result;
                 callbacks.onChunk(accumulatedText, '');
               }
             } else {
+              const resContent = parsed.result !== undefined ? parsed.result : parsed.output !== undefined ? parsed.output : parsed.content;
               callbacks.onToolResult(
-                parsed.id || parsed.tool_call_id || '',
-                typeof parsed.result === 'string' ? parsed.result : JSON.stringify(parsed.result, null, 2),
+                parsed.id || parsed.tool_call_id || parsed.call_id || '',
+                typeof resContent === 'string' ? resContent : JSON.stringify(resContent, null, 2),
                 parsed.is_error ? 'failed' : 'completed'
               );
             }

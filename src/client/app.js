@@ -1308,19 +1308,10 @@ class AgentRemoteApp {
     if (toolCalls && toolCalls.length > 0) {
       const bubbleWrapper = el.querySelector('.message-bubble-wrapper');
       toolCalls.forEach((tc) => {
-        const tcEl = document.createElement('div');
-        tcEl.className = 'tool-call-card';
-        tcEl.innerHTML = `
-          <div class="tool-call-header">
-            <div class="tool-call-title">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-              <span>${this.escapeHtml(tc.name || 'tool_call')}</span>
-            </div>
-            <span class="tool-call-status ${tc.status || 'completed'}">${tc.status || 'completed'}</span>
-          </div>
-          ${tc.result ? `<div class="tool-call-result"><pre>${this.escapeHtml(tc.result)}</pre></div>` : ''}
-        `;
-        bubbleWrapper.appendChild(tcEl);
+        const tempContainer = document.createElement('div');
+        tempContainer.innerHTML = this.formatToolCallHtml(tc);
+        const card = tempContainer.firstElementChild;
+        if (card) bubbleWrapper.appendChild(card);
       });
     }
 
@@ -1329,6 +1320,140 @@ class AgentRemoteApp {
     });
 
     this.chatMessages.appendChild(el);
+  }
+
+  getToolMeta(toolName, input = {}) {
+    const name = (toolName || '').toLowerCase();
+    
+    if (name.includes('command') || name.includes('terminal') || name.includes('bash') || name.includes('exec')) {
+      const cmd = input.command || input.CommandLine || input.cmd || '';
+      return {
+        icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>`,
+        label: 'Термінал',
+        badgeClass: 'badge-terminal',
+        summary: cmd ? `$ ${cmd}` : 'Виконання команди',
+      };
+    }
+    if (name.includes('replace') || name.includes('edit') || name.includes('write')) {
+      const file = input.TargetFile || input.file || input.path || input.target || '';
+      const fileName = file ? file.split(/[/\\]/).pop() : '';
+      return {
+        icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`,
+        label: 'Редагування',
+        badgeClass: 'badge-edit',
+        summary: fileName || file || 'Модифікація файлу',
+      };
+    }
+    if (name.includes('view') || name.includes('read')) {
+      const file = input.AbsolutePath || input.path || input.TargetFile || input.file || '';
+      const fileName = file ? file.split(/[/\\]/).pop() : '';
+      return {
+        icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`,
+        label: 'Перегляд',
+        badgeClass: 'badge-view',
+        summary: fileName || file || 'Читання файлу',
+      };
+    }
+    if (name.includes('grep') || name.includes('search') || name.includes('find')) {
+      const query = input.Query || input.query || input.Pattern || input.pattern || '';
+      return {
+        icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>`,
+        label: 'Пошук',
+        badgeClass: 'badge-search',
+        summary: query ? `"${query}"` : 'Пошук у проекті',
+      };
+    }
+    if (name.includes('subagent') || name.includes('agent')) {
+      const role = input.Role || input.role || input.TypeName || '';
+      return {
+        icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>`,
+        label: 'Субагент',
+        badgeClass: 'badge-subagent',
+        summary: role || 'Фоновий агент',
+      };
+    }
+    if (name.includes('url') || name.includes('web') || name.includes('browser')) {
+      const url = input.Url || input.url || '';
+      return {
+        icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`,
+        label: 'Веб',
+        badgeClass: 'badge-web',
+        summary: url || 'Веб-сторінка',
+      };
+    }
+
+    return {
+      icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
+      label: toolName || 'Дія',
+      badgeClass: 'badge-generic',
+      summary: '',
+    };
+  }
+
+  formatToolCallHtml(tc) {
+    const rawInput = tc.input || tc.arguments;
+    const meta = this.getToolMeta(tc.name || tc.type, rawInput);
+    const summaryText = tc.summary || meta.summary || '';
+    const isRunning = tc.status === 'running';
+    const isError = tc.status === 'failed' || tc.status === 'error';
+    const statusLabel = isRunning ? '<span class="pulse-dot"></span> виконується...' : isError ? '✕ помилка' : '✓ завершено';
+    const statusClass = isRunning ? 'running' : isError ? 'error' : 'completed';
+
+    const inputJson = rawInput ? (typeof rawInput === 'string' ? rawInput : JSON.stringify(rawInput, null, 2)) : '';
+    const outputText = tc.output || tc.result || '';
+    const hasDetails = Boolean(inputJson || outputText || isRunning);
+
+    return `
+      <div class="tool-call-card ${statusClass}" id="tool-call-${tc.id}">
+        <div class="tool-call-header" onclick="this.closest('.tool-call-card').classList.toggle('expanded')">
+          <div class="tool-call-header-left">
+            <span class="tool-call-category-badge ${meta.badgeClass}">
+              ${meta.icon}
+              <span>${meta.label}</span>
+            </span>
+            <span class="tool-call-fn-name">${this.escapeHtml(tc.name || tc.type || 'tool')}</span>
+            ${summaryText ? `<span class="tool-call-summary" title="${this.escapeHtml(summaryText)}">${this.escapeHtml(summaryText)}</span>` : ''}
+          </div>
+          <div class="tool-call-header-right">
+            <span class="tool-call-status ${statusClass}">
+              ${statusLabel}
+            </span>
+            ${hasDetails ? `
+              <button type="button" class="tool-call-toggle-btn" title="Розгорнути/Згорнути деталі">
+                <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+        ${hasDetails ? `
+          <div class="tool-call-body">
+            ${inputJson ? `
+              <div class="tool-call-section">
+                <div class="tool-call-section-title">
+                  <span>Параметри виклику (Input):</span>
+                  <button type="button" class="btn-copy-mini" onclick="navigator.clipboard.writeText(this.dataset.copy); window.app.showToast('📋 Параметри скопійовано!');" data-copy="${this.escapeHtml(inputJson)}">копіювати</button>
+                </div>
+                <div class="tool-call-code-block"><pre><code>${this.escapeHtml(inputJson)}</code></pre></div>
+              </div>
+            ` : ''}
+            ${outputText ? `
+              <div class="tool-call-section" style="margin-top: 8px;">
+                <div class="tool-call-section-title">
+                  <span>Результат виконання (Output):</span>
+                  <button type="button" class="btn-copy-mini" onclick="navigator.clipboard.writeText(this.dataset.copy); window.app.showToast('📋 Результат скопійовано!');" data-copy="${this.escapeHtml(outputText)}">копіювати</button>
+                </div>
+                <div class="tool-call-output-block"><pre><code>${this.escapeHtml(outputText)}</code></pre></div>
+              </div>
+            ` : `
+              <div class="tool-call-output-pending" style="display: ${isRunning ? 'flex' : 'none'};">
+                <span class="thinking-spinner"></span>
+                <span>Очікування результату виконання...</span>
+              </div>
+            `}
+          </div>
+        ` : ''}
+      </div>
+    `;
   }
 
   appendAssistantChunk(sessionId, delta) {
@@ -1376,8 +1501,12 @@ class AgentRemoteApp {
   renderToolCall(sessionId, toolCall) {
     if (sessionId !== this.activeSessionId) return;
 
+    const rawInput = toolCall.input || toolCall.arguments;
+    const meta = this.getToolMeta(toolCall.name || toolCall.type, rawInput);
+    const summary = toolCall.summary || meta.summary || toolCall.name || 'дія';
+
     if (this.chatMeta) {
-      this.chatMeta.innerHTML = `<span style="color:#fbbf24; font-weight:600;"><span class="pulse-dot"></span> Виконується: ${this.escapeHtml(toolCall.name || 'дія')}...</span>`;
+      this.chatMeta.innerHTML = `<span style="color:#fbbf24; font-weight:600;"><span class="pulse-dot"></span> [${meta.label}] ${this.escapeHtml(summary)}...</span>`;
     }
 
     let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
@@ -1387,44 +1516,56 @@ class AgentRemoteApp {
     }
 
     const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
-    const tcEl = document.createElement('div');
-    tcEl.className = 'tool-call-card';
-    tcEl.id = `tool-call-${toolCall.id}`;
-    tcEl.innerHTML = `
-      <div class="tool-call-header">
-        <div class="tool-call-title">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-          <span style="font-weight:600;">${this.escapeHtml(toolCall.name || 'Виконання команди')}</span>
-        </div>
-        <span class="tool-call-status running" style="display:flex; align-items:center; gap:4px;">
-          <span class="pulse-dot"></span> виконується...
-        </span>
-      </div>
-      ${toolCall.arguments ? `<div class="tool-call-args"><pre>${this.escapeHtml(typeof toolCall.arguments === 'string' ? toolCall.arguments : JSON.stringify(toolCall.arguments, null, 2))}</pre></div>` : ''}
-    `;
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = this.formatToolCallHtml(toolCall);
+    const tcEl = tempDiv.firstElementChild;
 
-    wrapper.appendChild(tcEl);
-    this.currentToolCallElements.set(toolCall.id, tcEl);
+    if (tcEl) {
+      wrapper.appendChild(tcEl);
+      this.currentToolCallElements.set(toolCall.id, tcEl);
+    }
     this.scrollToBottom();
   }
 
   renderToolResult(sessionId, toolCallId, result, status) {
     const tcEl = this.currentToolCallElements.get(toolCallId) || document.getElementById(`tool-call-${toolCallId}`);
     if (tcEl) {
+      const isOk = status === 'completed' || status === 'success' || !status;
+      tcEl.className = `tool-call-card ${isOk ? 'completed' : 'error'}`;
+      
       const statusBadge = tcEl.querySelector('.tool-call-status');
       if (statusBadge) {
-        const isOk = status === 'completed' || status === 'success' || !status;
         statusBadge.className = `tool-call-status ${isOk ? 'completed' : 'error'}`;
         statusBadge.innerText = isOk ? '✓ завершено' : '✕ помилка';
       }
+
+      const pendingIndicator = tcEl.querySelector('.tool-call-output-pending');
+      if (pendingIndicator) pendingIndicator.style.display = 'none';
+
       if (result) {
-        let resultBlock = tcEl.querySelector('.tool-call-result');
-        if (!resultBlock) {
-          resultBlock = document.createElement('div');
-          resultBlock.className = 'tool-call-result';
-          tcEl.appendChild(resultBlock);
+        let body = tcEl.querySelector('.tool-call-body');
+        if (!body) {
+          body = document.createElement('div');
+          body.className = 'tool-call-body';
+          tcEl.appendChild(body);
         }
-        resultBlock.innerHTML = `<pre>${this.escapeHtml(result.slice(0, 2000))}</pre>`;
+
+        let outputSection = body.querySelector('.tool-call-section-output');
+        if (!outputSection) {
+          outputSection = document.createElement('div');
+          outputSection.className = 'tool-call-section tool-call-section-output';
+          outputSection.style.marginTop = '8px';
+          outputSection.innerHTML = `
+            <div class="tool-call-section-title">
+              <span>Результат виконання (Output):</span>
+              <button type="button" class="btn-copy-mini" onclick="navigator.clipboard.writeText(this.dataset.copy); window.app.showToast('📋 Результат скопійовано!');" data-copy="${this.escapeHtml(result)}">копіювати</button>
+            </div>
+            <div class="tool-call-output-block"><pre><code>${this.escapeHtml(result)}</code></pre></div>
+          `;
+          body.appendChild(outputSection);
+        } else {
+          outputSection.querySelector('.tool-call-output-block pre code').innerText = result;
+        }
       }
     }
   }

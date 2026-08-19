@@ -1,10 +1,11 @@
-// Universal Cross-Agent Chat Sanitizer
-// Strips all proprietary metadata, internal system prompts, tool traces, thinking tokens, and secret keys
+import { ToolCallItem } from './types';
 
 export interface CleanMessage {
   role: 'user' | 'assistant';
   content: string;
+  thinkingContent?: string;
   timestamp?: number;
+  toolCalls?: ToolCallItem[];
 }
 
 export interface SanitizedChatResult {
@@ -121,21 +122,46 @@ export class ChatSanitizer {
           }
         }
         // Process Assistant Responses
-        else if (entry.type === 'PLANNER_RESPONSE' && entry.content) {
-          const { cleanText, metadataRemoved, secretsRedacted } = this.sanitizeText(entry.content);
+        else if (entry.type === 'PLANNER_RESPONSE' || entry.tool_calls) {
+          const rawContent = entry.content || '';
+          const { cleanText, metadataRemoved, secretsRedacted } = this.sanitizeText(rawContent);
           totalMetadataRemoved += metadataRemoved;
           totalSecretsRedacted += secretsRedacted;
 
-          if (cleanText) {
-            // Merge with last assistant message if consecutive
+          const toolCalls: ToolCallItem[] = [];
+          if (entry.tool_calls && Array.isArray(entry.tool_calls)) {
+            entry.tool_calls.forEach((tc: any) => {
+              const params = tc.parameters || tc.arguments || tc.input || {};
+              const summary = params.toolSummary || params.CommandLine || params.TargetFile || params.AbsolutePath || params.Query || params.path || '';
+              const action = params.toolAction || '';
+              toolCalls.push({
+                id: tc.id || Math.random().toString(36).substring(2, 8),
+                type: tc.name || 'tool',
+                name: tc.name || 'Tool Execution',
+                summary,
+                action,
+                input: params,
+                output: tc.output || tc.result || undefined,
+                status: tc.status || 'completed',
+              });
+            });
+          }
+
+          if (cleanText || toolCalls.length > 0) {
             const lastMsg = cleanMessages[cleanMessages.length - 1];
             if (lastMsg && lastMsg.role === 'assistant') {
-              lastMsg.content += '\n\n' + cleanText;
+              if (cleanText) {
+                lastMsg.content = lastMsg.content ? lastMsg.content + '\n\n' + cleanText : cleanText;
+              }
+              if (toolCalls.length > 0) {
+                lastMsg.toolCalls = [...(lastMsg.toolCalls || []), ...toolCalls];
+              }
             } else {
               cleanMessages.push({
                 role: 'assistant',
                 content: cleanText,
                 timestamp: entry.created_at ? new Date(entry.created_at).getTime() : Date.now(),
+                toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
               });
             }
           }

@@ -81,15 +81,20 @@ export interface ToolCallItem {
   id: string;
   type: string;
   name: string;
+  summary?: string;
+  action?: string;
   input?: any;
   output?: string;
   status: 'running' | 'completed' | 'failed';
+  startTime?: number;
+  durationMs?: number;
 }
 
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  thinkingContent?: string;
   timestamp: number;
   model?: string;
   toolCalls?: ToolCallItem[];

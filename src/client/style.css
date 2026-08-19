@@ -1341,70 +1341,265 @@ body {
   margin: 22px 0;
 }
 
-/* Tool Call Card */
+/* ================= RICH TOOL CALL & STREAMING CARDS ================= */
 .tool-call-card {
-  background: var(--bg-main);
+  background: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--warning);
-  border-radius: 8px;
-  padding: 9px 12px;
-  margin: 8px 0;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
+  border-radius: 10px;
+  margin: 10px 0;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1.5px 5px rgba(0, 0, 0, 0.04);
+}
+
+.tool-call-card:hover {
+  border-color: var(--border-strong);
+}
+
+.tool-call-card.running {
+  border-left: 3.5px solid #fbbf24;
+}
+
+.tool-call-card.completed {
+  border-left: 3.5px solid #10b981;
+}
+
+.tool-call-card.error {
+  border-left: 3.5px solid #ef4444;
 }
 
 .tool-call-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: #d97706;
+  padding: 10px 14px;
+  cursor: pointer;
+  gap: 12px;
+  user-select: none;
+  background: var(--bg-card);
+  transition: background 0.15s ease;
+}
+
+.tool-call-header:hover {
+  background: var(--bg-card-hover);
+}
+
+.tool-call-header-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-call-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.tool-call-category-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
   font-weight: 700;
-}
-
-[data-theme="dark"] .tool-call-header {
-  color: #fbbf24;
-}
-
-.tool-call-output {
-  margin-top: 6px;
-  padding: 8px;
-  background: #0f172a;
-  color: #cbd5e1;
+  padding: 3px 8px;
   border-radius: 6px;
-  white-space: pre-wrap;
-  max-height: 220px;
-  overflow-y: auto;
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+}
+
+.tool-call-category-badge.badge-terminal {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.tool-call-category-badge.badge-edit {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.tool-call-category-badge.badge-view {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.tool-call-category-badge.badge-search {
+  background: rgba(6, 182, 212, 0.12);
+  color: #06b6d4;
+  border: 1px solid rgba(6, 182, 212, 0.25);
+}
+
+.tool-call-category-badge.badge-subagent {
+  background: rgba(139, 92, 246, 0.12);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}
+
+.tool-call-category-badge.badge-web {
+  background: rgba(236, 72, 153, 0.12);
+  color: #ec4899;
+  border: 1px solid rgba(236, 72, 153, 0.25);
+}
+
+.tool-call-category-badge.badge-generic {
+  background: rgba(100, 116, 139, 0.12);
+  color: #64748b;
+  border: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+.tool-call-fn-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tool-call-summary {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 420px;
+}
+
+.tool-call-status {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .tool-call-status.running {
   background: rgba(251, 191, 36, 0.15);
-  color: #fbbf24;
+  color: #d97706;
   border: 1px solid rgba(251, 191, 36, 0.3);
-  padding: 2px 7px;
-  border-radius: 5px;
-  font-size: 10px;
-  font-weight: 600;
+}
+
+[data-theme="dark"] .tool-call-status.running {
+  color: #fbbf24;
 }
 
 .tool-call-status.completed,
 .tool-call-status.success {
-  background: rgba(74, 222, 128, 0.15);
-  color: #4ade80;
-  border: 1px solid rgba(74, 222, 128, 0.3);
-  padding: 2px 7px;
-  border-radius: 5px;
-  font-size: 10px;
-  font-weight: 600;
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
 }
 
-.tool-call-status.error {
-  background: rgba(248, 113, 113, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(248, 113, 113, 0.3);
+.tool-call-status.error,
+.tool-call-status.failed {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.tool-call-toggle-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border-radius: 4px;
+}
+
+.tool-call-toggle-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+}
+
+.chevron-icon {
+  transition: transform 0.2s ease;
+}
+
+.tool-call-card.expanded .chevron-icon {
+  transform: rotate(180deg);
+}
+
+.tool-call-body {
+  display: none;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-main);
+  animation: fadeIn 0.15s ease-in-out;
+}
+
+.tool-call-card.expanded .tool-call-body {
+  display: block;
+}
+
+.tool-call-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.btn-copy-mini {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
   padding: 2px 7px;
-  border-radius: 5px;
   font-size: 10px;
   font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-transform: lowercase;
+  transition: all 0.15s ease;
+}
+
+.btn-copy-mini:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  background: var(--bg-card);
+}
+
+.tool-call-code-block,
+.tool-call-output-block {
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 7px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  max-height: 280px;
+  overflow-y: auto;
+  color: #cbd5e1;
+}
+
+.tool-call-code-block pre,
+.tool-call-output-block pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.tool-call-output-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .pulse-dot {
