@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AgentRemote — Remote Cursor & AI IDE</title>
+  <link rel="stylesheet" href="/style.css">
+  <!-- Fonts & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Marked.js for fast markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <!-- Login Gate Modal -->
+  <div id="login-modal" class="modal-backdrop">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="logo-icon">⚡</div>
+        <h2>AgentRemote</h2>
+        <p>Віддалене керування Cursor AI агентами</p>
+      </div>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="login-username">Логін</label>
+          <input type="text" id="login-username" placeholder="admin" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label for="login-password">Пароль</label>
+          <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+        <div id="login-error" class="error-text"></div>
+        <button type="submit" id="login-btn" class="btn btn-primary btn-block">Увійти в IDE</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Application Wrapper -->
+  <div id="app" class="app-container" style="display: none;">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <button id="toggle-sidebar-btn" class="icon-btn mobile-only" title="Меню">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
+        <div class="brand">
+          <span class="brand-icon">⚡</span>
+          <span class="brand-text">AgentRemote</span>
+          <span class="badge-serverless">Railway</span>
+        </div>
+      </div>
+
+      <!-- Center Machine Selector -->
+      <div class="header-center">
+        <div class="device-pill" id="device-pill">
+          <span class="status-dot offline" id="status-dot"></span>
+          <select id="device-select" class="device-select">
+            <option value="">Пошук машин...</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Right Actions -->
+      <div class="header-right">
+        <nav class="nav-tabs">
+          <button class="nav-tab active" data-tab="chat">💬 Чат Агента</button>
+          <button class="nav-tab" data-tab="files">📁 Файли</button>
+          <button class="nav-tab" data-tab="terminal">⚡ Термінал</button>
+          <button class="nav-tab" data-tab="devices">⚙️ Пристрої</button>
+        </nav>
+        <button id="logout-btn" class="icon-btn" title="Вийти">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Body -->
+    <div class="app-body">
+      <!-- Sidebar (Past Sessions & Controls) -->
+      <aside class="app-sidebar" id="app-sidebar">
+        <div class="sidebar-top">
+          <button id="new-chat-btn" class="btn btn-primary btn-block">
+            <span>+ Новий чат Cursor</span>
+          </button>
+        </div>
+
+        <!-- Session List -->
+        <div class="sidebar-section">
+          <div class="section-title">
+            <span>ІСТОРІЯ СЕСІЙ</span>
+            <span id="session-count" class="count-badge">0</span>
+          </div>
+          <div id="session-list" class="session-list">
+            <!-- Dynamic session items -->
+          </div>
+        </div>
+
+        <!-- Agent Configuration Drawer -->
+        <div class="sidebar-footer">
+          <div class="config-group">
+            <label>Модель</label>
+            <select id="model-select" class="input-sm">
+              <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+              <option value="claude-3-7-sonnet">Claude 3.7 Sonnet</option>
+              <option value="gpt-4o">GPT-4o</option>
+              <option value="o1-preview">OpenAI o1</option>
+              <option value="gpt-5">GPT-5</option>
+            </select>
+          </div>
+          <div class="config-group">
+            <label>Режим роботи</label>
+            <select id="mode-select" class="input-sm">
+              <option value="agent">🤖 Agent (Повний доступ)</option>
+              <option value="yolo">⚡ YOLO (Авто-виконання)</option>
+              <option value="plan">📝 Plan (Тільки планування)</option>
+              <option value="ask">❓ Ask (Питання / Q&A)</option>
+            </select>
+          </div>
+          <div class="config-group">
+            <label>Робоча папка (Workspace)</label>
+            <input type="text" id="workspace-input" class="input-sm" placeholder="За замовчуванням">
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center Workspace Panel -->
+      <main class="app-main">
+        <!-- Tab 1: Chat View -->
+        <section id="tab-chat" class="tab-content active">
+          <div class="chat-header">
+            <div class="chat-title-info">
+              <h3 id="current-chat-title">Новий чат Cursor</h3>
+              <span id="chat-meta" class="meta-text">Оберіть сесію або створіть нову</span>
+            </div>
+            <div class="chat-actions">
+              <button id="resume-chat-btn" class="btn btn-secondary btn-sm" title="Продовжити минулий чат через Cursor CLI">
+                🔄 Продовжити минулий чат
+              </button>
+            </div>
+          </div>
+
+          <!-- Message Stream Container -->
+          <div id="chat-messages" class="chat-messages">
+            <div class="welcome-box">
+              <div class="welcome-icon">🤖</div>
+              <h3>Ласкаво просимо в AgentRemote!</h3>
+              <p>Керуйте агентами Cursor на вашому комп'ютері віддалено з ноутбука чи телефона.</p>
+              <div class="quick-tips">
+                <div class="tip-card">
+                  <strong>💬 Запуск промпта</strong>
+                  <span>Напишіть завдання, і агент виконає його на локальній машині.</span>
+                </div>
+                <div class="tip-card">
+                  <strong>🔄 Продовження сесій</strong>
+                  <span>Усі минулі чати зберігаються і можуть бути продовжені в один клік.</span>
+                </div>
+                <div class="tip-card">
+                  <strong>📱 Мобільна оптимізація</strong>
+                  <span>Повний контроль за процесом з екрана смартфона.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Prompt Input -->
+          <div class="chat-input-area">
+            <div class="input-controls">
+              <span id="active-device-indicator" class="device-tag">Пристрій: Не обрано</span>
+              <button id="stop-agent-btn" class="btn btn-danger btn-sm" style="display: none;">
+                ⏹ Зупинити агента
+              </button>
+            </div>
+            <div class="input-box-wrapper">
+              <textarea id="prompt-input" placeholder="Напишіть завдання для Cursor Agent... (Enter - надіслати, Shift+Enter - новий рядок)" rows="2"></textarea>
+              <button id="send-btn" class="send-btn" title="Надіслати">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 2: Files Explorer View -->
+        <section id="tab-files" class="tab-content">
+          <div class="view-panel">
+            <div class="panel-header">
+              <h3>Файловий провідник віддаленої машини</h3>
+              <button id="refresh-files-btn" class="btn btn-secondary btn-sm">Оновити</button>
+            </div>
+            <div class="files-layout">
+              <div class="files-tree" id="files-tree">
+                <p class="placeholder-text">Завантаження файлового дерева...</p>
+              </div>
+              <div class="file-preview">
+                <div class="file-preview-header">
+                  <span id="preview-filename">Оберіть файл для перегляду</span>
+                </div>
+                <pre id="preview-content"><code>// Вміст файлу відобразиться тут</code></pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 3: Remote Terminal View -->
+        <section id="tab-terminal" class="tab-content">
+          <div class="view-panel">
+            <div class="panel-header">
+              <h3>Віддалена консоль терміналу</h3>
+              <span class="meta-text">Виконання PowerShell / Bash команд</span>
+            </div>
+            <div class="terminal-container">
+              <div id="terminal-output" class="terminal-output"></div>
+              <form id="terminal-form" class="terminal-input-bar">
+                <span class="terminal-prompt">&gt;</span>
+                <input type="text" id="terminal-input" placeholder="Введіть команду (наприклад, git status або npm run test)..." autocomplete="off">
+                <button type="submit" class="btn btn-primary btn-sm">Виконати</button>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 4: Devices View -->
+        <section id="tab-devices" class="tab-content">
+          <div class="view-panel">
+            <div class="panel-header">
+              <h3>Підключені машини та налаштування</h3>
+            </div>
+            <div class="devices-dashboard">
+              <div class="card">
+                <h4>Підключення нового комп'ютера</h4>
+                <p>Щоб керувати ще одним комп'ютером чи ноутбуком, запустіть на ньому локальний демон:</p>
+                <div class="code-copy-box">
+                  <pre id="daemon-command-text">git clone https://github.com/elaiviaien/agentremote.git
+cd agentremote
+npm install
+npm run worker</pre>
+                  <button id="copy-cmd-btn" class="btn btn-secondary btn-sm">Скопіювати команду</button>
+                </div>
+              </div>
+
+              <div class="card">
+                <h4>Активні машини</h4>
+                <div id="devices-full-list" class="devices-grid">
+                  <!-- Devices list -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

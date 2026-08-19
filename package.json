@@ -1,0 +1,35 @@
+{
+  "name": "agentremote",
+  "version": "1.0.0",
+  "description": "Remote Web IDE and daemon for controlling Cursor AI agents across devices",
+  "main": "dist/server/index.js",
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').cpSync('src/client', 'dist/client', {recursive: true})\"",
+    "start": "node --max-old-space-size=64 dist/server/index.js",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:worker": "tsx watch src/worker/index.ts",
+    "worker": "node dist/worker/index.js"
+  },
+  "keywords": ["cursor", "agent", "remote-ide", "ai-agent", "railway"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@fastify/cookie": "^9.4.0",
+    "@fastify/cors": "^9.0.1",
+    "@fastify/static": "^7.0.4",
+    "@fastify/websocket": "^10.0.1",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.28.1",
+    "jsonwebtoken": "^9.0.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.14.9",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.2"
+  }
+}
