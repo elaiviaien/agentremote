@@ -1729,8 +1729,28 @@ class AgentRemoteApp {
       const liveThinkingBadge = streamingMsg.querySelector('.thinking-live-badge');
       if (liveThinkingBadge) liveThinkingBadge.remove();
 
+      // Collapse thinking if there's content
       const thinkingAccordion = streamingMsg.querySelector('.thinking-accordion');
-      if (thinkingAccordion) thinkingAccordion.classList.remove('streaming');
+      if (thinkingAccordion) {
+        thinkingAccordion.classList.remove('streaming');
+        const body = thinkingAccordion.querySelector('.thinking-accordion-body');
+        if (body && body.textContent.trim() !== '') {
+          thinkingAccordion.classList.remove('open'); // Auto collapse when done
+        }
+      }
+
+      // Mark any still-running tool calls as completed silently
+      const runningTools = streamingMsg.querySelectorAll('.tool-call-card:not(.completed):not(.error)');
+      runningTools.forEach(tcEl => {
+        tcEl.classList.add('completed');
+        const statusBadge = tcEl.querySelector('.tool-call-status');
+        if (statusBadge) {
+          statusBadge.classList.add('completed');
+          statusBadge.innerText = '✓ завершено';
+        }
+        const pendingIndicator = tcEl.querySelector('.tool-call-output-pending');
+        if (pendingIndicator) pendingIndicator.style.display = 'none';
+      });
 
       const bubble = streamingMsg.querySelector('.message-bubble');
       // If bubble is still showing thinking indicator and no text came, show fallback message

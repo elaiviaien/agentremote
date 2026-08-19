@@ -247,9 +247,15 @@ export class AgentRunner {
           }
           // 3. Tool use / call / action
           else if (parsed.type === 'tool_use' || parsed.tool_call || parsed.type === 'call' || parsed.type === 'action') {
-            const rawInput = parsed.input || parsed.arguments || parsed.parameters || parsed.args || {};
-            const toolName = parsed.name || parsed.tool || parsed.type || 'Tool Execution';
+            const toolCallObj = parsed.tool_call || parsed.call || parsed.tool || parsed;
+            const rawInput = toolCallObj.input || toolCallObj.arguments || toolCallObj.parameters || toolCallObj.args || parsed.input || parsed.arguments || {};
             
+            // Extract properly formatted name
+            let toolName = toolCallObj.name || toolCallObj.tool || parsed.name || parsed.tool || parsed.type || 'tool';
+            if (toolName.includes(':')) {
+              toolName = toolName.split(':').pop() || toolName;
+            }
+
             let summary = '';
             if (typeof rawInput === 'object' && rawInput !== null) {
               summary = rawInput.toolSummary || rawInput.command || rawInput.CommandLine || rawInput.path || rawInput.TargetFile || rawInput.AbsolutePath || rawInput.query || rawInput.pattern || '';
@@ -260,8 +266,8 @@ export class AgentRunner {
             const action = (typeof rawInput === 'object' && rawInput !== null && rawInput.toolAction) || '';
 
             const toolCall: ToolCallItem = {
-              id: parsed.id || parsed.tool_call_id || Math.random().toString(36).substring(2, 8),
-              type: parsed.tool || parsed.name || 'tool',
+              id: toolCallObj.id || parsed.id || parsed.tool_call_id || Math.random().toString(36).substring(2, 8),
+              type: toolName,
               name: toolName,
               summary: summary || undefined,
               action: action || undefined,
@@ -272,7 +278,7 @@ export class AgentRunner {
             callbacks.onToolCall(toolCall);
           }
           // 4. Tool result & Final result
-          else if (parsed.type === 'tool_result' || parsed.result || parsed.type === 'tool_output') {
+          else if (parsed.type === 'tool_result' || parsed.type === 'call_result' || parsed.result || parsed.type === 'tool_output' || parsed.type === 'step_result') {
             if (parsed.type === 'result' && parsed.subtype === 'success') {
               if (parsed.result) {
                 accumulatedText = parsed.result;
@@ -280,8 +286,9 @@ export class AgentRunner {
               }
             } else {
               const resContent = parsed.result !== undefined ? parsed.result : parsed.output !== undefined ? parsed.output : parsed.content;
+              const resId = parsed.id || parsed.tool_call_id || parsed.call_id || (parsed.tool_result && parsed.tool_result.id) || '';
               callbacks.onToolResult(
-                parsed.id || parsed.tool_call_id || parsed.call_id || '',
+                resId,
                 typeof resContent === 'string' ? resContent : JSON.stringify(resContent, null, 2),
                 parsed.is_error ? 'failed' : 'completed'
               );
