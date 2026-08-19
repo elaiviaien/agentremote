@@ -19,7 +19,11 @@ async function testAgentPromptStreaming() {
     headers: { Authorization: `Bearer ${token}` },
   });
   const { devices } = (await devicesRes.json()) as any;
-  const dev = devices.find((d: any) => d.status === 'online');
+  const dev = devices.find((d: any) => d.status === 'online') || devices[0];
+
+  if (!dev) {
+    throw new Error('No devices found');
+  }
 
   // 3. Connect WebSocket
   const ws = new WebSocket(`${WS_URL}/ws/client?token=${encodeURIComponent(token)}`);
@@ -57,8 +61,8 @@ async function testAgentPromptStreaming() {
       payload: {
         sessionId,
         deviceId: dev.id,
-        prompt: 'Say hello from AgentRemote in one sentence',
-        model: 'claude-3-5-sonnet',
+        prompt: 'Say: Hello from AgentRemote Web IDE in Ukrainian',
+        model: 'claude-4.5-sonnet',
         mode: 'ask',
       },
     })
