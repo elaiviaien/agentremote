@@ -27,8 +27,43 @@ export class WorkerWsManager {
           type: 'device:status',
           payload: { deviceId: registeredDeviceId, status: 'offline' },
         });
+        this.failRunningSessions(registeredDeviceId);
       }
     });
+  }
+
+  /**
+   * A worker that disappears mid-run can never send `agent:complete`, which would
+   * leave the session (and the composer in the web client) stuck in "running".
+   */
+  private failRunningSessions(deviceId: string) {
+    const stuck = sessionManager
+      .getSessions(deviceId)
+      .filter((s) => s.isStreaming || s.status === 'running');
+
+    for (const session of stuck) {
+      sessionManager.finalizeAssistantMessage(
+        session.id,
+        "⚠️ Зв’язок з машиною втрачено — виконання перервано."
+      );
+      sessionManager.clearQueue(session.id);
+      sessionManager.updateSession(session.id, { isStreaming: false, status: 'idle' });
+
+      clientWsManager.broadcast({
+        type: 'agent:complete',
+        payload: {
+          sessionId: session.id,
+          success: false,
+          error: 'Worker disconnected',
+          aborted: true,
+        } as any,
+      });
+
+      const updated = sessionManager.getSession(session.id);
+      if (updated) {
+        clientWsManager.broadcast({ type: 'session:updated', payload: updated });
+      }
+    }
   }
 
   private processWorkerMessage(
@@ -78,8 +113,8 @@ export class WorkerWsManager {
       }
 
       case 'agent:chunk': {
-        const { sessionId, chunk, delta } = msg.payload;
-        sessionManager.appendChunk(sessionId, delta || chunk);
+        const { sessionId } = msg.payload;
+        sessionManager.appendChunk(sessionId, msg.payload);
         clientWsManager.broadcast({
           type: 'agent:chunk',
           payload: msg.payload,
@@ -88,8 +123,8 @@ export class WorkerWsManager {
       }
 
       case 'agent:thinking': {
-        const { sessionId, thinking, delta } = msg.payload;
-        sessionManager.appendThinking(sessionId, delta || thinking);
+        const { sessionId } = msg.payload;
+        sessionManager.appendThinking(sessionId, msg.payload);
         clientWsManager.broadcast({
           type: 'agent:thinking',
           payload: msg.payload,
@@ -121,16 +156,28 @@ export class WorkerWsManager {
       }
 
       case 'agent:complete': {
-        const { sessionId, fullContent, cursorChatId, success, error } = msg.payload;
+        const { sessionId, fullContent, cursorChatId, success, error, aborted } = msg.payload as any;
         sessionManager.finalizeAssistantMessage(
           sessionId,
-          fullContent,
+          aborted ? undefined : fullContent,
           cursorChatId
         );
         clientWsManager.broadcast({
           type: 'agent:complete',
-          payload: { sessionId, success, error, cursorChatId } as any,
+          payload: { sessionId, success, error, cursorChatId, aborted } as any,
         });
+
+        if (aborted) {
+          sessionManager.updateSession(sessionId, { isStreaming: false, status: 'idle' });
+          const abortedSession = sessionManager.getSession(sessionId);
+          if (abortedSession) {
+            clientWsManager.broadcast({
+              type: 'session:updated',
+              payload: abortedSession,
+            });
+          }
+          break;
+        }
 
         // Check if there is a queued prompt for this session!
         const nextPrompt = sessionManager.dequeuePrompt(sessionId);

@@ -225,7 +225,7 @@ export class AgentRunner {
                 accumulatedText += rawContent;
                 callbacks.onChunk(accumulatedText, rawContent);
               } else {
-                // Full message summary at the end of turn
+                // Snapshot of the full turn — empty delta means replace, not append
                 accumulatedText = rawContent;
                 callbacks.onChunk(accumulatedText, '');
               }

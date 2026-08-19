@@ -172,6 +172,18 @@ export class ClientWsManager {
         const abortSessionId = (msg as any).payload?.sessionId || (msg as any).sessionId;
         const session = sessionManager.getSession(abortSessionId);
         if (session) {
+          sessionManager.abortRun(session.id);
+          const updated = sessionManager.getSession(session.id);
+          this.broadcast({
+            type: 'agent:complete',
+            payload: { sessionId: session.id, success: false, aborted: true } as any,
+          });
+          if (updated) {
+            this.broadcast({
+              type: 'session:updated',
+              payload: updated,
+            });
+          }
           deviceManager.sendToWorker(session.deviceId, {
             type: 'agent:abort',
             payload: { sessionId: session.id },

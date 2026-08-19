@@ -1,4 +1,17 @@
 // AgentRemote Web IDE Client Logic
+function applyStreamText(previous, payload) {
+  const prev = previous || '';
+  if (typeof payload.delta === 'string') {
+    if (payload.delta.length > 0) return prev + payload.delta;
+    if (typeof payload.chunk === 'string' && payload.chunk.length > 0) return payload.chunk;
+    return prev;
+  }
+  const chunk = payload.chunk || '';
+  if (!chunk) return prev;
+  if (chunk.startsWith(prev)) return chunk;
+  return prev + chunk;
+}
+
 class AgentRemoteApp {
   constructor() {
     this.token = localStorage.getItem('agentremote_token') || sessionStorage.getItem('agentremote_token') || '';
@@ -8,6 +21,9 @@ class AgentRemoteApp {
     this.sessions = [];
     this.activeSessionId = null;
     this.isStreaming = false;
+    this.lastAgentActivityAt = 0;
+    this.agentStallTimer = null;
+    this.AGENT_STALL_TIMEOUT_MS = 120000;
     this.currentToolCallElements = new Map();
     this.loadedTranscripts = [];
     this.thinkingMode = 'auto'; // 'auto' | 'on' | 'off'
@@ -694,9 +710,8 @@ class AgentRemoteApp {
   handleWsMessage(msg) {
     switch (msg.type) {
       case 'agent:chunk': {
+        this.markAgentActivity();
         const sessionId = msg.payload?.sessionId;
-        const delta = msg.payload?.delta || msg.payload?.chunk || '';
-        
         const s = this.sessions.find((x) => x.id === sessionId);
         if (s) {
           if (!s.isStreaming) {
@@ -706,21 +721,26 @@ class AgentRemoteApp {
           }
           const lastMsg = [...(s.messages || [])].reverse().find((m) => m.role === 'assistant');
           if (lastMsg) {
-            lastMsg.content = (lastMsg.content || '') + delta;
+            lastMsg.content = applyStreamText(lastMsg.content || '', {
+              chunk: msg.payload?.chunk,
+              delta: msg.payload?.delta,
+            });
             lastMsg.isStreaming = true;
           }
         }
 
         if (sessionId === this.activeSessionId) {
-          this.appendAssistantChunk(sessionId, delta);
+          this.appendAssistantChunk(sessionId, {
+            chunk: msg.payload?.chunk,
+            delta: msg.payload?.delta,
+          });
         }
         break;
       }
 
       case 'agent:thinking': {
+        this.markAgentActivity();
         const sessionId = msg.payload?.sessionId;
-        const delta = msg.payload?.delta || msg.payload?.thinking || '';
-        
         const s = this.sessions.find((x) => x.id === sessionId);
         if (s) {
           if (!s.isStreaming) {
@@ -730,13 +750,19 @@ class AgentRemoteApp {
           }
           const lastMsg = [...(s.messages || [])].reverse().find((m) => m.role === 'assistant');
           if (lastMsg) {
-            lastMsg.thinkingContent = (lastMsg.thinkingContent || '') + delta;
+            lastMsg.thinkingContent = applyStreamText(lastMsg.thinkingContent || '', {
+              chunk: msg.payload?.thinking,
+              delta: msg.payload?.delta,
+            });
             lastMsg.isStreaming = true;
           }
         }
 
         if (sessionId === this.activeSessionId) {
-          this.appendAssistantThinking(sessionId, delta);
+          this.appendAssistantThinking(sessionId, {
+            thinking: msg.payload?.thinking,
+            delta: msg.payload?.delta,
+          });
         }
         break;
       }
@@ -759,6 +785,7 @@ class AgentRemoteApp {
       }
 
       case 'agent:tool_call': {
+        this.markAgentActivity();
         const { sessionId, toolCall } = msg.payload;
         const s = this.sessions.find((x) => x.id === sessionId);
         if (s) {
@@ -773,6 +800,7 @@ class AgentRemoteApp {
       }
 
       case 'agent:tool_result': {
+        this.markAgentActivity();
         const { sessionId, toolCallId, result, status } = msg.payload;
         if (sessionId === this.activeSessionId) {
           this.renderToolResult(sessionId, toolCallId, result, status);
@@ -781,8 +809,9 @@ class AgentRemoteApp {
       }
 
       case 'agent:complete': {
-        const { sessionId, cursorChatId } = msg.payload;
+        const { sessionId, cursorChatId, aborted } = msg.payload;
         const s = this.sessions.find((x) => x.id === sessionId);
+        const alreadyIdle = s && !s.isStreaming && s.status !== 'running';
         if (s) {
           s.isStreaming = false;
           s.status = 'idle';
@@ -790,7 +819,7 @@ class AgentRemoteApp {
           this.renderSessions();
         }
         if (sessionId === this.activeSessionId) {
-          this.handleAgentComplete(sessionId, cursorChatId);
+          this.handleAgentComplete(sessionId, cursorChatId, { aborted, silent: Boolean(aborted && alreadyIdle) });
         }
         break;
       }
@@ -1163,6 +1192,11 @@ class AgentRemoteApp {
 
     const isSessionStreaming = Boolean(session.isStreaming || session.status === 'running');
     this.isStreaming = isSessionStreaming;
+    if (isSessionStreaming) {
+      this.startAgentStallWatchdog();
+    } else {
+      this.stopAgentStallWatchdog();
+    }
     this.stopAgentBtn.style.display = isSessionStreaming ? 'inline-flex' : 'none';
     this.sendBtn.disabled = false;
 
@@ -1504,8 +1538,10 @@ class AgentRemoteApp {
     `;
   }
 
-  appendAssistantThinking(sessionId, delta) {
+  appendAssistantThinking(sessionId, payload) {
     if (sessionId !== this.activeSessionId) return;
+    const delta = typeof payload === 'string' ? payload : payload?.delta;
+    const thinking = typeof payload === 'string' ? undefined : payload?.thinking;
 
     if (this.chatMeta) {
       this.chatMeta.innerHTML = `<span style="color:#a78bfa; font-weight:600;"><span class="pulse-dot"></span> Агент міркує над завданням...</span>`;
@@ -1541,16 +1577,20 @@ class AgentRemoteApp {
 
     const body = thinkingAccordion.querySelector('.thinking-accordion-body');
     const textEl = thinkingAccordion.querySelector('.thinking-text');
-    if (textEl && delta) {
-      textEl.textContent = (textEl.textContent || '') + delta;
-      if (body) body.style.display = 'block';
+    if (textEl) {
+      const next = applyStreamText(textEl.textContent || '', { chunk: thinking, delta: typeof payload === 'string' ? payload : delta });
+      if (next !== (textEl.textContent || '')) {
+        textEl.textContent = next;
+        if (body) body.style.display = 'block';
+      }
     }
 
     this.scrollToBottom();
   }
 
-  appendAssistantChunk(sessionId, delta) {
+  appendAssistantChunk(sessionId, payload) {
     if (sessionId !== this.activeSessionId) return;
+    const streamPayload = typeof payload === 'string' ? { delta: payload } : payload;
 
     if (this.chatMeta) {
       this.chatMeta.innerHTML = `<span style="color:var(--accent-primary); font-weight:600;"><span class="pulse-dot"></span> Агент друкує відповідь...</span>`;
@@ -1585,9 +1625,14 @@ class AgentRemoteApp {
       bubble.innerHTML = ''; // Clear initial placeholder
     }
 
-    if (delta) {
-      bubble.rawMarkdown += delta;
+    const next = applyStreamText(bubble.rawMarkdown || '', streamPayload);
+    if (next === (bubble.rawMarkdown || '') && !streamPayload?.delta) {
+      this.scrollToBottom();
+      return;
+    }
+    bubble.rawMarkdown = next;
 
+    if (bubble.rawMarkdown) {
       if (window.marked) {
         bubble.innerHTML = marked.parse(bubble.rawMarkdown);
         bubble.querySelectorAll('pre code').forEach((b) => {
@@ -1702,9 +1747,46 @@ class AgentRemoteApp {
     }
   }
 
-  handleAgentComplete(sessionId, cursorChatId) {
+  markAgentActivity() {
+    this.lastAgentActivityAt = Date.now();
+  }
+
+  startAgentStallWatchdog() {
+    this.markAgentActivity();
+    if (this.agentStallTimer) return;
+    this.agentStallTimer = setInterval(() => {
+      if (!this.isStreaming) {
+        this.stopAgentStallWatchdog();
+        return;
+      }
+      const idleFor = Date.now() - (this.lastAgentActivityAt || 0);
+      if (idleFor < this.AGENT_STALL_TIMEOUT_MS) return;
+
+      // No chunk, tool event or completion for too long: the worker or hub most
+      // likely died mid-run, so unlock the composer instead of freezing the UI.
+      const sessionId = this.activeSessionId;
+      const session = this.sessions.find((s) => s.id === sessionId);
+      if (session) {
+        session.isStreaming = false;
+        session.status = 'idle';
+      }
+      this.handleAgentComplete(sessionId, undefined, { aborted: true, silent: true });
+      this.showToast('⚠️ Агент не відповідає — ввід розблоковано', 6000);
+    }, 5000);
+  }
+
+  stopAgentStallWatchdog() {
+    if (this.agentStallTimer) {
+      clearInterval(this.agentStallTimer);
+      this.agentStallTimer = null;
+    }
+  }
+
+  handleAgentComplete(sessionId, cursorChatId, options = {}) {
     const session = this.sessions.find((s) => s.id === sessionId);
     if (session) {
+      session.isStreaming = false;
+      session.status = 'idle';
       if (cursorChatId) session.cursorChatId = cursorChatId;
       if (this.chatMeta) {
         this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
@@ -1713,13 +1795,20 @@ class AgentRemoteApp {
 
     const hasQueue = Boolean(session && session.promptQueue && session.promptQueue.length > 0);
 
-    if (!hasQueue) {
-      this.isStreaming = false;
-      this.stopAgentBtn.style.display = 'none';
-      this.sendBtn.disabled = false;
+    this.isStreaming = Boolean(hasQueue && !options.aborted);
+    if (this.isStreaming) {
+      this.markAgentActivity();
+    } else {
+      this.stopAgentStallWatchdog();
+    }
+    this.stopAgentBtn.style.display = this.isStreaming ? 'inline-flex' : 'none';
+    this.sendBtn.disabled = false;
+    if (!this.isStreaming) {
       if (this.sendShortcutHint) this.sendShortcutHint.innerText = '⌘ + Enter / Enter';
       this.sendBtn.title = 'Надіслати';
-      this.showToast('✨ Агент завершив виконання завдання');
+      if (!options.silent) {
+        this.showToast(options.aborted ? '🛑 Запит до агента зупинено' : '✨ Агент завершив виконання завдання');
+      }
     }
 
     const streamingMsg = this.chatMessages.querySelector('.message.assistant.streaming');
@@ -1760,11 +1849,11 @@ class AgentRemoteApp {
     }
 
     this.renderQueue();
-    this.loadSessions();
   }
 
   handleAgentError(sessionId, error) {
     this.isStreaming = false;
+    this.stopAgentStallWatchdog();
     this.stopAgentBtn.style.display = 'none';
     this.sendBtn.disabled = false;
 
@@ -1828,6 +1917,7 @@ class AgentRemoteApp {
     this.renderChatMessageElement('user', text);
 
     this.isStreaming = true;
+    this.startAgentStallWatchdog();
     this.stopAgentBtn.style.display = 'inline-flex';
     this.sendBtn.disabled = false;
     if (this.sendShortcutHint) this.sendShortcutHint.innerText = 'Enter — додати в чергу';
@@ -1890,11 +1980,15 @@ class AgentRemoteApp {
 
   stopAgent() {
     if (!this.activeSessionId || !this.isStreaming) return;
+    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+    if (session) {
+      session.isStreaming = false;
+      session.status = 'idle';
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'agent:abort', payload: { sessionId: this.activeSessionId } }));
     }
-    this.handleAgentComplete(this.activeSessionId);
-    this.showToast('🛑 Запит до агента зупинено');
+    this.handleAgentComplete(this.activeSessionId, undefined, { aborted: true });
   }
 
   scrollToBottom() {

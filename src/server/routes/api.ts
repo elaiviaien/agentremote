@@ -275,4 +275,14 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     const sanitized = ChatSanitizer.sanitizeAny(rawContent);
     return { success: true, result: sanitized };
   });
+
+  fastify.get('/health', async () => {
+    const memory = process.memoryUsage();
+    return {
+      status: 'ok',
+      uptime: process.uptime(),
+      ramRssMb: Math.round(memory.rss / (1024 * 1024)),
+      ramHeapUsedMb: Math.round(memory.heapUsed / (1024 * 1024)),
+    };
+  });
 };

@@ -1,0 +1,49 @@
+const path = require('path');
+
+module.exports = {
+  apps: [
+    {
+      name: 'agentremote-hub',
+      cwd: __dirname,
+      script: 'dist/server/index.js',
+      node_args: '--max-old-space-size=128',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '150M',
+      min_uptime: '5s',
+      max_restarts: 50,
+      restart_delay: 2000,
+      exp_backoff_restart_delay: 100,
+      time: true,
+      error_file: path.join(__dirname, 'logs/hub-error.log'),
+      out_file: path.join(__dirname, 'logs/hub-out.log'),
+      merge_logs: true,
+      env: {
+        NODE_ENV: 'production',
+      },
+    },
+    {
+      name: 'agentremote-worker',
+      cwd: __dirname,
+      script: 'dist/worker/index.js',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '250M',
+      min_uptime: '5s',
+      max_restarts: 50,
+      restart_delay: 2000,
+      exp_backoff_restart_delay: 100,
+      time: true,
+      error_file: path.join(__dirname, 'logs/worker-error.log'),
+      out_file: path.join(__dirname, 'logs/worker-out.log'),
+      merge_logs: true,
+      env: {
+        NODE_ENV: 'production',
+      },
+    },
+  ],
+};

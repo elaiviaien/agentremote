@@ -1,4 +1,5 @@
 import { ChatSession, ChatMessage, ToolCallItem } from '../shared/types';
+import { applyStreamText } from '../shared/streamText';
 import { db } from './db';
 import { randomUUID } from 'crypto';
 
@@ -196,9 +197,9 @@ export class SessionManager {
     return fullMsg;
   }
 
-  public appendChunk(sessionId: string, chunk: string) {
+  public appendChunk(sessionId: string, payload: { chunk?: string; delta?: string }) {
     const prev = this.activeStreams.get(sessionId) || '';
-    const updated = prev + chunk;
+    const updated = applyStreamText(prev, payload);
     this.activeStreams.set(sessionId, updated);
 
     const session = db.getSession(sessionId);
@@ -214,18 +215,26 @@ export class SessionManager {
     }
   }
 
-  public appendThinking(sessionId: string, chunk: string) {
+  public appendThinking(sessionId: string, payload: { thinking?: string; delta?: string }) {
     const session = db.getSession(sessionId);
     if (session) {
       session.isStreaming = true;
       session.status = 'running';
       const lastMsg = [...session.messages].reverse().find((m) => m.role === 'assistant');
       if (lastMsg) {
-        lastMsg.thinkingContent = (lastMsg.thinkingContent || '') + chunk;
+        lastMsg.thinkingContent = applyStreamText(lastMsg.thinkingContent || '', {
+          chunk: payload.thinking,
+          delta: payload.delta,
+        });
         lastMsg.isStreaming = true;
       }
       db.saveSession(session);
     }
+  }
+
+  public abortRun(sessionId: string) {
+    this.finalizeAssistantMessage(sessionId);
+    this.updateSession(sessionId, { isStreaming: false, status: 'idle' });
   }
 
   public getStreamingContent(sessionId: string): string {
@@ -284,12 +293,13 @@ export class SessionManager {
       session.cursorChatId = cursorChatId;
     }
 
-    const contentToSave = finalContent !== undefined ? finalContent : accumulated;
+    const lastAssistant = [...session.messages].reverse().find((m) => m.role === 'assistant');
+    const contentToSave =
+      (finalContent && finalContent.length > 0 ? finalContent : accumulated) || lastAssistant?.content || '';
 
-    const lastMsg = [...session.messages].reverse().find((m) => m.role === 'assistant' && (m.isStreaming || !m.content));
-    if (lastMsg) {
-      lastMsg.content = contentToSave;
-      lastMsg.isStreaming = false;
+    if (lastAssistant) {
+      if (contentToSave) lastAssistant.content = contentToSave;
+      lastAssistant.isStreaming = false;
     } else if (contentToSave) {
       session.messages.push({
         id: Math.random().toString(36).substring(2, 12),

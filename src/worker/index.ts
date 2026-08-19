@@ -242,6 +242,15 @@ class WorkerDaemon {
 
       case 'agent:abort': {
         this.agentRunner.abort(msg.payload.sessionId);
+        this.send({
+          type: 'agent:complete',
+          payload: {
+            sessionId: msg.payload.sessionId,
+            fullContent: '',
+            success: false,
+            aborted: true,
+          },
+        });
         break;
       }
 

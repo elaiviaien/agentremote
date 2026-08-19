@@ -124,7 +124,7 @@ export type WorkerToHubMessage =
   | { type: 'agent:thinking'; payload: { sessionId: string; thinking: string; delta?: string } }
   | { type: 'agent:tool_call'; payload: { sessionId: string; toolCall: ToolCallItem } }
   | { type: 'agent:tool_result'; payload: { sessionId: string; toolCallId: string; result: string; status: 'completed' | 'failed' } }
-  | { type: 'agent:complete'; payload: { sessionId: string; fullContent: string; cursorChatId?: string; success: boolean; error?: string } }
+  | { type: 'agent:complete'; payload: { sessionId: string; fullContent: string; cursorChatId?: string; success: boolean; error?: string; aborted?: boolean } }
   | { type: 'agent:error'; payload: { sessionId: string; error: string } }
   | { type: 'terminal:output'; payload: { commandId: string; data: string; isError?: boolean } }
   | { type: 'terminal:exit'; payload: { commandId: string; code: number } }
@@ -197,7 +197,7 @@ export type HubToClientMessage =
   | { type: 'agent:thinking'; payload: { sessionId: string; thinking: string; delta?: string } }
   | { type: 'agent:tool_call'; payload: { sessionId: string; toolCall: ToolCallItem } }
   | { type: 'agent:tool_result'; payload: { sessionId: string; toolCallId: string; result: string; status: 'completed' | 'failed' } }
-  | { type: 'agent:complete'; payload: { sessionId: string; success: boolean; error?: string } }
+  | { type: 'agent:complete'; payload: { sessionId: string; success: boolean; error?: string; cursorChatId?: string; aborted?: boolean } }
   | { type: 'terminal:output'; payload: { commandId: string; data: string; isError?: boolean } }
   | { type: 'terminal:exit'; payload: { commandId: string; code: number } }
   | { type: 'fs:tree'; payload: { tree: FileEntry[]; rootPath: string } }
