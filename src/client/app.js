@@ -150,7 +150,6 @@ class AgentRemoteApp {
     this.modalSessionTitle = document.getElementById('modal-session-title');
     this.modalSessionDesc = document.getElementById('modal-session-desc');
     this.modalOpenImportBtn = document.getElementById('modal-open-import-btn');
-    this.openImportHeaderBtn = document.getElementById('open-import-header-btn');
     this.currentSelectedEngine = 'cursor';
 
     // Import Modal Elements
@@ -243,9 +242,6 @@ class AgentRemoteApp {
 
     if (this.importChatBtn) {
       this.importChatBtn.addEventListener('click', () => this.openImportModal());
-    }
-    if (this.openImportHeaderBtn) {
-      this.openImportHeaderBtn.addEventListener('click', () => this.openImportModal());
     }
     if (this.modalOpenImportBtn) {
       this.modalOpenImportBtn.addEventListener('click', () => {
