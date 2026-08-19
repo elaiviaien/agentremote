@@ -1648,21 +1648,39 @@ class AgentRemoteApp {
         item.classList.add('active');
         this.selectedTranscriptFilePath = t.filePath;
         this.selectedTranscriptWorkspace = t.workspacePath || '';
+        this.selectedTranscriptId = t.id;
         this.importSessionTitle.value = t.title.slice(0, 45);
 
-        // Set immediate valid payload so user can import instantly
+        // Auto-select matching engine
+        if (this.importTargetEngine) {
+          this.importTargetEngine.value = t.source === 'antigravity' ? 'antigravity' : 'cursor';
+        }
+
+        // Check if an existing session is already linked to this local session
+        const existing = this.sessions.find(
+          (s) => (t.id && (s.cursorChatId === t.id || s.id === t.id)) || (s.title === t.title && s.workspacePath === t.workspacePath)
+        );
+
+        if (existing) {
+          this.executeImportBtn.innerHTML = '<span>▶ Продовжити існуючу сесію</span>';
+        } else {
+          this.executeImportBtn.innerHTML = '<span>▶ Підключити та продовжити сесію</span>';
+        }
+
+        // Set immediate valid payload
         this.selectedTranscriptContent = JSON.stringify({
           title: t.title,
           filePath: t.filePath,
           workspacePath: t.workspacePath,
           source: t.source,
           messageCount: t.messageCount,
+          sourceSessionId: t.id,
         });
 
         if (this.importSanitizationReport) {
           this.importSanitizationReport.style.display = 'block';
           if (this.importSanitizedCount) {
-            this.importSanitizedCount.innerText = `Сесію обрано • ${t.messageCount || 1} повідомлень`;
+            this.importSanitizedCount.innerText = `Сесію обрано • ${t.messageCount || 1} повідомлень • ${t.source.toUpperCase()}`;
           }
         }
 
@@ -1699,7 +1717,7 @@ class AgentRemoteApp {
     }
 
     this.executeImportBtn.disabled = true;
-    this.executeImportBtn.innerHTML = '<span>Імпортування...</span>';
+    this.executeImportBtn.innerHTML = '<span>Підключення...</span>';
 
     try {
       const res = await fetch('/api/sessions/import', {
@@ -1714,24 +1732,31 @@ class AgentRemoteApp {
           deviceId: this.activeDeviceId,
           engine: this.importTargetEngine.value,
           workspacePath: this.selectedTranscriptWorkspace || this.workspaceInput.value,
+          sourceSessionId: this.selectedTranscriptId,
+          filePath: this.selectedTranscriptFilePath,
         }),
       });
 
       const data = await res.json();
       if (res.ok && data.session) {
-        this.sessions.unshift(data.session);
+        const existingIdx = this.sessions.findIndex((s) => s.id === data.session.id);
+        if (existingIdx >= 0) {
+          this.sessions[existingIdx] = data.session;
+        } else {
+          this.sessions.unshift(data.session);
+        }
         this.renderSessions();
         this.selectSession(data.session.id);
         this.importModal.style.display = 'none';
-        this.showToast(`✨ Успішно імпортовано: ${data.session.title}`);
+        this.showToast(data.reusedExisting ? `✨ Продовжуємо сесію: ${data.session.title}` : `✨ Сесію підключено: ${data.session.title}`);
       } else {
-        alert(data.error || 'Помилка при імпорті сесії');
+        alert(data.error || 'Помилка при підключенні сесії');
       }
     } catch {
-      alert('Помилка з\'єднання при імпорті');
+      alert('Помилка з\'єднання при підключенні');
     } finally {
       this.executeImportBtn.disabled = false;
-      this.executeImportBtn.innerHTML = '<span>Імпортувати та створити чат</span>';
+      this.executeImportBtn.innerHTML = '<span>▶ Продовжити сесію</span>';
     }
   }
 

@@ -104,28 +104,71 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     return { success: true };
   });
 
-  // Import Chat / Transcript with Sanitization
+  // Import Chat / Transcript or Connect to Existing Session
   fastify.post('/sessions/import', { preHandler: [requireAuth] }, async (req, reply) => {
     const body = req.body as any;
-    const { rawContent, title, deviceId, model, mode, workspacePath } = body;
+    const { rawContent, title, deviceId, model, mode, workspacePath, sourceSessionId, filePath } = body;
 
     if (!rawContent) {
       return reply.status(400).send({ error: 'rawContent is required' });
     }
 
     const sanitized = ChatSanitizer.sanitizeAny(rawContent);
-    const sessionTitle = title || sanitized.title || 'Імпортований чат';
-    const sourceLabel = sanitized.sourceType === 'claude_code' ? 'Claude Code' : sanitized.sourceType === 'cursor' ? 'Cursor IDE' : sanitized.sourceType === 'antigravity' ? 'Antigravity' : 'Зовнішнього агента';
-    const sessionDesc = body.description || `Імпортовано з ${sourceLabel} • ${sanitized.messages.length} повідомлень`;
+    const sessionTitle = title || sanitized.title || 'Сесія розробки';
+    const effectiveEngine = (sanitized.sourceType === 'antigravity' ? 'antigravity' : body.engine) || 'cursor';
+
+    // Extract potential source session ID (e.g. composer ID or transcript ID)
+    let extractedChatId = sourceSessionId || (body.cursorChatId ? body.cursorChatId : undefined);
+    if (!extractedChatId && filePath && filePath.startsWith('composer:')) {
+      extractedChatId = filePath.replace('composer:', '');
+    }
+
+    // 1. Check if session already exists for this exact ID / file
+    const allExisting = sessionManager.getSessions();
+    const existing = allExisting.find((s) => {
+      if (extractedChatId && (s.cursorChatId === extractedChatId || s.id === extractedChatId)) return true;
+      if (s.title === sessionTitle && s.workspacePath === (workspacePath || '')) return true;
+      return false;
+    });
+
+    if (existing) {
+      // If found, update workspace or model if specified, and return existing session directly!
+      if (workspacePath && !existing.workspacePath) existing.workspacePath = workspacePath;
+      if (model && existing.model !== model) existing.model = model;
+      if (extractedChatId && !existing.cursorChatId) existing.cursorChatId = extractedChatId;
+      sessionManager.updateSession(existing.id, {
+        workspacePath: existing.workspacePath,
+        model: existing.model,
+        cursorChatId: existing.cursorChatId,
+      });
+
+      return {
+        success: true,
+        session: existing,
+        reusedExisting: true,
+        report: {
+          title: existing.title,
+          sourceType: sanitized.sourceType,
+          messageCount: existing.messages.length,
+          removedMetadataCount: 0,
+          redactedSecretsCount: 0,
+        },
+      };
+    }
+
+    // 2. Otherwise create new 1:1 linked session
+    const sourceLabel = sanitized.sourceType === 'claude_code' ? 'Claude Code' : sanitized.sourceType === 'cursor' ? 'Cursor' : sanitized.sourceType === 'antigravity' ? 'Antigravity' : 'Зовнішнього агента';
+    const sessionDesc = body.description || `Підключено з ${sourceLabel} • ${sanitized.messages.length} повідомлень`;
 
     const session = sessionManager.createSession({
       deviceId: deviceId || deviceManager.getActiveDeviceId() || 'default',
       title: sessionTitle,
       description: sessionDesc,
-      engine: body.engine || 'cursor',
+      engine: effectiveEngine,
       workspacePath: workspacePath || '',
-      model: model || (body.engine === 'antigravity' ? 'gemini-3.1-pro' : 'claude-4.5-sonnet'),
+      model: model || (effectiveEngine === 'antigravity' ? 'gemini-3.7-flash' : 'claude-4.5-sonnet'),
       mode: mode || 'yolo',
+      cursorChatId: effectiveEngine === 'cursor' ? extractedChatId : undefined,
     });
 
     // Populate sanitized messages
@@ -141,6 +184,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     return {
       success: true,
       session: updatedSession,
+      reusedExisting: false,
       report: {
         title: sessionTitle,
         sourceType: sanitized.sourceType,
