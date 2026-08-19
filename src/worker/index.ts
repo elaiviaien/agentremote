@@ -214,6 +214,26 @@ class WorkerDaemon {
         break;
       }
 
+      case 'agent:trigger_auth': {
+        this.agentRunner.triggerAuth(
+          (url) => {
+            this.send({
+              type: 'agent:auth_url',
+              payload: { deviceId: DEVICE_ID, url },
+            });
+          },
+          (success) => {
+            if (success) {
+              this.send({
+                type: 'agent:auth_success',
+                payload: { deviceId: DEVICE_ID },
+              });
+            }
+          }
+        );
+        break;
+      }
+
       case 'terminal:run': {
         const { commandId, command, cwd } = msg.payload;
         this.terminalRunner.run(commandId, command, cwd || DEFAULT_WORKSPACE, {

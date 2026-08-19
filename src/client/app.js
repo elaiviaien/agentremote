@@ -30,6 +30,7 @@ class AgentRemoteApp {
     this.sessionCount = document.getElementById('session-count');
     this.newChatBtn = document.getElementById('new-chat-btn');
     this.resumeChatBtn = document.getElementById('resume-chat-btn');
+    this.loginCursorBtn = document.getElementById('login-cursor-btn');
     this.logoutBtn = document.getElementById('logout-btn');
 
     this.currentChatTitle = document.getElementById('current-chat-title');
@@ -103,6 +104,11 @@ class AgentRemoteApp {
     // Resume Chat
     this.resumeChatBtn.addEventListener('click', () => {
       this.resumeCurrentSession();
+    });
+
+    // Login Cursor CLI
+    this.loginCursorBtn.addEventListener('click', () => {
+      this.triggerCursorAuth();
     });
 
     // Prompt Send
@@ -291,6 +297,17 @@ class AgentRemoteApp {
           this.setStreamingState(true);
           this.updateStreamingMessage(msg.payload.chunk);
         }
+        break;
+      }
+
+      case 'agent:auth_url': {
+        this.showAuthModal(msg.payload.url);
+        break;
+      }
+
+      case 'agent:auth_success': {
+        alert('✅ Успішна авторизація в Cursor CLI!');
+        if (this.authModalEl) this.authModalEl.remove();
         break;
       }
 
@@ -581,6 +598,62 @@ class AgentRemoteApp {
       this.promptInput.value = '';
       this.setStreamingState(true);
     }
+  }
+
+  triggerCursorAuth() {
+    if (!this.activeDeviceId) {
+      alert('Будь ласка, оберіть підключену машину');
+      return;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'agent:trigger_auth',
+          payload: { deviceId: this.activeDeviceId },
+        })
+      );
+      this.showAuthModal(null);
+    }
+  }
+
+  showAuthModal(url) {
+    if (this.authModalEl) {
+      this.authModalEl.remove();
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.innerHTML = `
+      <div class="login-card" style="max-width: 440px;">
+        <div class="login-header">
+          <div class="logo-icon">🔑</div>
+          <h2>Авторизація Cursor CLI</h2>
+          <p>${url ? 'Перейдіть за посиланням для входу у ваш акаунт Cursor:' : 'Отримання посилання авторизації...'}</p>
+        </div>
+        ${
+          url
+            ? `
+          <div style="margin-bottom: 16px; text-align: center;">
+            <a href="${url}" target="_blank" class="btn btn-primary btn-block" style="text-decoration: none; padding: 12px;">
+              🔗 Відкрити сторінку входу Cursor
+            </a>
+          </div>
+          <p style="font-size: 11px; color: var(--text-muted); text-align: center; margin-bottom: 16px;">
+            Після підтвердження в браузері поверніться сюди.
+          </p>
+        `
+            : '<div style="text-align:center; padding: 20px;"><span style="color:var(--text-secondary)">Генерація запиту...</span></div>'
+        }
+        <button id="close-auth-modal" class="btn btn-secondary btn-block">Закрити</button>
+      </div>
+    `;
+
+    modal.querySelector('#close-auth-modal').addEventListener('click', () => {
+      modal.remove();
+    });
+
+    document.body.appendChild(modal);
+    this.authModalEl = modal;
   }
 
   resumeCurrentSession() {

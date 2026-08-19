@@ -19,6 +19,39 @@ export class AgentRunner {
     this.tools = tools;
   }
 
+  public triggerAuth(onAuthUrl: (url: string) => void, onComplete: (success: boolean) => void) {
+    if (!this.tools.cursorAgentCmd) {
+      onComplete(false);
+      return;
+    }
+
+    console.log(`[AgentRunner] Running cursor-agent login...`);
+    const proc = spawn(this.tools.cursorAgentCmd, ['login'], {
+      shell: true,
+      env: { ...process.env },
+    });
+
+    let detectedUrl = false;
+    proc.stdout?.on('data', (d) => {
+      const text = d.toString();
+      console.log(`[AgentRunner Login] ${text}`);
+      const match = text.match(/https:\/\/cursor\.com\/loginDeepControl[^\s\r\n]+/);
+      if (match && !detectedUrl) {
+        detectedUrl = true;
+        onAuthUrl(match[0]);
+      }
+    });
+
+    proc.stderr?.on('data', (d) => {
+      console.error(`[AgentRunner Login Err] ${d.toString()}`);
+    });
+
+    proc.on('close', (code) => {
+      console.log(`[AgentRunner Login] Process exited with code ${code}`);
+      onComplete(code === 0);
+    });
+  }
+
   public async createNewChat(workspacePath?: string): Promise<string | null> {
     if (!this.tools.cursorAgentCmd) return null;
 

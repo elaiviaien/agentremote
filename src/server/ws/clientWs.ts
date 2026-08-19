@@ -51,6 +51,17 @@ export class ClientWsManager {
         break;
       }
 
+      case 'agent:trigger_auth': {
+        const targetDev = msg.payload.deviceId || deviceManager.getActiveDeviceId();
+        if (targetDev) {
+          deviceManager.sendToWorker(targetDev, {
+            type: 'agent:trigger_auth',
+            payload: { deviceId: targetDev },
+          });
+        }
+        break;
+      }
+
       case 'agent:prompt': {
         const { sessionId, deviceId, prompt, model, mode, workspacePath, cursorChatId, continueLastSession } = msg.payload;
         

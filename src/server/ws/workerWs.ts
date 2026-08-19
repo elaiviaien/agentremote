@@ -61,6 +61,22 @@ export class WorkerWsManager {
         break;
       }
 
+      case 'agent:auth_url': {
+        clientWsManager.broadcast({
+          type: 'agent:auth_url',
+          payload: msg.payload,
+        });
+        break;
+      }
+
+      case 'agent:auth_success': {
+        clientWsManager.broadcast({
+          type: 'agent:auth_success',
+          payload: msg.payload,
+        });
+        break;
+      }
+
       case 'agent:chunk': {
         const { sessionId, chunk, delta } = msg.payload;
         sessionManager.appendChunk(sessionId, delta || chunk);

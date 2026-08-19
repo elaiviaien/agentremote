@@ -66,6 +66,8 @@ export interface AgentRunOptions {
 export type WorkerToHubMessage =
   | { type: 'worker:register'; payload: DeviceInfo }
   | { type: 'worker:heartbeat'; payload: { deviceId: string; memoryUsage?: any; cpuUsage?: number } }
+  | { type: 'agent:auth_url'; payload: { deviceId: string; url: string } }
+  | { type: 'agent:auth_success'; payload: { deviceId: string } }
   | { type: 'agent:chunk'; payload: { sessionId: string; chunk: string; delta?: string } }
   | { type: 'agent:tool_call'; payload: { sessionId: string; toolCall: ToolCallItem } }
   | { type: 'agent:tool_result'; payload: { sessionId: string; toolCallId: string; result: string; status: 'completed' | 'failed' } }
@@ -97,6 +99,7 @@ export interface FileEntry {
 export type HubToWorkerMessage =
   | { type: 'agent:start'; payload: AgentRunOptions }
   | { type: 'agent:abort'; payload: { sessionId: string } }
+  | { type: 'agent:trigger_auth'; payload: { deviceId: string } }
   | { type: 'terminal:run'; payload: { commandId: string; command: string; cwd?: string } }
   | { type: 'terminal:kill'; payload: { commandId: string } }
   | { type: 'fs:get_tree'; payload: { reqId: string; path?: string; maxDepth?: number } }
@@ -108,6 +111,7 @@ export type HubToWorkerMessage =
 export type ClientToHubMessage =
   | { type: 'auth:token'; token: string }
   | { type: 'device:select'; deviceId: string }
+  | { type: 'agent:trigger_auth'; payload: { deviceId: string } }
   | { type: 'agent:prompt'; payload: AgentRunOptions }
   | { type: 'agent:abort'; payload: { sessionId: string } }
   | { type: 'terminal:exec'; payload: { commandId: string; deviceId: string; command: string; cwd?: string } }
@@ -119,6 +123,8 @@ export type HubToClientMessage =
   | { type: 'state:init'; payload: { devices: DeviceInfo[]; activeDeviceId?: string; sessions: ChatSession[]; activeSessionId?: string } }
   | { type: 'device:updated'; payload: DeviceInfo }
   | { type: 'device:status'; payload: { deviceId: string; status: 'online' | 'offline' } }
+  | { type: 'agent:auth_url'; payload: { deviceId: string; url: string } }
+  | { type: 'agent:auth_success'; payload: { deviceId: string } }
   | { type: 'session:updated'; payload: ChatSession }
   | { type: 'session:deleted'; payload: { sessionId: string } }
   | { type: 'agent:chunk'; payload: { sessionId: string; chunk: string; delta?: string } }
