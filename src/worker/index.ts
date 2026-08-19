@@ -291,11 +291,11 @@ class WorkerDaemon {
         break;
       }
 
-      case 'transcripts:list_local' as any: {
+      case 'transcripts:list_local': {
         const { reqId } = msg.payload as any;
-        const transcripts = TranscriptScanner.scanAntigravityTranscripts();
+        const transcripts = TranscriptScanner.scanAllLocalTranscripts();
         this.send({
-          type: 'transcripts:list_result' as any,
+          type: 'transcripts:list_result',
           payload: { reqId, transcripts },
         });
         break;
