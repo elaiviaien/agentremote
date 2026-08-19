@@ -12,15 +12,19 @@ class AgentRemoteApp {
     this.loadedTranscripts = [];
     this.thinkingMode = 'auto'; // 'auto' | 'on' | 'off'
 
-    // Terminal History & Path
+    // Terminal History, Path & CWD tracking
     this.termHistory = [];
     this.termHistoryIndex = -1;
-    this.termCurrentPath = '~/agentremote';
+    this.termCurrentPath = '';   // resolved CWD on remote machine
+    this.termDisplayPath = '~';  // display version
 
     // File Preview State
     this.activeOpenedPath = '';
     this.activeOpenedContent = '';
     this.isMarkdownMode = false;
+
+    // Recent workspace folders (max 8)
+    this.recentFolders = JSON.parse(localStorage.getItem('agentremote_recent_folders') || '[]');
 
     this.initElements();
     this.initEvents();
@@ -62,6 +66,11 @@ class AgentRemoteApp {
     this.modelSelect = document.getElementById('model-select');
     this.modeSelect = document.getElementById('mode-select');
     this.workspaceInput = document.getElementById('workspace-input');
+    this.workspaceSetBtn = document.getElementById('workspace-set-btn');
+    this.workspaceBrowseBtn = document.getElementById('workspace-browse-btn');
+    this.recentFoldersDropdown = document.getElementById('recent-folders-dropdown');
+    this.recentFoldersList = document.getElementById('recent-folders-list');
+    this.clearRecentFoldersBtn = document.getElementById('clear-recent-folders-btn');
 
     // Chat Tab elements
     this.currentChatTitle = document.getElementById('current-chat-title');
@@ -285,6 +294,40 @@ class AgentRemoteApp {
     if (this.executeImportBtn) {
       this.executeImportBtn.addEventListener('click', () => this.executeImport());
     }
+
+    // Workspace folder management
+    if (this.workspaceSetBtn) {
+      this.workspaceSetBtn.addEventListener('click', () => {
+        const val = this.workspaceInput.value.trim();
+        if (val) this.applyWorkspace(val);
+      });
+    }
+    this.workspaceInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const val = this.workspaceInput.value.trim();
+        if (val) this.applyWorkspace(val);
+      }
+    });
+    if (this.workspaceBrowseBtn) {
+      this.workspaceBrowseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleRecentFolders();
+      });
+    }
+    if (this.clearRecentFoldersBtn) {
+      this.clearRecentFoldersBtn.addEventListener('click', () => {
+        this.recentFolders = [];
+        localStorage.setItem('agentremote_recent_folders', '[]');
+        this.renderRecentFolders();
+      });
+    }
+    // Close recent folders dropdown on outside click
+    document.addEventListener('click', (e) => {
+      if (this.recentFoldersDropdown && !this.recentFoldersDropdown.contains(e.target) &&
+          e.target !== this.workspaceBrowseBtn && !this.workspaceBrowseBtn?.contains(e.target)) {
+        this.recentFoldersDropdown.style.display = 'none';
+      }
+    });
 
     this.themeToggleBtn.addEventListener('click', () => this.toggleTheme());
 
@@ -801,12 +844,16 @@ class AgentRemoteApp {
 
       if (activeDev && activeDev.defaultWorkspace && !this.workspaceInput.value) {
         this.workspaceInput.value = activeDev.defaultWorkspace;
+        if (!this.termCurrentPath) {
+          this.termCurrentPath = activeDev.defaultWorkspace;
+          this.updateTerminalPrompt(activeDev.defaultWorkspace);
+        }
       }
 
       if (this.termDeviceTitle && activeDev) {
         this.termDeviceTitle.innerText = `PowerShell (${activeDev.name})`;
       }
-      if (this.termPromptPath && this.workspaceInput && this.workspaceInput.value) {
+      if (this.termPromptPath && !this.termCurrentPath && this.workspaceInput && this.workspaceInput.value) {
         const wsName = this.workspaceInput.value.split(/[/\\]/).filter(Boolean).pop() || 'workspace';
         this.termPromptPath.innerText = `~/${wsName}`;
       }
@@ -1799,14 +1846,155 @@ class AgentRemoteApp {
 
     this.appendTerminalOutput(`\n\x1b[34m❯ ${cmd}\x1b[0m\n`);
 
+    // Resolve effective CWD (fallback chain: terminalCwd → workspaceInput → activeDevice default)
+    const activeDev = this.getActiveDevice();
+    let effectiveCwd = this.termCurrentPath || this.workspaceInput.value || (activeDev && activeDev.defaultWorkspace) || '';
+
+    // Handle cd commands client-side: resolve new path and update display
+    const cdMatch = cmd.match(/^(?:cd|Set-Location|sl)\s+(.*)/i);
+    if (cdMatch) {
+      const target = cdMatch[1].trim().replace(/^["']|["']$/g, ''); // strip quotes
+      let newPath = this.resolvePath(effectiveCwd, target);
+      // Still send the command to the server so it actually executes on remote
+      // But track the new path locally
+      this.termCurrentPath = newPath;
+      this.updateTerminalPrompt(newPath);
+      // Also broadcast pwd after cd to confirm
+      setTimeout(() => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'terminal:exec',
+            payload: { command: cmd, cwd: effectiveCwd, deviceId: this.activeDeviceId },
+          }));
+        }
+      }, 50);
+      return;
+    }
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(
         JSON.stringify({
           type: 'terminal:exec',
-          payload: { command: cmd, cwd: this.workspaceInput.value, deviceId: this.activeDeviceId },
+          payload: { command: cmd, cwd: effectiveCwd, deviceId: this.activeDeviceId },
         })
       );
     }
+  }
+
+  /**
+   * Resolve a cd target path relative to current dir.
+   * Works for both Windows backslash and Unix slash paths.
+   */
+  resolvePath(cwd, target) {
+    if (!target || target === '.') return cwd;
+
+    // Absolute paths (Windows or Unix)
+    if (/^[A-Za-z]:[\\\/]/.test(target) || target.startsWith('/')) {
+      return target.replace(/[\\\/]+$/, '');
+    }
+
+    // ~ means device default workspace
+    if (target === '~' || target === '%USERPROFILE%' || target === '$HOME') {
+      const dev = this.getActiveDevice();
+      return (dev && dev.defaultWorkspace) || cwd;
+    }
+
+    const sep = cwd.includes('\\') ? '\\' : '/';
+    let parts = cwd.split(/[\\\/]/).filter(Boolean);
+
+    // Handle drive letter for Windows (e.g. "C:")
+    const driveLetter = /^[A-Za-z]:$/.test(parts[0]) ? parts[0] : null;
+
+    const targets = target.split(/[\\\/]/);
+    for (const t of targets) {
+      if (t === '..') {
+        if (parts.length > (driveLetter ? 1 : 0)) {
+          parts.pop();
+        }
+      } else if (t && t !== '.') {
+        parts.push(t);
+      }
+    }
+
+    // Rebuild path
+    let result = parts.join(sep);
+    if (driveLetter && !result.startsWith(driveLetter)) {
+      result = driveLetter + sep + result;
+    } else if (!driveLetter && cwd.startsWith('/')) {
+      result = '/' + result;
+    }
+    return result;
+  }
+
+  updateTerminalPrompt(path) {
+    // Extract short display name
+    const parts = path.split(/[\\\/]/).filter(Boolean);
+    const displayName = parts.slice(-2).join('/') || path;
+    this.termDisplayPath = displayName;
+    if (this.termPromptPath) {
+      this.termPromptPath.innerText = displayName;
+    }
+  }
+
+  // ============== WORKSPACE / RECENT FOLDERS ==============
+
+  applyWorkspace(path) {
+    const cleaned = path.trim();
+    if (!cleaned) return;
+
+    this.workspaceInput.value = cleaned;
+    this.termCurrentPath = cleaned;
+    this.updateTerminalPrompt(cleaned);
+
+    // Save to recent folders
+    this.addRecentFolder(cleaned);
+    this.recentFoldersDropdown.style.display = 'none';
+
+    this.showToast(`📂 Робоча папка: ${cleaned.split(/[\\\/]/).pop() || cleaned}`);
+  }
+
+  addRecentFolder(path) {
+    if (!path) return;
+    this.recentFolders = this.recentFolders.filter((f) => f !== path);
+    this.recentFolders.unshift(path);
+    if (this.recentFolders.length > 8) this.recentFolders = this.recentFolders.slice(0, 8);
+    localStorage.setItem('agentremote_recent_folders', JSON.stringify(this.recentFolders));
+    this.renderRecentFolders();
+  }
+
+  toggleRecentFolders() {
+    const isVisible = this.recentFoldersDropdown.style.display !== 'none';
+    if (isVisible) {
+      this.recentFoldersDropdown.style.display = 'none';
+    } else {
+      this.renderRecentFolders();
+      this.recentFoldersDropdown.style.display = 'block';
+    }
+  }
+
+  renderRecentFolders() {
+    if (!this.recentFoldersList) return;
+    if (this.recentFolders.length === 0) {
+      this.recentFoldersList.innerHTML = `<div style="padding:10px; font-size:11px; color:var(--text-muted); text-align:center;">Немає нещодавніх папок</div>`;
+      return;
+    }
+
+    this.recentFoldersList.innerHTML = '';
+    this.recentFolders.forEach((folder) => {
+      const item = document.createElement('div');
+      item.className = 'recent-folder-item';
+      const name = folder.split(/[\\\/]/).filter(Boolean).pop() || folder;
+      item.innerHTML = `
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        <span style="flex:1; overflow:hidden; text-overflow:ellipsis;" title="${this.escapeHtml(folder)}">${this.escapeHtml(name)}</span>
+        <span style="font-size:10px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; max-width:110px; direction:rtl;">${this.escapeHtml(folder)}</span>
+      `;
+      item.addEventListener('click', () => {
+        this.workspaceInput.value = folder;
+        this.applyWorkspace(folder);
+      });
+      this.recentFoldersList.appendChild(item);
+    });
   }
 
   appendTerminalOutput(data) {

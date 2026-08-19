@@ -220,10 +220,26 @@
           <div class="config-group">
             <div class="config-label-row">
               <label for="workspace-input">Робоча папка (Workspace)</label>
+              <button type="button" id="workspace-browse-btn" class="btn-icon-mini" title="Відкрити нещодавні папки">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0M12 8v4l3 3"></path></svg>
+              </button>
             </div>
-            <div class="input-with-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-              <input type="text" id="workspace-input" class="custom-input" placeholder="Автовизначення">
+            <div class="workspace-input-wrapper">
+              <div class="input-with-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                <input type="text" id="workspace-input" class="custom-input" placeholder="C:\Users\...\my-project" autocomplete="off">
+              </div>
+              <button type="button" id="workspace-set-btn" class="btn btn-primary btn-sm" title="Застосувати">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </button>
+            </div>
+            <!-- Recent folders dropdown -->
+            <div id="recent-folders-dropdown" class="recent-folders-dropdown" style="display:none;">
+              <div class="recent-folders-header">
+                <span>Нещодавні папки</span>
+                <button type="button" id="clear-recent-folders-btn" class="btn-link-mini">очистити</button>
+              </div>
+              <div id="recent-folders-list" class="recent-folders-list"></div>
             </div>
           </div>
         </div>
