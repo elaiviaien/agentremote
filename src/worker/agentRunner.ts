@@ -98,29 +98,28 @@ export class AgentRunner {
       this.abort(sessionId);
     }
 
-    const binary = this.tools.cursorAgentCmd;
+    const useDirectNode = Boolean(this.tools.nodeExe && this.tools.agentIndexJs);
+    const binary = useDirectNode ? this.tools.nodeExe! : this.tools.cursorAgentCmd;
 
     if (!binary) {
-      // Fallback runner with helpful guide if cursor agent CLI is not detected
-      callbacks.onError(
-        'Cursor Agent CLI not found on this machine. Please make sure Cursor is installed, or add cursor-agent to PATH.'
-      );
-      callbacks.onComplete(
-        '⚠️ Cursor Agent CLI is not detected on this machine.\n\nMake sure Cursor is installed and you have opened it at least once so the agent CLI is initialized.',
-        undefined,
-        false
-      );
+      callbacks.onError('Cursor Agent CLI not found on this machine.');
+      callbacks.onComplete('⚠️ Cursor Agent CLI is not detected on this machine.', undefined, false);
       return;
     }
 
-    const args: string[] = [
+    const args: string[] = [];
+    if (useDirectNode) {
+      args.push(this.tools.agentIndexJs!);
+    }
+
+    args.push(
       '--print',
       '--output-format',
       'stream-json',
       '--stream-partial-output',
       '--trust',
-      '--approve-mcps',
-    ];
+      '--approve-mcps'
+    );
 
     if (process.env.CURSOR_API_KEY) {
       args.push('--api-key', process.env.CURSOR_API_KEY);
@@ -151,7 +150,7 @@ export class AgentRunner {
     args.push(prompt);
 
     const cwd = workspacePath || process.cwd();
-    console.log(`[AgentRunner] Spawning: ${binary} ${args.join(' ')} (cwd: ${cwd})`);
+    console.log(`[AgentRunner] Spawning (direct: ${useDirectNode}): ${binary} ${args.join(' ')} (cwd: ${cwd})`);
 
     let fullOutput = '';
     let accumulatedText = '';
@@ -159,10 +158,9 @@ export class AgentRunner {
 
     const proc = spawn(binary, args, {
       cwd,
-      shell: true,
+      shell: false,
       env: {
         ...process.env,
-        // Prevent interactive browser login popups if running headless
         NO_OPEN_BROWSER: '1',
       },
     });
@@ -182,15 +180,29 @@ export class AgentRunner {
         if (!trimmed) continue;
 
         try {
-          // Attempt JSON stream parsing
           const parsed = JSON.parse(trimmed);
 
-          // Handle streaming text chunks
-          if (parsed.delta || parsed.text || parsed.content) {
+          // 1. Check assistant message object
+          if (parsed.type === 'assistant' && parsed.message?.content) {
+            if (Array.isArray(parsed.message.content)) {
+              const chunk = parsed.message.content.map((c: any) => c.text || '').join('');
+              if (chunk) {
+                accumulatedText += chunk;
+                callbacks.onChunk(accumulatedText, chunk);
+              }
+            } else if (typeof parsed.message.content === 'string') {
+              accumulatedText = parsed.message.content;
+              callbacks.onChunk(accumulatedText, parsed.message.content);
+            }
+          }
+          // 2. Check direct delta/text
+          else if (parsed.delta || parsed.text || parsed.content) {
             const delta = parsed.delta || parsed.text || parsed.content;
             accumulatedText += delta;
             callbacks.onChunk(accumulatedText, delta);
-          } else if (parsed.type === 'tool_use' || parsed.tool_call || parsed.type === 'call') {
+          }
+          // 3. Check tool use/call
+          else if (parsed.type === 'tool_use' || parsed.tool_call || parsed.type === 'call') {
             const toolCall: ToolCallItem = {
               id: parsed.id || Math.random().toString(36).substring(2, 8),
               type: parsed.tool || parsed.name || 'tool',
@@ -199,21 +211,24 @@ export class AgentRunner {
               status: 'running',
             };
             callbacks.onToolCall(toolCall);
-          } else if (parsed.type === 'tool_result' || parsed.result) {
-            callbacks.onToolResult(
-              parsed.id || parsed.tool_call_id || '',
-              typeof parsed.result === 'string' ? parsed.result : JSON.stringify(parsed.result, null, 2),
-              parsed.is_error ? 'failed' : 'completed'
-            );
-          } else if (parsed.type === 'message' || parsed.message) {
-            const msgContent = parsed.message?.content || parsed.message;
-            if (typeof msgContent === 'string') {
-              accumulatedText = msgContent;
-              callbacks.onChunk(accumulatedText, msgContent);
+          }
+          // 4. Check tool result
+          else if (parsed.type === 'tool_result' || parsed.result) {
+            if (parsed.type === 'result' && parsed.subtype === 'success') {
+              if (parsed.result && !accumulatedText) {
+                accumulatedText = parsed.result;
+                callbacks.onChunk(accumulatedText, parsed.result);
+              }
+            } else {
+              callbacks.onToolResult(
+                parsed.id || parsed.tool_call_id || '',
+                typeof parsed.result === 'string' ? parsed.result : JSON.stringify(parsed.result, null, 2),
+                parsed.is_error ? 'failed' : 'completed'
+              );
             }
           }
         } catch {
-          // Non-JSON output (plain text log or error stream)
+          // Plain text fallback
           accumulatedText += trimmed + '\n';
           callbacks.onChunk(accumulatedText, trimmed + '\n');
         }

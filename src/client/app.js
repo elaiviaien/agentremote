@@ -421,9 +421,22 @@ class AgentRemoteApp {
       }
 
       case 'fs:file': {
-        this.previewFilename.innerText = msg.payload.path.split(/[/\\]/).pop();
-        this.previewFileIcon.innerText = this.getFileIcon(msg.payload.path);
-        this.previewContent.innerHTML = `<code>${this.escapeHtml(msg.payload.content || msg.payload.error || '')}</code>`;
+        const filePath = msg.payload.path || this.activeOpenedPath || 'file';
+        const fileName = filePath.split(/[/\\]/).pop() || filePath;
+        this.previewFilename.innerText = fileName;
+        this.previewFileIcon.innerText = this.getFileIcon(fileName);
+        
+        const codeEl = document.createElement('code');
+        codeEl.innerText = msg.payload.content || msg.payload.error || '';
+        this.previewContent.innerHTML = '';
+        this.previewContent.appendChild(codeEl);
+        
+        if (typeof hljs !== 'undefined') {
+          try {
+            hljs.highlightElement(codeEl);
+          } catch {}
+        }
+        
         this.copyFileContentBtn.style.display = 'inline-flex';
         break;
       }
@@ -670,6 +683,15 @@ class AgentRemoteApp {
           ${tc.output ? `<div class="tool-call-output">${this.escapeHtml(tc.output)}</div>` : ''}
         `;
         bubble.appendChild(tcEl);
+      });
+    }
+
+    // Highlight code blocks
+    if (typeof hljs !== 'undefined') {
+      el.querySelectorAll('pre code').forEach((block) => {
+        try {
+          hljs.highlightElement(block);
+        } catch {}
       });
     }
 
@@ -1053,10 +1075,13 @@ class AgentRemoteApp {
   }
 
   openFile(filePath) {
+    this.activeOpenedPath = filePath;
+    const fileName = filePath.split(/[/\\]/).pop() || filePath;
+    this.previewFilename.innerText = fileName;
+    this.previewFileIcon.innerText = this.getFileIcon(fileName);
+    this.previewContent.innerHTML = '<code>Завантаження вмісту файлу...</code>';
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.previewFilename.innerText = filePath.split(/[/\\]/).pop();
-      this.previewFileIcon.innerText = this.getFileIcon(filePath);
-      this.previewContent.innerHTML = '<code>Завантаження вмісту файлу...</code>';
       this.ws.send(
         JSON.stringify({
           type: 'fs:read',

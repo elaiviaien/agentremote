@@ -170,6 +170,7 @@ export class WorkerWsManager {
 
       case 'fs:file_result': {
         deviceManager.resolvePendingFsRequest(msg.payload.reqId, {
+          path: (msg.payload as any).path,
           content: msg.payload.content,
           error: msg.payload.error,
         });

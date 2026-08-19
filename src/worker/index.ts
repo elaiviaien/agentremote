@@ -273,7 +273,7 @@ class WorkerDaemon {
         const res = FsBridge.readFile(filePath);
         this.send({
           type: 'fs:file_result',
-          payload: { reqId, content: res.content, error: res.error },
+          payload: { reqId, path: filePath, content: res.content, error: res.error } as any,
         });
         break;
       }

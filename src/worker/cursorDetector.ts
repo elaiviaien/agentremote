@@ -6,6 +6,8 @@ import { execSync } from 'child_process';
 export interface DiscoveredTools {
   cursorAgentCmd?: string;
   cursorCliCmd?: string;
+  nodeExe?: string;
+  agentIndexJs?: string;
   antigravityAvailable?: boolean;
 }
 
@@ -38,13 +40,18 @@ export function detectCursorTools(): DiscoveredTools {
       try {
         const versions = fs.readdirSync(agentWorkerPath).sort().reverse();
         for (const ver of versions) {
-          const candidateCmd = path.join(agentWorkerPath, ver, 'cursor-agent.cmd');
-          const candidatePs1 = path.join(agentWorkerPath, ver, 'cursor-agent.ps1');
-          if (fs.existsSync(candidateCmd)) {
+          const verDir = path.join(agentWorkerPath, ver);
+          const candidateNode = path.join(verDir, 'node.exe');
+          const candidateIndex = path.join(verDir, 'index.js');
+          const candidateCmd = path.join(verDir, 'cursor-agent.cmd');
+
+          if (fs.existsSync(candidateNode) && fs.existsSync(candidateIndex)) {
+            result.nodeExe = candidateNode;
+            result.agentIndexJs = candidateIndex;
             result.cursorAgentCmd = candidateCmd;
             break;
-          } else if (fs.existsSync(candidatePs1)) {
-            result.cursorAgentCmd = candidatePs1;
+          } else if (fs.existsSync(candidateCmd)) {
+            result.cursorAgentCmd = candidateCmd;
             break;
           }
         }
