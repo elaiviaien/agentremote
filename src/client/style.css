@@ -119,14 +119,14 @@ body {
 }
 
 .login-card {
-  padding: 32px;
+  padding: 38px 34px;
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
 }
 
 .brand-logo-badge {
-  width: 52px;
-  height: 52px;
+  width: 54px;
+  height: 54px;
   border-radius: 14px;
   background: var(--accent-gradient);
   display: flex;
@@ -155,7 +155,7 @@ body {
 }
 
 .form-group {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .form-group label {
@@ -176,19 +176,19 @@ body {
 
 .input-with-icon svg {
   position: absolute;
-  left: 12px;
+  left: 14px;
   color: var(--text-muted);
   pointer-events: none;
 }
 
 .input-with-icon input {
   width: 100%;
-  padding: 10px 14px 10px 38px;
+  padding: 12px 14px 12px 42px;
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
-  border-radius: 9px;
+  border-radius: 10px;
   color: var(--text-primary);
-  font-size: 13.5px;
+  font-size: 14px;
   font-family: var(--font-sans);
   transition: all 0.2s ease;
 }
@@ -423,31 +423,58 @@ body {
   justify-content: center;
   font-family: var(--font-sans);
   font-weight: 600;
-  border-radius: 8px;
+  font-size: 13px;
+  padding: 9px 16px;
+  border-radius: 9px;
   border: 1px solid transparent;
   cursor: pointer;
+  gap: 8px;
+  line-height: 1.2;
   transition: all 0.15s ease;
+  user-select: none;
 }
 
 .btn-primary {
   background: var(--accent-gradient);
   color: #ffffff;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 3px 12px rgba(37, 99, 235, 0.28);
 }
 
 .btn-primary:hover {
   filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.btn-accent {
+  background: var(--antigravity-gradient);
+  color: #ffffff;
+  box-shadow: 0 3px 12px rgba(124, 58, 237, 0.28);
+}
+
+.btn-accent:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
 }
 
 .btn-secondary {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-secondary:hover {
   background: var(--bg-card-hover);
   border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.btn-lg {
+  padding: 13px 22px;
+  font-size: 14.5px;
+  font-weight: 700;
+  border-radius: 10px;
+  gap: 10px;
 }
 
 .btn-block {
@@ -455,21 +482,26 @@ body {
 }
 
 .btn-sm {
-  padding: 6px 10px;
+  padding: 6px 12px;
   font-size: 12px;
+  border-radius: 7px;
+  gap: 5px;
 }
 
 .icon-btn {
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-secondary);
-  border-radius: 8px;
-  padding: 7px;
+  border-radius: 9px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .icon-btn:hover {
