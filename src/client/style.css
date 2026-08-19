@@ -2966,8 +2966,16 @@ body {
   to { transform: rotate(360deg); }
 }
 
+.mobile-only {
+  display: none !important;
+}
+
 /* ================= MOBILE & TABLET RESPONSIVE OVERHAUL ================= */
 @media (max-width: 768px) {
+  .mobile-only {
+    display: inline-flex !important;
+  }
+
   html, body {
     height: 100%;
     height: 100dvh;
