@@ -112,9 +112,15 @@ class AgentRemoteApp {
 
     // Terminal
     this.terminalOutput = document.getElementById('terminal-output');
+    this.terminalScreen = document.getElementById('terminal-screen');
     this.terminalForm = document.getElementById('terminal-form');
     this.terminalInput = document.getElementById('terminal-input');
     this.clearTermBtn = document.getElementById('clear-term-btn');
+    this.copyTermBtn = document.getElementById('copy-term-btn');
+    this.termDeviceTitle = document.getElementById('term-device-title');
+    this.termPromptPath = document.getElementById('term-prompt-path');
+    this.termHistory = [];
+    this.termHistoryIndex = -1;
 
     // Limits Modal Elements
     this.openLimitsBtn = document.getElementById('open-limits-btn');
@@ -424,9 +430,51 @@ class AgentRemoteApp {
       });
     });
 
-    this.clearTermBtn.addEventListener('click', () => {
-      this.terminalOutput.innerHTML = '';
-    });
+    if (this.clearTermBtn) {
+      this.clearTermBtn.addEventListener('click', () => {
+        this.terminalOutput.innerHTML = `
+          <div class="term-welcome-msg">
+            <div class="term-welcome-title">🚀 AgentRemote Cloud Terminal Console v1.0</div>
+            <div class="term-welcome-sub">Консоль очищено • Готовий до нових команд</div>
+          </div>
+        `;
+      });
+    }
+
+    if (this.copyTermBtn) {
+      this.copyTermBtn.addEventListener('click', () => {
+        const text = this.terminalOutput.innerText;
+        navigator.clipboard.writeText(text);
+        this.showToast('📋 Текст консолі скопійовано у буфер');
+      });
+    }
+
+    if (this.terminalInput) {
+      this.terminalInput.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (this.termHistory.length > 0) {
+            if (this.termHistoryIndex > 0) {
+              this.termHistoryIndex--;
+            } else if (this.termHistoryIndex === -1) {
+              this.termHistoryIndex = this.termHistory.length - 1;
+            }
+            this.terminalInput.value = this.termHistory[this.termHistoryIndex] || '';
+          }
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (this.termHistory.length > 0 && this.termHistoryIndex !== -1) {
+            if (this.termHistoryIndex < this.termHistory.length - 1) {
+              this.termHistoryIndex++;
+              this.terminalInput.value = this.termHistory[this.termHistoryIndex] || '';
+            } else {
+              this.termHistoryIndex = -1;
+              this.terminalInput.value = '';
+            }
+          }
+        }
+      });
+    }
 
     this.terminalForm.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -719,6 +767,14 @@ class AgentRemoteApp {
 
       if (activeDev && activeDev.defaultWorkspace && !this.workspaceInput.value) {
         this.workspaceInput.value = activeDev.defaultWorkspace;
+      }
+
+      if (this.termDeviceTitle && activeDev) {
+        this.termDeviceTitle.innerText = `PowerShell (${activeDev.name})`;
+      }
+      if (this.termPromptPath && this.workspaceInput && this.workspaceInput.value) {
+        const wsName = this.workspaceInput.value.split(/[/\\]/).filter(Boolean).pop() || 'workspace';
+        this.termPromptPath.innerText = `~/${wsName}`;
       }
     }
 
@@ -1524,9 +1580,24 @@ class AgentRemoteApp {
     const cmd = (cmdText || '').trim();
     if (!cmd) return;
 
+    // Record to history
+    if (!this.termHistory.length || this.termHistory[this.termHistory.length - 1] !== cmd) {
+      this.termHistory.push(cmd);
+    }
+    this.termHistoryIndex = -1;
+
     this.activeCommandId = Math.random().toString(36).substring(2, 8);
-    this.appendTerminalOutput(`\n> ${cmd}\n`, false);
+
+    // Append visually styled command line
+    const cmdEl = document.createElement('div');
+    cmdEl.className = 'term-cmd-line';
+    cmdEl.innerHTML = `<span class="term-prompt-icon">❯</span> <span>${this.escapeHtml(cmd)}</span>`;
+    this.terminalOutput.appendChild(cmdEl);
+
     this.terminalInput.value = '';
+    if (this.terminalScreen) {
+      this.terminalScreen.scrollTop = this.terminalScreen.scrollHeight;
+    }
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(
@@ -1544,11 +1615,25 @@ class AgentRemoteApp {
   }
 
   appendTerminalOutput(text, isError) {
-    const span = document.createElement('span');
-    span.style.color = isError ? '#f87171' : '#cbd5e1';
-    span.innerText = text;
-    this.terminalOutput.appendChild(span);
-    this.terminalOutput.scrollTop = this.terminalOutput.scrollHeight;
+    if (!text) return;
+    
+    if (isError) {
+      const errEl = document.createElement('div');
+      errEl.className = 'term-out-error';
+      errEl.innerText = text;
+      this.terminalOutput.appendChild(errEl);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'term-out-text';
+      span.innerText = text;
+      this.terminalOutput.appendChild(span);
+    }
+
+    if (this.terminalScreen) {
+      this.terminalScreen.scrollTop = this.terminalScreen.scrollHeight;
+    } else if (this.terminalOutput) {
+      this.terminalOutput.scrollTop = this.terminalOutput.scrollHeight;
+    }
   }
 
   // ================= CHAT IMPORT LOGIC =================

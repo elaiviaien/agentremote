@@ -396,29 +396,65 @@
           </div>
         </section>
 
-        <!-- Tab 3: Remote Terminal View -->
+        <!-- Tab 3: Remote Terminal View (Modern Web Console) -->
         <section id="tab-terminal" class="tab-content">
-          <div class="view-panel">
-            <div class="panel-header">
-              <div class="panel-title-group">
-                <h3>Віддалена консоль терміналу</h3>
-                <span class="meta-text">PowerShell &amp; Bash Runner</span>
+          <div class="view-panel modern-terminal-panel">
+            <!-- Terminal Top Header -->
+            <div class="terminal-top-bar">
+              <div class="terminal-tab-group">
+                <div class="window-dots">
+                  <span class="dot dot-red"></span>
+                  <span class="dot dot-yellow"></span>
+                  <span class="dot dot-green"></span>
+                </div>
+                <div class="terminal-tab-pill active">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                  <span id="term-device-title">PowerShell Console</span>
+                </div>
               </div>
-              <div class="terminal-quick-cmds">
-                <button class="term-quick-btn" data-cmd="git status">git status</button>
-                <button class="term-quick-btn" data-cmd="npm test">npm test</button>
-                <button class="term-quick-btn" data-cmd="npm run build">npm build</button>
-                <button id="clear-term-btn" class="btn btn-secondary btn-sm">Очистити</button>
+
+              <!-- Quick Command Chips & Controls -->
+              <div class="terminal-header-actions">
+                <div class="term-quick-chips">
+                  <button type="button" class="term-quick-btn" data-cmd="git status">git status</button>
+                  <button type="button" class="term-quick-btn" data-cmd="git log -n 5 --oneline">git log</button>
+                  <button type="button" class="term-quick-btn" data-cmd="npm run build">npm build</button>
+                  <button type="button" class="term-quick-btn" data-cmd="npm test">npm test</button>
+                  <button type="button" class="term-quick-btn" data-cmd="dir">dir</button>
+                </div>
+                <button type="button" id="copy-term-btn" class="btn btn-secondary btn-sm" title="Скопіювати весь вивід">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  <span>Копіювати</span>
+                </button>
+                <button type="button" id="clear-term-btn" class="btn btn-secondary btn-sm" title="Очистити екран консолі">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  <span>Очистити</span>
+                </button>
               </div>
             </div>
-            <div class="terminal-container">
-              <div id="terminal-output" class="terminal-output"></div>
-              <form id="terminal-form" class="terminal-input-bar">
-                <span class="terminal-prompt">PS &gt;</span>
-                <input type="text" id="terminal-input" placeholder="Введіть команду терміналу..." autocomplete="off">
-                <button type="submit" class="btn btn-primary btn-sm">Виконати</button>
-              </form>
+
+            <!-- Terminal Screen -->
+            <div class="terminal-screen" id="terminal-screen">
+              <div id="terminal-output" class="terminal-output">
+                <div class="term-welcome-msg">
+                  <div class="term-welcome-title">🚀 AgentRemote Cloud Terminal Console v1.0</div>
+                  <div class="term-welcome-sub">Підключено до віддаленої машини • Підтримка PowerShell &amp; Bash • Історія команд (↑ / ↓)</div>
+                </div>
+              </div>
             </div>
+
+            <!-- Terminal Command Input Bar -->
+            <form id="terminal-form" class="terminal-input-bar">
+              <div class="term-prompt-badge">
+                <span id="term-prompt-path" class="term-path">~/agentremote</span>
+                <span class="term-arrow">❯</span>
+              </div>
+              <input type="text" id="terminal-input" placeholder="Введіть команду терміналу... (наприклад: git status, npm test)" autocomplete="off" spellcheck="false">
+              <button type="submit" class="btn btn-primary btn-sm term-run-btn">
+                <span>Виконати</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </button>
+            </form>
           </div>
         </section>
 
