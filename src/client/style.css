@@ -1503,17 +1503,27 @@ body {
 }
 
 .thinking-accordion {
-  background: rgba(139, 92, 246, 0.05);
-  border: 1px solid rgba(139, 92, 246, 0.2);
+  background: rgba(139, 92, 246, 0.04);
+  border: 1px solid rgba(139, 92, 246, 0.18);
   border-radius: 9px;
   overflow: hidden;
   transition: all 0.2s ease;
   margin-bottom: 8px;
 }
 
+[data-theme="dark"] .thinking-accordion {
+  background: rgba(139, 92, 246, 0.06);
+  border-color: rgba(139, 92, 246, 0.25);
+}
+
+[data-theme="light"] .thinking-accordion {
+  background: #fdfcff;
+  border-color: #ddd6fe;
+}
+
 .thinking-accordion.streaming {
-  border-color: rgba(139, 92, 246, 0.4);
-  box-shadow: 0 0 12px rgba(139, 92, 246, 0.12);
+  border-color: #8b5cf6;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.15);
 }
 
 .thinking-accordion-header {
@@ -1523,12 +1533,16 @@ body {
   padding: 7px 12px;
   cursor: pointer;
   user-select: none;
-  background: rgba(139, 92, 246, 0.08);
+  background: rgba(139, 92, 246, 0.06);
   transition: background 0.15s ease;
 }
 
+[data-theme="light"] .thinking-accordion-header {
+  background: #f5f3ff;
+}
+
 .thinking-accordion-header:hover {
-  background: rgba(139, 92, 246, 0.15);
+  background: rgba(139, 92, 246, 0.12);
 }
 
 .thinking-accordion-title {
@@ -1542,7 +1556,7 @@ body {
 }
 
 [data-theme="light"] .thinking-accordion-title {
-  color: #7c3aed;
+  color: #6d28d9;
 }
 
 .thinking-brain-icon {
@@ -1553,12 +1567,17 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 600;
-  background: rgba(139, 92, 246, 0.25);
-  color: #c4b5fd;
-  padding: 1px 6px;
+  background: #ede9fe;
+  color: #6d28d9;
+  padding: 2px 7px;
   border-radius: 4px;
+}
+
+[data-theme="dark"] .thinking-live-badge {
+  background: rgba(139, 92, 246, 0.25);
+  color: #ddd6fe;
 }
 
 .thinking-accordion-toggle-btn {
@@ -1580,24 +1599,29 @@ body {
   display: none;
   padding: 10px 14px;
   border-top: 1px solid rgba(139, 92, 246, 0.15);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
   line-height: 1.65;
-  color: #94a3b8;
+  color: #475569;
   max-height: 280px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  background: rgba(15, 23, 42, 0.35);
+  background: #f8fafc;
 }
 
-[data-theme="light"] .thinking-accordion-body {
-  background: rgba(248, 250, 252, 0.8);
-  color: #475569;
+[data-theme="dark"] .thinking-accordion-body {
+  background: rgba(15, 23, 42, 0.5);
+  color: #94a3b8;
+  border-top-color: rgba(139, 92, 246, 0.2);
 }
 
 .thinking-accordion.open .thinking-accordion-body {
   display: block;
+}
+
+.thinking-accordion.open .thinking-accordion-body:empty {
+  display: none;
 }
 
 .tool-calls-container {

@@ -1294,19 +1294,20 @@ class AgentRemoteApp {
 
   formatThinkingHtml(thinkingText, isStreaming = false) {
     if (!thinkingText && !isStreaming) return '';
+    const hasContent = Boolean(thinkingText && thinkingText.trim());
     return `
       <div class="thinking-accordion ${isStreaming ? 'streaming open' : ''}">
         <div class="thinking-accordion-header" onclick="this.closest('.thinking-accordion').classList.toggle('open')">
           <div class="thinking-accordion-title">
             <span class="thinking-brain-icon">🧠</span>
-            <span>Процес міркування (Thinking Process)</span>
+            <span>Міркування моделі</span>
             ${isStreaming ? '<span class="thinking-live-badge"><span class="pulse-dot"></span> міркує...</span>' : ''}
           </div>
-          <button type="button" class="thinking-accordion-toggle-btn" title="Розгорнути/Згорнути міркування">
+          <button type="button" class="thinking-accordion-toggle-btn" title="Розгорнути/Згорнути">
             <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </button>
         </div>
-        <div class="thinking-accordion-body">
+        <div class="thinking-accordion-body" style="display: ${hasContent ? 'block' : 'none'};">
           <div class="thinking-text">${this.escapeHtml(thinkingText || '')}</div>
         </div>
       </div>
@@ -1331,14 +1332,14 @@ class AgentRemoteApp {
       parsedContent = this.escapeHtml(content).replace(/\n/g, '<br>');
     } else if (isStreaming && !thinkingContent && (!toolCalls || toolCalls.length === 0)) {
       parsedContent = `
-        <div class="agent-thinking-wrapper" style="display:flex; align-items:center; gap:8px; padding:4px 0; color:var(--text-secondary); font-size:12.5px;">
+        <div class="agent-thinking-wrapper" style="display:inline-flex; align-items:center; gap:8px; padding:2px 0; color:var(--text-secondary); font-size:12.5px;">
           <span class="thinking-spinner"></span>
           <span>Агент підключається та формує план дій...</span>
         </div>
       `;
     }
 
-    const thinkingHtml = (thinkingContent || (isStreaming && isAssistant))
+    const thinkingHtml = thinkingContent
       ? `<div class="thinking-container">${this.formatThinkingHtml(thinkingContent, isStreaming)}</div>`
       : '';
 
@@ -1351,12 +1352,14 @@ class AgentRemoteApp {
       `;
     }
 
+    const hasBubble = Boolean(parsedContent || (!thinkingContent && (!toolCalls || toolCalls.length === 0)));
+
     el.innerHTML = `
       ${avatarHtml}
       <div class="message-bubble-wrapper" style="flex:1; min-width:0;">
         ${thinkingHtml}
         ${toolCallsHtml}
-        ${(parsedContent || (!thinkingContent && (!toolCalls || toolCalls.length === 0))) ? `<div class="message-bubble">${parsedContent}</div>` : ''}
+        ${hasBubble ? `<div class="message-bubble">${parsedContent}</div>` : ''}
       </div>
     `;
 
@@ -1515,6 +1518,14 @@ class AgentRemoteApp {
     }
 
     const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
+    
+    // Clear initial loading placeholder if thinking starts
+    const initialPlaceholder = wrapper.querySelector('.agent-thinking-wrapper');
+    if (initialPlaceholder) {
+      const bubble = initialPlaceholder.closest('.message-bubble');
+      if (bubble && !bubble.rawMarkdown) bubble.remove();
+    }
+
     let thinkingContainer = wrapper.querySelector('.thinking-container');
     if (!thinkingContainer) {
       thinkingContainer = document.createElement('div');
@@ -1528,9 +1539,11 @@ class AgentRemoteApp {
       thinkingAccordion = thinkingContainer.querySelector('.thinking-accordion');
     }
 
+    const body = thinkingAccordion.querySelector('.thinking-accordion-body');
     const textEl = thinkingAccordion.querySelector('.thinking-text');
     if (textEl && delta) {
       textEl.textContent = (textEl.textContent || '') + delta;
+      if (body) body.style.display = 'block';
     }
 
     this.scrollToBottom();
@@ -1550,6 +1563,16 @@ class AgentRemoteApp {
     }
 
     const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
+    
+    // Clear initial placeholder if any
+    const initialPlaceholder = wrapper.querySelector('.agent-thinking-wrapper');
+    if (initialPlaceholder) {
+      const bubble = initialPlaceholder.closest('.message-bubble');
+      if (bubble && !bubble.rawMarkdown) {
+        bubble.innerHTML = '';
+      }
+    }
+
     let bubble = wrapper.querySelector('.message-bubble');
     if (!bubble) {
       bubble = document.createElement('div');
@@ -1596,6 +1619,14 @@ class AgentRemoteApp {
     }
 
     const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
+    
+    // Clear initial loading placeholder when tools start
+    const initialPlaceholder = wrapper.querySelector('.agent-thinking-wrapper');
+    if (initialPlaceholder) {
+      const bubble = initialPlaceholder.closest('.message-bubble');
+      if (bubble && !bubble.rawMarkdown) bubble.remove();
+    }
+
     let toolContainer = wrapper.querySelector('.tool-calls-container');
     if (!toolContainer) {
       toolContainer = document.createElement('div');
