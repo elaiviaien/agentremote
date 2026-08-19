@@ -246,12 +246,30 @@ export class AgentRunner {
             callbacks.onChunk(accumulatedText, deltaText);
           }
           // 3. Tool use / call / action
-          else if (parsed.type === 'tool_use' || parsed.tool_call || parsed.type === 'call' || parsed.type === 'action') {
+          else if (parsed.type === 'tool_use' || parsed.tool_call || parsed.type === 'call' || parsed.type === 'action' || parsed.type === 'tool_call') {
             const toolCallObj = parsed.tool_call || parsed.call || parsed.tool || parsed;
-            const rawInput = toolCallObj.input || toolCallObj.arguments || toolCallObj.parameters || toolCallObj.args || parsed.input || parsed.arguments || {};
+            
+            // Handle Cursor-agent specific schema (e.g. { shellToolCall: { args: {...} } })
+            const cursorToolKey = Object.keys(toolCallObj).find(k => k.endsWith('ToolCall'));
+            const targetObj = cursorToolKey ? toolCallObj[cursorToolKey] : toolCallObj;
+
+            // If it's Cursor's completed tool event
+            if (parsed.type === 'tool_call' && parsed.subtype === 'completed') {
+              const resId = parsed.call_id || parsed.id || toolCallObj.id || toolCallObj.toolCallId || targetObj.toolCallId || '';
+              const resObj = targetObj.result || targetObj.output || {};
+              let resContent = resObj.success ? (resObj.success.stdout || resObj.success.output || resObj.success) : (resObj.error || resObj);
+              callbacks.onToolResult(
+                resId,
+                typeof resContent === 'string' ? resContent : JSON.stringify(resContent, null, 2),
+                resObj.error ? 'failed' : 'completed'
+              );
+              return;
+            }
+
+            const rawInput = targetObj.input || targetObj.arguments || targetObj.parameters || targetObj.args || parsed.input || parsed.arguments || {};
             
             // Extract properly formatted name
-            let toolName = toolCallObj.name || toolCallObj.tool || parsed.name || parsed.tool || parsed.type || 'tool';
+            let toolName = targetObj.name || cursorToolKey || toolCallObj.name || toolCallObj.tool || parsed.name || parsed.tool || parsed.type || 'tool';
             if (toolName.includes(':')) {
               toolName = toolName.split(':').pop() || toolName;
             }
@@ -265,8 +283,10 @@ export class AgentRunner {
 
             const action = (typeof rawInput === 'object' && rawInput !== null && rawInput.toolAction) || '';
 
+            const resId = parsed.call_id || parsed.id || toolCallObj.id || toolCallObj.toolCallId || targetObj.toolCallId || Math.random().toString(36).substring(2, 8);
+
             const toolCall: ToolCallItem = {
-              id: toolCallObj.id || parsed.id || parsed.tool_call_id || Math.random().toString(36).substring(2, 8),
+              id: resId,
               type: toolName,
               name: toolName,
               summary: summary || undefined,
