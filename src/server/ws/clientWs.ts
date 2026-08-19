@@ -51,8 +51,9 @@ export class ClientWsManager {
         break;
       }
 
+      case 'cursor:auth_start' as any:
       case 'agent:trigger_auth': {
-        const targetDev = msg.payload.deviceId || deviceManager.getActiveDeviceId();
+        const targetDev = (msg as any).payload?.deviceId || (msg as any).deviceId || deviceManager.getActiveDeviceId();
         if (targetDev) {
           deviceManager.sendToWorker(targetDev, {
             type: 'agent:trigger_auth',
@@ -62,8 +63,9 @@ export class ClientWsManager {
         break;
       }
 
+      case 'agent:run' as any:
       case 'agent:prompt': {
-        const { sessionId, deviceId, prompt, model, mode, workspacePath, cursorChatId, continueLastSession } = msg.payload;
+        const { sessionId, deviceId, prompt, model, mode, workspacePath, cursorChatId, continueLastSession } = (msg as any).payload;
         
         let session = sessionManager.getSession(sessionId);
         if (!session) {
@@ -131,7 +133,8 @@ export class ClientWsManager {
       }
 
       case 'agent:abort': {
-        const session = sessionManager.getSession(msg.payload.sessionId);
+        const abortSessionId = (msg as any).payload?.sessionId || (msg as any).sessionId;
+        const session = sessionManager.getSession(abortSessionId);
         if (session) {
           deviceManager.sendToWorker(session.deviceId, {
             type: 'agent:abort',

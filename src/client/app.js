@@ -721,6 +721,7 @@ class AgentRemoteApp {
         break;
       }
 
+      case 'agent:auth_url':
       case 'cursor:auth_url': {
         const { url } = msg.payload;
         this.showOAuthModal(url);
@@ -1267,9 +1268,10 @@ class AgentRemoteApp {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(
         JSON.stringify({
-          type: 'agent:run',
+          type: 'agent:prompt',
           payload: {
             sessionId: this.activeSessionId,
+            deviceId: this.activeDeviceId,
             prompt: text,
             model: effectiveModel,
             mode: (session && session.mode) || this.modeSelect.value || 'yolo',
@@ -1284,7 +1286,7 @@ class AgentRemoteApp {
   stopAgent() {
     if (!this.activeSessionId || !this.isStreaming) return;
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'agent:abort', sessionId: this.activeSessionId }));
+      this.ws.send(JSON.stringify({ type: 'agent:abort', payload: { sessionId: this.activeSessionId } }));
     }
     this.handleAgentComplete(this.activeSessionId);
     this.showToast('🛑 Запит до агента зупинено');
@@ -2136,7 +2138,7 @@ class AgentRemoteApp {
 
   triggerCursorLogin() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'cursor:auth_start', deviceId: this.activeDeviceId }));
+      this.ws.send(JSON.stringify({ type: 'agent:trigger_auth', payload: { deviceId: this.activeDeviceId } }));
       this.showToast('🚀 Запущено процес авторизації Cursor...');
     }
   }

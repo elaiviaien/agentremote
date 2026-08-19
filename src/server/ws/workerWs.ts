@@ -118,7 +118,7 @@ export class WorkerWsManager {
         );
         clientWsManager.broadcast({
           type: 'agent:complete',
-          payload: { sessionId: msg.payload.sessionId, success: msg.payload.success, error: msg.payload.error },
+          payload: { sessionId: msg.payload.sessionId, success: msg.payload.success, error: msg.payload.error, cursorChatId: msg.payload.cursorChatId } as any,
         });
 
         // Also broadcast full session update to make sure client is 100% in sync
@@ -137,6 +137,10 @@ export class WorkerWsManager {
           msg.payload.sessionId,
           `❌ Agent Error: ${msg.payload.error}`
         );
+        clientWsManager.broadcast({
+          type: 'agent:error' as any,
+          payload: { sessionId: msg.payload.sessionId, error: msg.payload.error },
+        } as any);
         clientWsManager.broadcast({
           type: 'agent:complete',
           payload: { sessionId: msg.payload.sessionId, success: false, error: msg.payload.error },

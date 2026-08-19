@@ -157,6 +157,7 @@ export class AgentRunner {
     let fullOutput = '';
     let accumulatedText = '';
     let buffer = '';
+    let detectedChatId: string | undefined = cursorChatId;
 
     const proc = spawn(binary, args, {
       cwd,
@@ -183,6 +184,8 @@ export class AgentRunner {
 
         try {
           const parsed = JSON.parse(trimmed);
+
+          if (parsed.session_id) detectedChatId = parsed.session_id;
 
           // 1. Assistant message object
           if (parsed.type === 'assistant' && parsed.message?.content) {
@@ -259,7 +262,7 @@ export class AgentRunner {
       }
 
       if (code === 0) {
-        callbacks.onComplete(accumulatedText || fullOutput, cursorChatId, true);
+        callbacks.onComplete(accumulatedText || fullOutput, detectedChatId, true);
       } else {
         let errorMsg = `Process exited with code ${code}`;
         if (fullOutput.includes('Authentication required')) {
@@ -268,7 +271,7 @@ export class AgentRunner {
             accumulatedText = errorMsg + '\n\n' + accumulatedText;
           }
         }
-        callbacks.onComplete(accumulatedText || fullOutput || errorMsg, cursorChatId, false, errorMsg);
+        callbacks.onComplete(accumulatedText || fullOutput || errorMsg, detectedChatId, false, errorMsg);
       }
     });
 
