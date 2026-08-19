@@ -153,49 +153,83 @@ export class ClientWsManager {
         break;
       }
 
-      case 'fs:tree': {
-        const reqId = Math.random().toString(36).substring(2, 10);
-        const targetDev = msg.payload.deviceId || deviceManager.getActiveDeviceId();
+      case 'fs:tree':
+      case 'fs:list' as any: {
+        const clientReqId = (msg as any).payload?.reqId || Math.random().toString(36).substring(2, 10);
+        const searchPath = (msg as any).payload?.dirPath || (msg as any).payload?.path;
+        const targetDev = (msg as any).payload?.deviceId || deviceManager.getActiveDeviceId();
         if (targetDev) {
-          deviceManager.registerPendingFsRequest(reqId, (result) => {
+          deviceManager.registerPendingFsRequest(clientReqId, (result) => {
+            const items = result.tree || result.items || [];
+            const rootPath = result.rootPath || searchPath || '';
+            // Send both type aliases for full client compatibility
+            this.send(socket, {
+              type: 'fs:tree_result' as any,
+              payload: { reqId: clientReqId, items, tree: items, path: rootPath, rootPath, error: result.error },
+            } as any);
             this.send(socket, {
               type: 'fs:tree',
-              payload: result,
-            });
+              payload: { reqId: clientReqId, items, tree: items, path: rootPath, rootPath, error: result.error },
+            } as any);
           });
           deviceManager.sendToWorker(targetDev, {
             type: 'fs:get_tree',
-            payload: { reqId, path: msg.payload.path },
+            payload: { reqId: clientReqId, path: searchPath },
           });
+        } else {
+          this.send(socket, {
+            type: 'fs:tree_result' as any,
+            payload: { reqId: clientReqId, items: [], path: searchPath, error: 'No active device connected' },
+          } as any);
         }
         break;
       }
 
-      case 'fs:read': {
-        const reqId = Math.random().toString(36).substring(2, 10);
-        const targetDev = msg.payload.deviceId || deviceManager.getActiveDeviceId();
+      case 'fs:read':
+      case 'fs:read_file' as any: {
+        const clientReqId = (msg as any).payload?.reqId || Math.random().toString(36).substring(2, 10);
+        const filePath = (msg as any).payload?.filePath || (msg as any).payload?.path;
+        const targetDev = (msg as any).payload?.deviceId || deviceManager.getActiveDeviceId();
         if (targetDev) {
-          deviceManager.registerPendingFsRequest(reqId, (result) => {
+          deviceManager.registerPendingFsRequest(clientReqId, (result) => {
+            this.send(socket, {
+              type: 'fs:file_result' as any,
+              payload: { reqId: clientReqId, path: filePath, content: result.content, size: result.size, error: result.error },
+            } as any);
             this.send(socket, {
               type: 'fs:file',
-              payload: result,
-            });
+              payload: { reqId: clientReqId, path: filePath, content: result.content, size: result.size, error: result.error },
+            } as any);
           });
           deviceManager.sendToWorker(targetDev, {
             type: 'fs:read_file',
-            payload: { reqId, path: msg.payload.path },
+            payload: { reqId: clientReqId, path: filePath },
           });
+        } else {
+          this.send(socket, {
+            type: 'fs:file_result' as any,
+            payload: { reqId: clientReqId, path: filePath, content: '', error: 'No active device connected' },
+          } as any);
         }
         break;
       }
 
-      case 'fs:write': {
-        const reqId = Math.random().toString(36).substring(2, 10);
-        const targetDev = msg.payload.deviceId || deviceManager.getActiveDeviceId();
+      case 'fs:write':
+      case 'fs:write_file' as any: {
+        const clientReqId = (msg as any).payload?.reqId || Math.random().toString(36).substring(2, 10);
+        const filePath = (msg as any).payload?.filePath || (msg as any).payload?.path;
+        const content = (msg as any).payload?.content;
+        const targetDev = (msg as any).payload?.deviceId || deviceManager.getActiveDeviceId();
         if (targetDev) {
+          deviceManager.registerPendingFsRequest(clientReqId, (result) => {
+            this.send(socket, {
+              type: 'fs:write_result' as any,
+              payload: { reqId: clientReqId, success: result.success, error: result.error },
+            } as any);
+          });
           deviceManager.sendToWorker(targetDev, {
             type: 'fs:write_file',
-            payload: { reqId, path: msg.payload.path, content: msg.payload.content },
+            payload: { reqId: clientReqId, path: filePath, content },
           });
         }
         break;

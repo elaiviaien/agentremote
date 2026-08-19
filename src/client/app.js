@@ -727,29 +727,27 @@ class AgentRemoteApp {
         break;
       }
 
+      case 'fs:tree':
       case 'fs:tree_result': {
-        if (msg.payload.reqId === this.pendingFsReqId) {
-          this.displayFiles(msg.payload.items, msg.payload.path);
+        const payload = msg.payload || {};
+        if (payload.reqId === this.pendingFsReqId || !this.pendingFsReqId) {
+          const items = payload.items || payload.tree || [];
+          this.displayFiles(items, payload.path || payload.rootPath);
         }
         break;
       }
 
+      case 'fs:file':
       case 'fs:file_result': {
-        if (msg.payload.reqId === this.pendingFileReqId) {
-          this.displayFileContent(msg.payload.path, msg.payload.content, msg.payload.size, msg.payload.error);
-        }
-        break;
-      }
-
-      case 'terminal:output': {
-        if (this.terminalOutput && msg.payload.data) {
-          this.appendTerminalOutput(msg.payload.data);
+        const payload = msg.payload || {};
+        if (payload.reqId === this.pendingFileReqId || !this.pendingFileReqId) {
+          this.displayFileContent(payload.path, payload.content, payload.size, payload.error);
         }
         break;
       }
 
       case 'transcripts:list_result': {
-        if (msg.payload.reqId === this.pendingTranscriptReqId) {
+        if (msg.payload.reqId === this.pendingTranscriptReqId || !this.pendingTranscriptReqId) {
           this.loadedTranscripts = msg.payload.transcripts || [];
           this.renderLocalTranscripts();
         }
@@ -757,10 +755,15 @@ class AgentRemoteApp {
       }
 
       case 'transcripts:read_result': {
-        if (msg.payload.rawContent) {
-          this.selectedTranscriptContent = msg.payload.rawContent;
+        const res = msg.payload.result || msg.payload;
+        if (res) {
+          this.selectedTranscriptContent = typeof res === 'string' ? res : JSON.stringify(res);
           if (this.importSanitizationReport) {
             this.importSanitizationReport.style.display = 'block';
+            if (this.importSanitizedCount) {
+              const count = res.messages ? res.messages.length : (res.messageCount || 1);
+              this.importSanitizedCount.innerText = `Готово до імпорту • ${count} повідомлень`;
+            }
           }
         }
         break;
@@ -796,9 +799,15 @@ class AgentRemoteApp {
       if (res.ok) {
         const data = await res.json();
         this.sessions = data.sessions || [];
-        if (this.sessions.length > 0 && !this.activeSessionId) {
+
+        // Restore active session from localStorage on reload
+        const savedSessionId = localStorage.getItem('agentremote_active_session_id');
+        if (savedSessionId && this.sessions.some((s) => s.id === savedSessionId)) {
+          this.activeSessionId = savedSessionId;
+        } else if (this.sessions.length > 0 && !this.activeSessionId) {
           this.activeSessionId = this.sessions[0].id;
         }
+
         this.renderSessions();
         this.renderActiveChat();
       }
@@ -982,6 +991,11 @@ class AgentRemoteApp {
 
   selectSession(sessionId) {
     this.activeSessionId = sessionId;
+    if (sessionId) {
+      localStorage.setItem('agentremote_active_session_id', sessionId);
+    } else {
+      localStorage.removeItem('agentremote_active_session_id');
+    }
     this.renderSessions();
     this.renderActiveChat();
     this.appSidebar.classList.remove('open');
@@ -999,6 +1013,11 @@ class AgentRemoteApp {
     this.sessions = this.sessions.filter((s) => s.id !== sessionId);
     if (this.activeSessionId === sessionId) {
       this.activeSessionId = this.sessions[0] ? this.sessions[0].id : null;
+      if (this.activeSessionId) {
+        localStorage.setItem('agentremote_active_session_id', this.activeSessionId);
+      } else {
+        localStorage.removeItem('agentremote_active_session_id');
+      }
     }
     this.renderSessions();
     this.renderActiveChat();
@@ -1097,12 +1116,16 @@ class AgentRemoteApp {
   appendAssistantChunk(sessionId, delta) {
     if (sessionId !== this.activeSessionId) return;
 
+    if (this.chatMeta) {
+      this.chatMeta.innerHTML = `<span style="color:var(--accent-primary); font-weight:600;">● Агент друкує відповідь...</span>`;
+    }
+
     let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
     if (!assistantMsgEl) {
       assistantMsgEl = document.createElement('div');
       assistantMsgEl.className = 'message assistant streaming';
       assistantMsgEl.innerHTML = `
-        <div class="message-avatar" style="background:#334155; color:#fff; font-weight:700; font-size:10px;">AI</div>
+        <div class="message-avatar" style="background:var(--accent-primary); color:#fff; font-weight:700; font-size:10px;">AI</div>
         <div class="message-bubble-wrapper" style="flex:1; min-width:0;">
           <div class="message-bubble"></div>
         </div>
@@ -1129,6 +1152,10 @@ class AgentRemoteApp {
   renderToolCall(sessionId, toolCall) {
     if (sessionId !== this.activeSessionId) return;
 
+    if (this.chatMeta) {
+      this.chatMeta.innerHTML = `<span style="color:#fbbf24; font-weight:600;">⚡ Виконується: ${this.escapeHtml(toolCall.name || 'дія')}...</span>`;
+    }
+
     let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
     if (!assistantMsgEl) {
       this.appendAssistantChunk(sessionId, '');
@@ -1143,9 +1170,11 @@ class AgentRemoteApp {
       <div class="tool-call-header">
         <div class="tool-call-title">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-          <span>${this.escapeHtml(toolCall.name || 'Виконання команди')}</span>
+          <span style="font-weight:600;">${this.escapeHtml(toolCall.name || 'Виконання команди')}</span>
         </div>
-        <span class="tool-call-status running">running</span>
+        <span class="tool-call-status running" style="display:flex; align-items:center; gap:4px;">
+          <span class="pulse-dot"></span> виконується...
+        </span>
       </div>
       ${toolCall.arguments ? `<div class="tool-call-args"><pre>${this.escapeHtml(typeof toolCall.arguments === 'string' ? toolCall.arguments : JSON.stringify(toolCall.arguments, null, 2))}</pre></div>` : ''}
     `;
@@ -1160,8 +1189,9 @@ class AgentRemoteApp {
     if (tcEl) {
       const statusBadge = tcEl.querySelector('.tool-call-status');
       if (statusBadge) {
-        statusBadge.className = `tool-call-status ${status}`;
-        statusBadge.innerText = status;
+        const isOk = status === 'completed' || status === 'success' || !status;
+        statusBadge.className = `tool-call-status ${isOk ? 'completed' : 'error'}`;
+        statusBadge.innerText = isOk ? '✓ завершено' : '✕ помилка';
       }
       if (result) {
         let resultBlock = tcEl.querySelector('.tool-call-result');
@@ -1170,7 +1200,7 @@ class AgentRemoteApp {
           resultBlock.className = 'tool-call-result';
           tcEl.appendChild(resultBlock);
         }
-        resultBlock.innerHTML = `<pre>${this.escapeHtml(result.slice(0, 1500))}</pre>`;
+        resultBlock.innerHTML = `<pre>${this.escapeHtml(result.slice(0, 2000))}</pre>`;
       }
     }
   }
@@ -1186,9 +1216,13 @@ class AgentRemoteApp {
     }
 
     const session = this.sessions.find((s) => s.id === sessionId);
-    if (session && cursorChatId) {
-      session.cursorChatId = cursorChatId;
+    if (session) {
+      if (cursorChatId) session.cursorChatId = cursorChatId;
+      if (this.chatMeta) {
+        this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
+      }
     }
+    this.showToast('✨ Агент завершив виконання завдання');
     this.loadSessions();
   }
 
@@ -1200,7 +1234,12 @@ class AgentRemoteApp {
     const streamingMsg = this.chatMessages.querySelector('.message.assistant.streaming');
     if (streamingMsg) streamingMsg.classList.remove('streaming');
 
+    if (this.chatMeta) {
+      this.chatMeta.innerHTML = `<span style="color:var(--accent-error); font-weight:600;">⚠️ Помилка виконання агента</span>`;
+    }
+
     this.renderChatMessageElement('assistant', `⚠️ **Помилка агента:** ${error}`);
+    this.showToast(`❌ Помилка: ${error}`, 5000);
     this.scrollToBottom();
   }
 
@@ -1478,6 +1517,22 @@ class AgentRemoteApp {
         this.selectedTranscriptWorkspace = t.workspacePath || '';
         this.importSessionTitle.value = t.title.slice(0, 45);
 
+        // Set immediate valid payload so user can import instantly
+        this.selectedTranscriptContent = JSON.stringify({
+          title: t.title,
+          filePath: t.filePath,
+          workspacePath: t.workspacePath,
+          source: t.source,
+          messageCount: t.messageCount,
+        });
+
+        if (this.importSanitizationReport) {
+          this.importSanitizationReport.style.display = 'block';
+          if (this.importSanitizedCount) {
+            this.importSanitizedCount.innerText = `Сесію обрано • ${t.messageCount || 1} повідомлень`;
+          }
+        }
+
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(
             JSON.stringify({
@@ -1497,11 +1552,11 @@ class AgentRemoteApp {
     const isAuto = this.importTabAuto.classList.contains('active');
 
     if (isAuto) {
-      if (!this.selectedTranscriptContent) {
+      if (!this.selectedTranscriptContent && !this.selectedTranscriptFilePath) {
         alert('Будь ласка, оберіть сесію зі списку вище');
         return;
       }
-      content = this.selectedTranscriptContent;
+      content = this.selectedTranscriptContent || JSON.stringify({ filePath: this.selectedTranscriptFilePath });
     } else {
       content = this.importPasteInput.value.trim();
       if (!content) {
