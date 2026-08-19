@@ -21,7 +21,7 @@ export class ChatSanitizer {
   private static SECRET_PATTERNS = [
     /3a8ad522-[0-9a-f-]{20,}/gi, // Railway tokens or UUID-like tokens
     /ghp_[0-9a-zA-Z]{20,}/g, // GitHub tokens
-    /sk-[0-9a-zA-Z]{20,}/g, // OpenAI / API keys
+    /sk-[0-9a-zA-Z_-]{20,}/g, // OpenAI / Anthropic / API keys
     /Bearer\s+[0-9a-zA-Z._-]{20,}/gi,
     /railway\s+token\s+[0-9a-zA-Z._-]{10,}/gi,
   ];
