@@ -1660,6 +1660,8 @@ class AgentRemoteApp {
       this.antigravityLimitSize.innerText = '-';
     }
   }
+
+  showToast(text) {
     const toast = document.createElement('div');
     toast.style.position = 'fixed';
     toast.style.bottom = '24px';

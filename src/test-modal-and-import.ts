@@ -1,3 +1,4 @@
+export {};
 const HUB_URL = 'https://agentremote-production.up.railway.app';
 
 async function testModalAndImport() {
