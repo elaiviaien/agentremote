@@ -90,12 +90,25 @@ class AgentRemoteApp {
     this.fsSearchInput = document.getElementById('fs-search-input');
     this.refreshFilesBtn = document.getElementById('refresh-files-btn');
     this.filesTree = document.getElementById('files-tree');
+    this.filesCountBadge = document.getElementById('files-count-badge');
     this.filePreviewPanel = document.getElementById('file-preview-panel');
     this.fsClosePreviewMobile = document.getElementById('fs-close-preview-mobile');
     this.previewFilename = document.getElementById('preview-filename');
     this.previewFileIcon = document.getElementById('preview-file-icon');
+    this.previewFileSize = document.getElementById('preview-file-size');
     this.previewContent = document.getElementById('preview-content');
+    this.previewCodeBlock = document.getElementById('preview-code-block');
+    this.codeEditorContainer = document.getElementById('code-editor-container');
+    this.lineNumbersGutter = document.getElementById('line-numbers-gutter');
+    this.fileEmptyState = document.getElementById('file-empty-state');
+    this.mdRenderedContainer = document.getElementById('md-rendered-container');
+    this.imgPreviewContainer = document.getElementById('img-preview-container');
+    this.imgPreviewEl = document.getElementById('img-preview-el');
+    this.mdPreviewToggleBtn = document.getElementById('md-preview-toggle-btn');
+    this.askAgentFileBtn = document.getElementById('ask-agent-file-btn');
     this.copyFileContentBtn = document.getElementById('copy-file-content-btn');
+    this.isMdRenderedMode = false;
+    this.currentFileRawContent = '';
 
     // Terminal
     this.terminalOutput = document.getElementById('terminal-output');
@@ -371,12 +384,28 @@ class AgentRemoteApp {
       this.filterFilesTree(e.target.value);
     });
 
-    this.copyFileContentBtn.addEventListener('click', () => {
-      const code = this.previewContent.innerText;
-      navigator.clipboard.writeText(code);
-      this.copyFileContentBtn.innerText = 'Скопійовано!';
-      setTimeout(() => (this.copyFileContentBtn.innerText = 'Скопіювати вміст'), 2000);
-    });
+    if (this.copyFileContentBtn) {
+      this.copyFileContentBtn.addEventListener('click', () => {
+        const code = this.currentFileRawContent || (this.previewCodeBlock ? this.previewCodeBlock.innerText : '');
+        navigator.clipboard.writeText(code);
+        this.showToast('📋 Вміст файлу скопійовано в буфер обміну');
+      });
+    }
+
+    if (this.askAgentFileBtn) {
+      this.askAgentFileBtn.addEventListener('click', () => {
+        const fileName = this.activeOpenedPath ? this.activeOpenedPath.split(/[/\\]/).pop() : 'файлу';
+        this.switchTab('chat');
+        this.promptInput.value = `Проаналізуй файл ${fileName} (${this.activeOpenedPath}):\n`;
+        this.promptInput.focus();
+      });
+    }
+
+    if (this.mdPreviewToggleBtn) {
+      this.mdPreviewToggleBtn.addEventListener('click', () => {
+        this.toggleMdPreview();
+      });
+    }
 
     // Terminal Quick Commands
     document.querySelectorAll('.term-quick-btn').forEach((btn) => {
@@ -623,22 +652,7 @@ class AgentRemoteApp {
 
       case 'fs:file': {
         const filePath = msg.payload.path || this.activeOpenedPath || 'file';
-        const fileName = filePath.split(/[/\\]/).pop() || filePath;
-        this.previewFilename.innerText = fileName;
-        this.previewFileIcon.innerText = this.getFileIcon(fileName);
-        
-        const codeEl = document.createElement('code');
-        codeEl.innerText = msg.payload.content || msg.payload.error || '';
-        this.previewContent.innerHTML = '';
-        this.previewContent.appendChild(codeEl);
-        
-        if (typeof hljs !== 'undefined') {
-          try {
-            hljs.highlightElement(codeEl);
-          } catch {}
-        }
-        
-        this.copyFileContentBtn.style.display = 'inline-flex';
+        this.renderOpenedFileContent(filePath, msg.payload.content || msg.payload.error || '');
         break;
       }
 
@@ -1273,9 +1287,25 @@ class AgentRemoteApp {
 
   displayFiles(items) {
     this.filesTree.innerHTML = '';
+    
+    if (this.filesCountBadge) {
+      const count = items.length;
+      let word = 'файлів';
+      if (count % 10 === 1 && count % 100 !== 11) word = 'файл';
+      else if ([2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100)) word = 'файли';
+      this.filesCountBadge.innerText = `${count} ${word}`;
+    }
+
+    // Sort: directories first, then files
+    const sorted = [...items].sort((a, b) => {
+      if (a.isDirectory && !b.isDirectory) return -1;
+      if (!a.isDirectory && b.isDirectory) return 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+
     const list = document.createElement('div');
 
-    items.forEach((item) => {
+    sorted.forEach((item) => {
       const el = document.createElement('div');
       el.className = 'tree-node';
       const icon = item.isDirectory ? '📁' : this.getFileIcon(item.name);
@@ -1283,14 +1313,14 @@ class AgentRemoteApp {
 
       el.innerHTML = `
         <div class="node-left">
-          <span>${icon}</span>
-          <span>${this.escapeHtml(item.name)}</span>
+          <span style="font-size: 14px;">${icon}</span>
+          <span style="font-weight: ${item.isDirectory ? '600' : '400'};">${this.escapeHtml(item.name)}</span>
         </div>
         ${sizeText ? `<span class="node-size">${sizeText}</span>` : ''}
       `;
 
       el.addEventListener('click', () => {
-        document.querySelectorAll('.tree-node').forEach((n) => n.classList.remove('active'));
+        this.filesTree.querySelectorAll('.tree-node').forEach((n) => n.classList.remove('active'));
         el.classList.add('active');
 
         if (item.isDirectory) {
@@ -1314,29 +1344,50 @@ class AgentRemoteApp {
         return '📘';
       case 'js':
       case 'jsx':
+      case 'mjs':
+      case 'cjs':
         return '🟨';
       case 'json':
         return '⚙️';
       case 'html':
+      case 'htm':
         return '🌐';
       case 'css':
       case 'scss':
+      case 'less':
         return '🎨';
       case 'py':
         return '🐍';
       case 'md':
+      case 'markdown':
         return '📝';
       case 'sh':
       case 'ps1':
       case 'cmd':
       case 'bat':
         return '⚡';
+      case 'png':
+      case 'jpg':
+      case 'jpeg':
+      case 'gif':
+      case 'svg':
+      case 'webp':
+      case 'ico':
+        return '🖼️';
+      case 'env':
+      case 'gitignore':
+      case 'dockerignore':
+      case 'yml':
+      case 'yaml':
+      case 'toml':
+        return '🔧';
       default:
         return '📄';
     }
   }
 
   formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -1347,10 +1398,18 @@ class AgentRemoteApp {
     const fileName = filePath.split(/[/\\]/).pop() || filePath;
     this.previewFilename.innerText = fileName;
     this.previewFileIcon.innerText = this.getFileIcon(fileName);
-    this.previewContent.innerHTML = '<code>Завантаження вмісту файлу...</code>';
+    this.previewFileSize.innerText = 'Завантаження...';
 
-    if (this.filesTree && this.filePreviewPanel) {
-      this.filesTree.classList.add('hide-on-mobile');
+    if (this.fileEmptyState) this.fileEmptyState.style.display = 'none';
+    if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'flex';
+    if (this.mdRenderedContainer) this.mdRenderedContainer.style.display = 'none';
+    if (this.imgPreviewContainer) this.imgPreviewContainer.style.display = 'none';
+
+    this.lineNumbersGutter.innerHTML = '1';
+    this.previewCodeBlock.innerText = '// Завантаження вмісту файлу...';
+
+    if (this.filesTreePanel && this.filePreviewPanel) {
+      this.filesTreePanel.classList.add('hide-on-mobile');
       this.filePreviewPanel.classList.add('show-on-mobile');
     }
 
@@ -1361,6 +1420,93 @@ class AgentRemoteApp {
           payload: { deviceId: this.activeDeviceId, path: filePath },
         })
       );
+    }
+  }
+
+  renderOpenedFileContent(filePath, content) {
+    this.currentFileRawContent = content;
+    const fileName = filePath.split(/[/\\]/).pop() || filePath;
+    const ext = fileName.split('.').pop().toLowerCase();
+
+    this.previewFilename.innerText = fileName;
+    this.previewFileIcon.innerText = this.getFileIcon(fileName);
+
+    if (this.fileEmptyState) this.fileEmptyState.style.display = 'none';
+    if (this.copyFileContentBtn) this.copyFileContentBtn.style.display = 'inline-flex';
+    if (this.askAgentFileBtn) this.askAgentFileBtn.style.display = 'inline-flex';
+
+    // 1. Check if Image
+    const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext);
+    if (isImage) {
+      if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'none';
+      if (this.mdRenderedContainer) this.mdRenderedContainer.style.display = 'none';
+      if (this.mdPreviewToggleBtn) this.mdPreviewToggleBtn.style.display = 'none';
+      if (this.imgPreviewContainer) {
+        this.imgPreviewContainer.style.display = 'flex';
+        this.imgPreviewEl.src = ext === 'svg' ? `data:image/svg+xml;utf8,${encodeURIComponent(content)}` : `data:image/${ext};base64,${content}`;
+      }
+      this.previewFileSize.innerText = `Зображення (${ext.toUpperCase()})`;
+      return;
+    }
+
+    // 2. Setup Code Editor / Line Numbers
+    if (this.imgPreviewContainer) this.imgPreviewContainer.style.display = 'none';
+    const lines = content.split('\n');
+    const lineCount = lines.length;
+    const fileSize = new Blob([content]).size;
+    this.previewFileSize.innerText = `${lineCount} ${lineCount === 1 ? 'рядок' : 'рядків'} • ${this.formatFileSize(fileSize)}`;
+
+    // Build line numbers gutter
+    let numbersText = '';
+    for (let i = 1; i <= lineCount; i++) {
+      numbersText += i + '\n';
+    }
+    this.lineNumbersGutter.innerText = numbersText;
+
+    // Highlight code
+    this.previewCodeBlock.innerText = content;
+    this.previewCodeBlock.className = `language-${ext}`;
+    if (typeof hljs !== 'undefined') {
+      try {
+        hljs.highlightElement(this.previewCodeBlock);
+      } catch {}
+    }
+
+    // 3. Markdown Support
+    const isMd = ['md', 'markdown'].includes(ext);
+    if (isMd) {
+      if (this.mdPreviewToggleBtn) {
+        this.mdPreviewToggleBtn.style.display = 'inline-flex';
+        this.isMdRenderedMode = true;
+        this.mdPreviewToggleBtn.innerHTML = '<span>💻 Код</span>';
+      }
+      if (this.mdRenderedContainer) {
+        if (typeof marked !== 'undefined') {
+          this.mdRenderedContainer.innerHTML = marked.parse(content);
+        } else {
+          this.mdRenderedContainer.innerText = content;
+        }
+        this.mdRenderedContainer.style.display = 'block';
+        if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'none';
+      }
+    } else {
+      if (this.mdPreviewToggleBtn) this.mdPreviewToggleBtn.style.display = 'none';
+      if (this.mdRenderedContainer) this.mdRenderedContainer.style.display = 'none';
+      if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'flex';
+      this.isMdRenderedMode = false;
+    }
+  }
+
+  toggleMdPreview() {
+    this.isMdRenderedMode = !this.isMdRenderedMode;
+    if (this.isMdRenderedMode) {
+      if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'none';
+      if (this.mdRenderedContainer) this.mdRenderedContainer.style.display = 'block';
+      if (this.mdPreviewToggleBtn) this.mdPreviewToggleBtn.innerHTML = '<span>💻 Код</span>';
+    } else {
+      if (this.codeEditorContainer) this.codeEditorContainer.style.display = 'flex';
+      if (this.mdRenderedContainer) this.mdRenderedContainer.style.display = 'none';
+      if (this.mdPreviewToggleBtn) this.mdPreviewToggleBtn.innerHTML = '<span>👁️ Форматований вигляд</span>';
     }
   }
 

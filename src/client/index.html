@@ -294,52 +294,104 @@
           </div>
         </section>
 
-        <!-- Tab 2: Files Explorer View (Enhanced with Breadcrumbs & Back button) -->
+        <!-- Tab 2: Files Explorer View (Modern Web IDE Explorer) -->
         <section id="tab-files" class="tab-content">
-          <div class="view-panel">
+          <div class="view-panel modern-fs-view">
+            <!-- Files Top Toolbar -->
             <div class="files-top-toolbar">
               <div class="files-nav-group">
                 <button id="fs-back-btn" class="btn btn-secondary btn-sm" title="Назад у папку вище">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
                   <span>Назад</span>
                 </button>
                 <button id="fs-up-btn" class="btn btn-secondary btn-sm" title="На рівень вгору">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
                   <span>Вгору</span>
                 </button>
-                <div class="breadcrumbs" id="fs-breadcrumbs">
-                  <!-- Dynamic Breadcrumb segments -->
+                <div class="breadcrumbs-container">
+                  <span class="breadcrumb-ws-icon">📂</span>
+                  <div class="breadcrumbs" id="fs-breadcrumbs">
+                    <!-- Dynamic Breadcrumb segments -->
+                  </div>
                 </div>
               </div>
               <div class="files-actions-group">
-                <input type="text" id="fs-search-input" class="search-input-sm" placeholder="Фільтр файлів...">
-                <button id="refresh-files-btn" class="btn btn-secondary btn-sm">
+                <div class="search-input-wrapper">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                  <input type="text" id="fs-search-input" class="search-input-sm" placeholder="Швидкий фільтр файлів...">
+                </div>
+                <button id="refresh-files-btn" class="btn btn-secondary btn-sm" title="Оновити список файлів">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                   <span>Оновити</span>
                 </button>
               </div>
             </div>
 
+            <!-- Main Files Layout -->
             <div class="files-layout">
-              <div class="files-tree" id="files-tree">
-                <p class="placeholder-text">Завантаження файлів...</p>
-              </div>
-              <div class="file-preview" id="file-preview-panel">
+              <!-- Left Tree Sidebar -->
+              <aside class="files-tree-panel" id="files-tree-panel">
+                <div class="tree-panel-header">
+                  <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.5px;">ПРОВІДНИК ПРОЄКТУ</span>
+                  <span id="files-count-badge" class="count-badge">0 файлів</span>
+                </div>
+                <div class="files-tree-scroll" id="files-tree">
+                  <p class="placeholder-text" style="padding: 24px; text-align: center;">Завантаження файлів...</p>
+                </div>
+              </aside>
+
+              <!-- Right Code / Preview Panel -->
+              <main class="file-preview-panel" id="file-preview-panel">
+                <!-- Editor Top Header -->
                 <div class="file-preview-header">
-                  <div class="preview-title-col">
-                    <button id="fs-close-preview-mobile" class="btn btn-secondary btn-sm mobile-only" title="До списку файлів">
+                  <div class="preview-tab-item active">
+                    <button id="fs-close-preview-mobile" class="btn btn-secondary btn-sm mobile-only" title="Назад до файлів">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-                      <span>Файли</span>
                     </button>
-                    <span id="preview-file-icon">📄</span>
-                    <strong id="preview-filename">Оберіть файл для перегляду</strong>
+                    <span id="preview-file-icon" class="file-tab-icon">📄</span>
+                    <strong id="preview-filename" class="file-tab-name">Оберіть файл</strong>
+                    <span id="preview-file-size" class="file-tab-meta"></span>
                   </div>
-                  <button id="copy-file-content-btn" class="btn btn-secondary btn-sm" style="display: none;">Скопіювати вміст</button>
+
+                  <div class="preview-actions">
+                    <button id="md-preview-toggle-btn" class="btn btn-secondary btn-sm" style="display: none;" title="Перемкнути між кодом та форматованим Markdown">
+                      <span>👁️ Форматований вигляд</span>
+                    </button>
+                    <button id="ask-agent-file-btn" class="btn btn-secondary btn-sm" style="display: none;" title="Додати файл до чату для аналізу">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                      <span>Запитати в чаті</span>
+                    </button>
+                    <button id="copy-file-content-btn" class="btn btn-secondary btn-sm" style="display: none;" title="Скопіювати код у буфер">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                      <span>Скопіювати</span>
+                    </button>
+                  </div>
                 </div>
-                <div class="code-preview-scroll">
-                  <pre id="preview-content"><code>// Вміст файлу відобразиться тут</code></pre>
+
+                <!-- Editor Body / Code View -->
+                <div class="code-preview-scroll" id="code-preview-scroll">
+                  <!-- Empty Welcome State -->
+                  <div id="file-empty-state" class="file-empty-state">
+                    <div class="empty-state-icon">📁</div>
+                    <h4>Оберіть файл для перегляду</h4>
+                    <p>Клацніть на будь-який файл у провіднику зліва для підсвічування синтаксису, копіювання чи обговорення з агентом.</p>
+                  </div>
+
+                  <!-- Code Line Numbers + Code -->
+                  <div id="code-editor-container" class="code-editor-container" style="display: none;">
+                    <div id="line-numbers-gutter" class="line-numbers-gutter"></div>
+                    <pre id="preview-content" class="code-content-pre"><code id="preview-code-block">// Вміст файлу</code></pre>
+                  </div>
+
+                  <!-- Markdown Rendered View -->
+                  <div id="md-rendered-container" class="md-rendered-container" style="display: none;"></div>
+
+                  <!-- Image Preview View -->
+                  <div id="img-preview-container" class="img-preview-container" style="display: none;">
+                    <img id="img-preview-el" src="" alt="Image preview">
+                  </div>
                 </div>
-              </div>
+              </main>
             </div>
           </div>
         </section>
