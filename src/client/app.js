@@ -35,9 +35,12 @@ class AgentRemoteApp {
     this.deviceStatusDot = document.getElementById('device-status-dot');
     this.deviceSelect = document.getElementById('device-select');
     this.logoutBtn = document.getElementById('logout-btn');
+    this.themeToggleBtn = document.getElementById('theme-toggle-btn');
+    this.themeIcon = document.getElementById('theme-icon');
 
     // Sidebar
     this.newChatBtn = document.getElementById('new-chat-btn');
+    this.newAntigravityChatBtn = document.getElementById('new-antigravity-chat-btn');
     this.importChatBtn = document.getElementById('import-chat-btn');
     this.sessionSearch = document.getElementById('session-search');
     this.sessionList = document.getElementById('session-list');
@@ -133,18 +136,20 @@ class AgentRemoteApp {
       });
     });
 
-    // Mobile Sidebar Toggle
-    this.toggleSidebarBtn.addEventListener('click', () => {
-      const isOpen = this.appSidebar.classList.toggle('open');
-      if (this.sidebarBackdrop) {
-        this.sidebarBackdrop.classList.toggle('active', isOpen);
-      }
-    });
+    // Sidebar Toggle (Mobile & Desktop)
+    if (this.toggleSidebarBtn) {
+      this.toggleSidebarBtn.addEventListener('click', () => {
+        const isOpen = this.appSidebar.classList.toggle('open');
+        if (this.sidebarBackdrop) {
+          this.sidebarBackdrop.classList.toggle('show', isOpen);
+        }
+      });
+    }
 
     if (this.sidebarBackdrop) {
       this.sidebarBackdrop.addEventListener('click', () => {
         this.appSidebar.classList.remove('open');
-        this.sidebarBackdrop.classList.remove('active');
+        this.sidebarBackdrop.classList.remove('show');
       });
     }
 
@@ -222,10 +227,27 @@ class AgentRemoteApp {
       });
     }
 
-    // New Chat
-    this.newChatBtn.addEventListener('click', () => {
-      this.createNewSession();
-    });
+    // Theme Toggle
+    this.initTheme();
+    if (this.themeToggleBtn) {
+      this.themeToggleBtn.addEventListener('click', () => {
+        this.toggleTheme();
+      });
+    }
+
+    // New Chat Cursor
+    if (this.newChatBtn) {
+      this.newChatBtn.addEventListener('click', () => {
+        this.createNewSession('cursor');
+      });
+    }
+
+    // New Chat Antigravity
+    if (this.newAntigravityChatBtn) {
+      this.newAntigravityChatBtn.addEventListener('click', () => {
+        this.createNewSession('antigravity');
+      });
+    }
 
     // Resume Chat
     this.resumeChatBtn.addEventListener('click', () => {
@@ -646,16 +668,35 @@ class AgentRemoteApp {
     this.renderDevices();
   }
 
+  initTheme() {
+    const savedTheme = localStorage.getItem('agentremote_theme') || 'light';
+    this.applyTheme(savedTheme);
+  }
+
+  toggleTheme() {
+    const current = document.body.getAttribute('data-theme') || 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    this.applyTheme(next);
+  }
+
+  applyTheme(theme) {
+    document.body.setAttribute('data-theme', theme);
+    localStorage.setItem('agentremote_theme', theme);
+    if (this.themeIcon) {
+      this.themeIcon.innerText = theme === 'dark' ? '☀️' : '🌙';
+    }
+  }
+
   renderSessions() {
     const query = (this.sessionSearch.value || '').toLowerCase().trim();
     const filtered = this.sessions.filter(
-      (s) => !query || (s.title && s.title.toLowerCase().includes(query))
+      (s) => !query || (s.title && s.title.toLowerCase().includes(query)) || (s.description && s.description.toLowerCase().includes(query))
     );
 
     this.sessionCount.innerText = filtered.length;
 
     if (filtered.length === 0) {
-      this.sessionList.innerHTML = '<p class="meta-text" style="padding:12px 6px; text-align:center;">Сесій не знайдено</p>';
+      this.sessionList.innerHTML = '<p class="meta-text" style="padding:16px 6px; text-align:center;">Сесій не знайдено</p>';
       return;
     }
 
@@ -665,10 +706,21 @@ class AgentRemoteApp {
       item.className = `session-item ${s.id === this.activeSessionId ? 'active' : ''}`;
       
       const formattedDate = new Date(s.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const isAntigravity = s.engine === 'antigravity' || (s.model && s.model.includes('gemini'));
+      const engineTag = isAntigravity
+        ? '<span class="session-engine-tag antigravity">🚀 AGY</span>'
+        : '<span class="session-engine-tag cursor">🤖 CURSOR</span>';
+
+      const descText = s.description || (s.workspacePath ? `📂 ${s.workspacePath.split(/[/\\]/).pop()}` : 'Робоча сесія');
+
       item.innerHTML = `
         <div class="session-info">
-          <div class="session-title">${this.escapeHtml(s.title || 'Чат Cursor')}</div>
-          <div class="session-date">${formattedDate} • ${s.model || 'Claude'}</div>
+          <div class="session-header-line">
+            ${engineTag}
+            <div class="session-title">${this.escapeHtml(s.title || (isAntigravity ? 'Чат Antigravity' : 'Чат Cursor'))}</div>
+          </div>
+          <div class="session-desc">${this.escapeHtml(descText)}</div>
+          <div class="session-date">${formattedDate} • ${s.model || (isAntigravity ? 'Gemini 2.5' : 'Claude')} • ${s.messages ? s.messages.length : 0} повід.</div>
         </div>
         <button class="session-delete-btn" title="Видалити сесію">✕</button>
       `;
@@ -692,16 +744,23 @@ class AgentRemoteApp {
     this.renderActiveChat();
     this.appSidebar.classList.remove('open');
     if (this.sidebarBackdrop) {
-      this.sidebarBackdrop.classList.remove('active');
+      this.sidebarBackdrop.classList.remove('show');
     }
   }
 
-  async createNewSession() {
+  async createNewSession(engine = 'cursor') {
     const activeDev = this.getActiveDevice();
+    const isAgy = engine === 'antigravity';
+    const defaultModel = isAgy ? 'gemini-3.1-pro' : this.modelSelect.value;
+    const defaultTitle = isAgy ? 'Новий чат Antigravity' : 'Новий чат Cursor';
+    const defaultDesc = isAgy ? 'Сесія Google Antigravity (Gemini)' : 'Сесія Cursor AI Agent';
+
     const newSession = {
       deviceId: activeDev ? activeDev.id : 'default',
-      title: 'Новий чат Cursor',
-      model: this.modelSelect.value,
+      title: defaultTitle,
+      description: defaultDesc,
+      engine: engine,
+      model: defaultModel,
       mode: this.modeSelect.value,
       workspacePath: this.workspaceInput.value,
     };

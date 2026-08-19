@@ -16,22 +16,30 @@ export class SessionManager {
   public createSession(params: {
     deviceId: string;
     title?: string;
+    description?: string;
+    engine?: 'cursor' | 'antigravity';
     workspacePath?: string;
     model?: string;
     mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
     cursorChatId?: string;
   }): ChatSession {
     const id = randomUUID();
+    const engine = params.engine || 'cursor';
+    const defaultTitle = engine === 'antigravity' ? 'Новий чат Antigravity' : 'Новий чат Cursor';
+    const defaultDesc = engine === 'antigravity' ? 'Сесія Google Antigravity 2.0' : 'Сесія Cursor AI Agent';
+
     const newSession: ChatSession = {
       id,
       deviceId: params.deviceId,
-      title: params.title || 'New Agent Chat',
+      title: params.title || defaultTitle,
+      description: params.description || defaultDesc,
+      engine,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       cursorChatId: params.cursorChatId,
       workspacePath: params.workspacePath || '',
-      model: params.model || 'claude-3-5-sonnet',
-      mode: params.mode || 'agent',
+      model: params.model || (engine === 'antigravity' ? 'gemini-2.5-pro' : 'claude-4.5-sonnet'),
+      mode: params.mode || 'yolo',
       messages: [],
     };
     db.saveSession(newSession);
@@ -42,6 +50,8 @@ export class SessionManager {
     id: string,
     params: {
       title?: string;
+      description?: string;
+      engine?: 'cursor' | 'antigravity';
       workspacePath?: string;
       model?: string;
       mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
@@ -52,6 +62,8 @@ export class SessionManager {
     if (!session) return null;
 
     if (params.title !== undefined) session.title = params.title;
+    if (params.description !== undefined) session.description = params.description;
+    if (params.engine !== undefined) session.engine = params.engine;
     if (params.workspacePath !== undefined) session.workspacePath = params.workspacePath;
     if (params.model !== undefined) session.model = params.model;
     if (params.mode !== undefined) session.mode = params.mode;
@@ -76,9 +88,17 @@ export class SessionManager {
     session.messages.push(fullMsg);
     session.updatedAt = Date.now();
 
-    // Auto-update session title from first user prompt if still default
-    if (session.title === 'New Agent Chat' && message.role === 'user') {
-      session.title = message.content.slice(0, 40) + (message.content.length > 40 ? '...' : '');
+    // Auto-update session title and description from first user prompt
+    if (
+      message.role === 'user' &&
+      (session.title === 'New Agent Chat' ||
+        session.title.includes('Новий чат') ||
+        session.title === 'Untitled Chat')
+    ) {
+      const firstLine = message.content.split('\n')[0].trim();
+      session.title = firstLine.slice(0, 42) + (firstLine.length > 42 ? '...' : '');
+      const wsName = session.workspacePath ? session.workspacePath.split(/[/\\]/).pop() : '';
+      session.description = wsName ? `📂 ${wsName} • ${message.content.slice(0, 50)}...` : message.content.slice(0, 60);
     }
 
     db.saveSession(session);

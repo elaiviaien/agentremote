@@ -45,6 +45,8 @@ export interface ChatSession {
   id: string;
   deviceId: string;
   title: string;
+  description?: string;
+  engine?: 'cursor' | 'antigravity';
   createdAt: number;
   updatedAt: number;
   cursorChatId?: string; // Cursor CLI native chat ID if linked
