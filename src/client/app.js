@@ -664,31 +664,92 @@ class AgentRemoteApp {
       case 'agent:chunk': {
         const sessionId = msg.payload?.sessionId;
         const delta = msg.payload?.delta || msg.payload?.chunk || '';
-        this.appendAssistantChunk(sessionId, delta);
+        
+        const s = this.sessions.find((x) => x.id === sessionId);
+        if (s) {
+          if (!s.isStreaming) {
+            s.isStreaming = true;
+            s.status = 'running';
+            this.renderSessions();
+          }
+          const lastMsg = [...(s.messages || [])].reverse().find((m) => m.role === 'assistant');
+          if (lastMsg) {
+            lastMsg.content = (lastMsg.content || '') + delta;
+            lastMsg.isStreaming = true;
+          }
+        }
+
+        if (sessionId === this.activeSessionId) {
+          this.appendAssistantChunk(sessionId, delta);
+        }
+        break;
+      }
+
+      case 'session:updated': {
+        const updatedSession = msg.payload;
+        if (updatedSession && updatedSession.id) {
+          const idx = this.sessions.findIndex((x) => x.id === updatedSession.id);
+          if (idx >= 0) {
+            this.sessions[idx] = updatedSession;
+          } else {
+            this.sessions.unshift(updatedSession);
+          }
+          this.renderSessions();
+          if (this.activeSessionId === updatedSession.id) {
+            this.renderActiveChat();
+          }
+        }
         break;
       }
 
       case 'agent:tool_call': {
         const { sessionId, toolCall } = msg.payload;
-        this.renderToolCall(sessionId, toolCall);
+        const s = this.sessions.find((x) => x.id === sessionId);
+        if (s) {
+          s.isStreaming = true;
+          s.status = 'running';
+          this.renderSessions();
+        }
+        if (sessionId === this.activeSessionId) {
+          this.renderToolCall(sessionId, toolCall);
+        }
         break;
       }
 
       case 'agent:tool_result': {
         const { sessionId, toolCallId, result, status } = msg.payload;
-        this.renderToolResult(sessionId, toolCallId, result, status);
+        if (sessionId === this.activeSessionId) {
+          this.renderToolResult(sessionId, toolCallId, result, status);
+        }
         break;
       }
 
       case 'agent:complete': {
         const { sessionId, cursorChatId } = msg.payload;
-        this.handleAgentComplete(sessionId, cursorChatId);
+        const s = this.sessions.find((x) => x.id === sessionId);
+        if (s) {
+          s.isStreaming = false;
+          s.status = 'idle';
+          if (cursorChatId) s.cursorChatId = cursorChatId;
+          this.renderSessions();
+        }
+        if (sessionId === this.activeSessionId) {
+          this.handleAgentComplete(sessionId, cursorChatId);
+        }
         break;
       }
 
       case 'agent:error': {
         const { sessionId, error } = msg.payload;
-        this.handleAgentError(sessionId, error);
+        const s = this.sessions.find((x) => x.id === sessionId);
+        if (s) {
+          s.isStreaming = false;
+          s.status = 'idle';
+          this.renderSessions();
+        }
+        if (sessionId === this.activeSessionId) {
+          this.handleAgentError(sessionId, error);
+        }
         break;
       }
 
@@ -964,12 +1025,20 @@ class AgentRemoteApp {
         ? '<span class="session-engine-tag antigravity">AGY</span>'
         : '<span class="session-engine-tag cursor">CURSOR</span>';
 
+      const isRunning = Boolean(s.isStreaming || s.status === 'running');
+      const runningTag = isRunning
+        ? '<span class="session-running-badge" style="display:inline-flex; align-items:center; gap:4px; font-size:9.5px; padding:1px 5px; border-radius:4px; background:rgba(56,189,248,0.15); color:var(--accent-primary); font-weight:700; border:1px solid rgba(56,189,248,0.3);"><span class="pulse-dot"></span> виконується</span>'
+        : '';
+
       const descText = s.description || (s.workspacePath ? s.workspacePath.split(/[/\\]/).filter(Boolean).pop() : 'Робоча сесія');
 
       item.innerHTML = `
         <div class="session-info">
           <div class="session-header-line">
-            ${engineTag}
+            <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+              ${engineTag}
+              ${runningTag}
+            </div>
             <div class="session-title">${this.escapeHtml(s.title || (isAntigravity ? 'Чат Antigravity' : 'Чат Cursor'))}</div>
           </div>
           <div class="session-desc">${this.escapeHtml(descText)}</div>
@@ -1030,6 +1099,9 @@ class AgentRemoteApp {
     if (!session) {
       this.currentChatTitle.innerText = 'Новий чат Cursor';
       this.chatMeta.innerText = 'Оберіть сесію або почніть нову';
+      this.isStreaming = false;
+      this.stopAgentBtn.style.display = 'none';
+      this.sendBtn.disabled = false;
       this.chatMessages.innerHTML = `
         <div class="welcome-box">
           <div class="welcome-badge">AgentRemote IDE</div>
@@ -1040,8 +1112,17 @@ class AgentRemoteApp {
       return;
     }
 
+    const isSessionStreaming = Boolean(session.isStreaming || session.status === 'running');
+    this.isStreaming = isSessionStreaming;
+    this.stopAgentBtn.style.display = isSessionStreaming ? 'inline-flex' : 'none';
+    this.sendBtn.disabled = isSessionStreaming;
+
     this.currentChatTitle.innerText = session.title || 'Чат розробки';
-    this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
+    if (isSessionStreaming && this.chatMeta) {
+      this.chatMeta.innerHTML = `<span style="color:var(--accent-primary); font-weight:600;"><span class="pulse-dot"></span> Агент виконує завдання...</span>`;
+    } else if (this.chatMeta) {
+      this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
+    }
 
     if (session.messages.length === 0) {
       this.chatMessages.innerHTML = `
@@ -1061,24 +1142,38 @@ class AgentRemoteApp {
     }
 
     this.chatMessages.innerHTML = '';
-    session.messages.forEach((msg) => {
-      this.renderChatMessageElement(msg.role, msg.content, msg.toolCalls);
+    session.messages.forEach((msg, idx) => {
+      const isLast = idx === session.messages.length - 1;
+      const isLastStreaming = isLast && isSessionStreaming && msg.role === 'assistant';
+      this.renderChatMessageElement(msg.role, msg.content, msg.toolCalls, isLastStreaming);
     });
     this.scrollToBottom();
   }
 
-  renderChatMessageElement(role, content, toolCalls) {
+  renderChatMessageElement(role, content, toolCalls, isStreaming = false) {
     const el = document.createElement('div');
-    el.className = `message ${role}`;
+    el.className = `message ${role} ${isStreaming ? 'streaming' : ''}`;
 
     const isUser = role === 'user';
     const isAssistant = role === 'assistant';
 
     const avatarHtml = isUser
       ? `<div class="message-avatar" style="background:var(--accent-primary); color:#fff; font-weight:700; font-size:11px;">ВИ</div>`
-      : `<div class="message-avatar" style="background:#334155; color:#fff; font-weight:700; font-size:10px;">AI</div>`;
+      : `<div class="message-avatar" style="background:var(--accent-primary); color:#fff; font-weight:700; font-size:10px;">AI</div>`;
 
-    const parsedContent = isAssistant && window.marked ? marked.parse(content || '') : this.escapeHtml(content || '').replace(/\n/g, '<br>');
+    let parsedContent = '';
+    if (isAssistant && window.marked && content) {
+      parsedContent = marked.parse(content);
+    } else if (content) {
+      parsedContent = this.escapeHtml(content).replace(/\n/g, '<br>');
+    } else if (isStreaming) {
+      parsedContent = `
+        <div class="agent-thinking-wrapper" style="display:flex; align-items:center; gap:8px; padding:4px 0; color:var(--text-secondary); font-size:12.5px;">
+          <span class="thinking-spinner"></span>
+          <span>Агент підключається та міркує...</span>
+        </div>
+      `;
+    }
 
     el.innerHTML = `
       ${avatarHtml}

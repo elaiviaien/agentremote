@@ -69,6 +69,8 @@ export interface ChatSession {
   model: string;
   mode: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
   messages: ChatMessage[];
+  isStreaming?: boolean;
+  status?: 'idle' | 'running' | 'completed' | 'error';
 }
 
 export interface ToolCallItem {

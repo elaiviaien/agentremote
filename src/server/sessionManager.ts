@@ -107,7 +107,20 @@ export class SessionManager {
 
   public appendChunk(sessionId: string, chunk: string) {
     const prev = this.activeStreams.get(sessionId) || '';
-    this.activeStreams.set(sessionId, prev + chunk);
+    const updated = prev + chunk;
+    this.activeStreams.set(sessionId, updated);
+
+    const session = db.getSession(sessionId);
+    if (session) {
+      session.isStreaming = true;
+      session.status = 'running';
+      const lastMsg = [...session.messages].reverse().find((m) => m.role === 'assistant');
+      if (lastMsg) {
+        lastMsg.content = updated;
+        lastMsg.isStreaming = true;
+      }
+      db.saveSession(session);
+    }
   }
 
   public getStreamingContent(sessionId: string): string {
@@ -117,6 +130,9 @@ export class SessionManager {
   public addToolCall(sessionId: string, toolCall: ToolCallItem) {
     const session = db.getSession(sessionId);
     if (!session) return;
+
+    session.isStreaming = true;
+    session.status = 'running';
 
     // Find the last assistant message
     const lastMsg = [...session.messages].reverse().find((m) => m.role === 'assistant');
@@ -156,13 +172,16 @@ export class SessionManager {
 
     if (!session) return;
 
+    session.isStreaming = false;
+    session.status = 'idle';
+
     if (cursorChatId) {
       session.cursorChatId = cursorChatId;
     }
 
     const contentToSave = finalContent !== undefined ? finalContent : accumulated;
 
-    const lastMsg = [...session.messages].reverse().find((m) => m.role === 'assistant' && m.isStreaming);
+    const lastMsg = [...session.messages].reverse().find((m) => m.role === 'assistant' && (m.isStreaming || !m.content));
     if (lastMsg) {
       lastMsg.content = contentToSave;
       lastMsg.isStreaming = false;
