@@ -526,7 +526,17 @@ body {
   flex-direction: column;
   flex-shrink: 0;
   z-index: 20;
-  transition: transform 0.25s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.app-sidebar.collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  border-right: none !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 .sidebar-top {
@@ -885,18 +895,38 @@ body {
 /* Message Styles */
 .message {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
-  max-width: 90%;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 86%;
 }
 
 .message.user {
   align-self: flex-end;
+  flex-direction: row-reverse;
 }
 
 .message.assistant {
   align-self: flex-start;
-  width: 100%;
+  max-width: 90%;
+}
+
+.message-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.message-bubble-wrapper {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .message-header {
@@ -1060,7 +1090,11 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow: hidden;
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
   background: var(--bg-darkest);
 }
 
@@ -1430,7 +1464,11 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow: hidden;
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
   background: #090d16;
   color: #f1f5f9;
   font-family: var(--font-mono);

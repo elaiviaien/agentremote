@@ -186,9 +186,14 @@ class AgentRemoteApp {
     if (this.toggleSidebarBtn) {
       this.toggleSidebarBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const isOpen = this.appSidebar.classList.toggle('open');
-        if (this.sidebarBackdrop) {
-          this.sidebarBackdrop.classList.toggle('show', isOpen);
+        const isMobile = window.innerWidth <= 768;
+        if (isMobile) {
+          const isOpen = this.appSidebar.classList.toggle('open');
+          if (this.sidebarBackdrop) {
+            this.sidebarBackdrop.classList.toggle('show', isOpen);
+          }
+        } else {
+          this.appSidebar.classList.toggle('collapsed');
         }
       });
     }
