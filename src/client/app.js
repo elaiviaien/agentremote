@@ -38,6 +38,7 @@ class AgentRemoteApp {
 
     // Sidebar
     this.newChatBtn = document.getElementById('new-chat-btn');
+    this.importChatBtn = document.getElementById('import-chat-btn');
     this.sessionSearch = document.getElementById('session-search');
     this.sessionList = document.getElementById('session-list');
     this.sessionCount = document.getElementById('session-count');
@@ -45,6 +46,22 @@ class AgentRemoteApp {
     this.modeSelect = document.getElementById('mode-select');
     this.workspaceInput = document.getElementById('workspace-input');
     this.sidebarBackdrop = document.getElementById('sidebar-backdrop');
+
+    // Import Modal Elements
+    this.importModal = document.getElementById('import-modal');
+    this.closeImportModalBtn = document.getElementById('close-import-modal-btn');
+    this.cancelImportBtn = document.getElementById('cancel-import-btn');
+    this.executeImportBtn = document.getElementById('execute-import-btn');
+    this.importTabAuto = document.getElementById('import-tab-auto');
+    this.importTabPaste = document.getElementById('import-tab-paste');
+    this.importViewAuto = document.getElementById('import-view-auto');
+    this.importViewPaste = document.getElementById('import-view-paste');
+    this.localTranscriptsList = document.getElementById('local-transcripts-list');
+    this.importPasteInput = document.getElementById('import-paste-input');
+    this.importTargetEngine = document.getElementById('import-target-engine');
+    this.importSessionTitle = document.getElementById('import-session-title');
+    this.importSanitizationReport = document.getElementById('import-sanitization-report');
+    this.selectedTranscriptFilePath = '';
 
     // Chat
     this.currentChatTitle = document.getElementById('current-chat-title');
@@ -132,6 +149,49 @@ class AgentRemoteApp {
     this.deviceSelect.addEventListener('change', (e) => {
       this.selectDevice(e.target.value);
     });
+
+    // Import Chat Button
+    if (this.importChatBtn) {
+      this.importChatBtn.addEventListener('click', () => {
+        this.openImportModal();
+      });
+    }
+
+    if (this.closeImportModalBtn) {
+      this.closeImportModalBtn.addEventListener('click', () => {
+        this.importModal.style.display = 'none';
+      });
+    }
+
+    if (this.cancelImportBtn) {
+      this.cancelImportBtn.addEventListener('click', () => {
+        this.importModal.style.display = 'none';
+      });
+    }
+
+    if (this.importTabAuto) {
+      this.importTabAuto.addEventListener('click', () => {
+        this.importTabAuto.classList.add('active');
+        this.importTabPaste.classList.remove('active');
+        this.importViewAuto.style.display = 'block';
+        this.importViewPaste.style.display = 'none';
+      });
+    }
+
+    if (this.importTabPaste) {
+      this.importTabPaste.addEventListener('click', () => {
+        this.importTabPaste.classList.add('active');
+        this.importTabAuto.classList.remove('active');
+        this.importViewPaste.style.display = 'block';
+        this.importViewAuto.style.display = 'none';
+      });
+    }
+
+    if (this.executeImportBtn) {
+      this.executeImportBtn.addEventListener('click', () => {
+        this.executeImport();
+      });
+    }
 
     // New Chat
     this.newChatBtn.addEventListener('click', () => {
@@ -464,6 +524,23 @@ class AgentRemoteApp {
         this.copyFileContentBtn.style.display = 'inline-flex';
         break;
       }
+
+      case 'transcripts:list_result': {
+        this.renderLocalTranscripts(msg.payload.transcripts);
+        break;
+      }
+
+      case 'transcripts:read_result': {
+        const res = msg.payload.result;
+        if (res) {
+          this.selectedTranscriptContent = res.cleanSummaryContext || '';
+          this.importSanitizationReport.style.display = 'block';
+          this.importSanitizationReport.innerHTML = `
+            <span>🛡️ <strong>Санітизація виконана:</strong> Виявлено <strong>${res.messages.length}</strong> повідомлень. Очищено <strong>${res.removedMetadataCount}</strong> системних тегів/трейсів, замасковано <strong>${res.redactedSecretsCount}</strong> секретів.</span>
+          `;
+        }
+        break;
+      }
     }
   }
 
@@ -488,7 +565,17 @@ class AgentRemoteApp {
       const activeDev = this.getActiveDevice();
       const isOnline = activeDev && activeDev.status === 'online';
       this.deviceStatusDot.className = `device-status-indicator ${isOnline ? 'online' : 'offline'}`;
-      this.activeDeviceIndicator.innerText = `Пристрій: ${activeDev ? activeDev.name : 'Не обрано'} (${isOnline ? 'ONLINE' : 'OFFLINE'})`;
+
+      // Check Cursor CLI auth status and conditionally hide login button
+      const isCursorLoggedIn = Boolean(activeDev && activeDev.cursorAuthStatus && activeDev.cursorAuthStatus.loggedIn);
+      if (isCursorLoggedIn) {
+        this.loginCursorBtn.style.display = 'none';
+        const emailLabel = activeDev.cursorAuthStatus.email ? ` • ${activeDev.cursorAuthStatus.email}` : ' • 🔑 Вхід виконано';
+        this.activeDeviceIndicator.innerText = `Пристрій: ${activeDev.name} (${isOnline ? 'ONLINE' : 'OFFLINE'})${emailLabel}`;
+      } else {
+        this.loginCursorBtn.style.display = 'inline-flex';
+        this.activeDeviceIndicator.innerText = `Пристрій: ${activeDev ? activeDev.name : 'Не обрано'} (${isOnline ? 'ONLINE' : 'OFFLINE'})`;
+      }
 
       if (activeDev && activeDev.defaultWorkspace && !this.workspaceInput.value) {
         this.workspaceInput.value = activeDev.defaultWorkspace;
@@ -1155,7 +1242,130 @@ class AgentRemoteApp {
     this.terminalOutput.scrollTop = this.terminalOutput.scrollHeight;
   }
 
-  showToast(text) {
+  // ================= CHAT IMPORT LOGIC =================
+  openImportModal() {
+    this.importModal.style.display = 'flex';
+    this.selectedTranscriptFilePath = '';
+    this.selectedTranscriptContent = '';
+    this.importSanitizationReport.style.display = 'none';
+    this.loadLocalTranscripts();
+  }
+
+  loadLocalTranscripts() {
+    this.localTranscriptsList.innerHTML = '<p class="placeholder-text" style="padding:14px; text-align:center;">Сканування локальних сесій...</p>';
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.pendingTranscriptReqId = Math.random().toString(36).substring(2, 8);
+      this.ws.send(
+        JSON.stringify({
+          type: 'transcripts:list_local',
+          payload: { reqId: this.pendingTranscriptReqId, deviceId: this.activeDeviceId },
+        })
+      );
+    }
+  }
+
+  renderLocalTranscripts(transcripts) {
+    if (!transcripts || transcripts.length === 0) {
+      this.localTranscriptsList.innerHTML = `
+        <div style="padding:16px; text-align:center; color:var(--text-muted); font-size:12px;">
+          Локальних транскриптів Antigravity не знайдено на цій машині.<br>
+          Ви можете вставити текст експорту у вкладці "Вставити текст / файл".
+        </div>
+      `;
+      return;
+    }
+
+    this.localTranscriptsList.innerHTML = '';
+    transcripts.forEach((t) => {
+      const item = document.createElement('div');
+      item.className = 'session-item';
+      item.style.border = '1px solid var(--border-subtle)';
+      item.style.padding = '8px 12px';
+      
+      const formattedDate = new Date(t.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      item.innerHTML = `
+        <div class="session-info">
+          <div class="session-title" style="font-size:12.5px; font-weight:600;">🚀 ${this.escapeHtml(t.title)}</div>
+          <div class="session-date">${formattedDate} • ${t.messageCount} повідомлень</div>
+        </div>
+      `;
+
+      item.addEventListener('click', () => {
+        this.localTranscriptsList.querySelectorAll('.session-item').forEach((el) => el.classList.remove('active'));
+        item.classList.add('active');
+        this.selectedTranscriptFilePath = t.filePath;
+        this.importSessionTitle.value = t.title.slice(0, 45);
+
+        // Request content & preview
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(
+            JSON.stringify({
+              type: 'transcripts:read_local',
+              payload: { reqId: Math.random().toString(36).substring(2, 8), filePath: t.filePath, deviceId: this.activeDeviceId },
+            })
+          );
+        }
+      });
+
+      this.localTranscriptsList.appendChild(item);
+    });
+  }
+
+  async executeImport() {
+    let rawContent = this.selectedTranscriptContent || '';
+    const isPaste = this.importTabPaste.classList.contains('active');
+
+    if (isPaste) {
+      rawContent = this.importPasteInput.value.trim();
+    }
+
+    if (!rawContent && !this.selectedTranscriptFilePath) {
+      alert('Будь ласка, оберіть розмову зі списку або вставте текст діалогу.');
+      return;
+    }
+
+    this.executeImportBtn.disabled = true;
+    this.executeImportBtn.innerHTML = '⏳ Очищення та імпорт...';
+
+    try {
+      const res = await fetch('/api/sessions/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify({
+          rawContent,
+          title: this.importSessionTitle.value.trim(),
+          deviceId: this.activeDeviceId,
+          model: this.modelSelect.value,
+          mode: this.modeSelect.value,
+          workspacePath: this.workspaceInput.value,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.session) {
+        this.sessions.unshift(data.session);
+        this.renderSessions();
+        this.selectSession(data.session.id);
+        this.importModal.style.display = 'none';
+
+        const rep = data.report;
+        this.showToast(`🛡️ Чат успішно імпортовано! Очищено ${rep.removedMetadataCount} системних тегів (${rep.messageCount} повід.).`);
+      } else {
+        alert(data.error || 'Помилка імпорту чату');
+      }
+    } catch {
+      alert('Помилка з\'єднання з сервером під час імпорту');
+    } finally {
+      this.executeImportBtn.disabled = false;
+      this.executeImportBtn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <span>Імпортувати та створити чат</span>
+      `;
+    }
+  }
     const toast = document.createElement('div');
     toast.style.position = 'fixed';
     toast.style.bottom = '24px';

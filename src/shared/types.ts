@@ -9,6 +9,10 @@ export interface DeviceInfo {
   arch: string;
   defaultWorkspace: string;
   cursorCliPath?: string;
+  cursorAuthStatus?: {
+    loggedIn: boolean;
+    email?: string;
+  };
   antigravityAvailable?: boolean;
   lastSeen: number;
   cpuUsage?: number;
@@ -76,8 +80,10 @@ export type WorkerToHubMessage =
   | { type: 'terminal:output'; payload: { commandId: string; data: string; isError?: boolean } }
   | { type: 'terminal:exit'; payload: { commandId: string; code: number } }
   | { type: 'fs:tree_result'; payload: { reqId: string; tree: FileEntry[]; rootPath: string } }
-  | { type: 'fs:file_result'; payload: { reqId: string; content: string; error?: string } }
+  | { type: 'fs:file_result'; payload: { reqId: string; path?: string; content: string; error?: string } }
   | { type: 'fs:write_result'; payload: { reqId: string; success: boolean; error?: string } }
+  | { type: 'transcripts:list_result'; payload: { reqId: string; transcripts: any[] } }
+  | { type: 'transcripts:read_result'; payload: { reqId: string; result: any } }
   | { type: 'sessions:discovered'; payload: { deviceId: string; sessions: DiscoveredSession[] } };
 
 export interface DiscoveredSession {
@@ -105,6 +111,8 @@ export type HubToWorkerMessage =
   | { type: 'fs:get_tree'; payload: { reqId: string; path?: string; maxDepth?: number } }
   | { type: 'fs:read_file'; payload: { reqId: string; path: string } }
   | { type: 'fs:write_file'; payload: { reqId: string; path: string; content: string } }
+  | { type: 'transcripts:list_local'; payload: { reqId: string } }
+  | { type: 'transcripts:read_local'; payload: { reqId: string; filePath: string } }
   | { type: 'sessions:scan'; payload: { deviceId: string } };
 
 // WebSocket message types between Client (Web IDE) and Cloud Hub
@@ -117,7 +125,9 @@ export type ClientToHubMessage =
   | { type: 'terminal:exec'; payload: { commandId: string; deviceId: string; command: string; cwd?: string } }
   | { type: 'fs:tree'; payload: { deviceId: string; path?: string } }
   | { type: 'fs:read'; payload: { deviceId: string; path: string } }
-  | { type: 'fs:write'; payload: { deviceId: string; path: string; content: string } };
+  | { type: 'fs:write'; payload: { deviceId: string; path: string; content: string } }
+  | { type: 'transcripts:list_local'; payload: { reqId: string; deviceId?: string } }
+  | { type: 'transcripts:read_local'; payload: { reqId: string; filePath: string; deviceId?: string } };
 
 export type HubToClientMessage =
   | { type: 'state:init'; payload: { devices: DeviceInfo[]; activeDeviceId?: string; sessions: ChatSession[]; activeSessionId?: string } }
@@ -134,5 +144,7 @@ export type HubToClientMessage =
   | { type: 'terminal:output'; payload: { commandId: string; data: string; isError?: boolean } }
   | { type: 'terminal:exit'; payload: { commandId: string; code: number } }
   | { type: 'fs:tree'; payload: { tree: FileEntry[]; rootPath: string } }
-  | { type: 'fs:file'; payload: { path: string; content: string; error?: string } }
+  | { type: 'fs:file'; payload: { path?: string; content: string; error?: string } }
+  | { type: 'transcripts:list_result'; payload: { reqId?: string; transcripts: any[] } }
+  | { type: 'transcripts:read_result'; payload: { reqId?: string; result: any } }
   | { type: 'error'; message: string };

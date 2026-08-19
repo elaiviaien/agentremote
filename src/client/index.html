@@ -114,6 +114,10 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             <span>Новий чат Cursor</span>
           </button>
+          <button id="import-chat-btn" class="btn btn-secondary btn-block" style="font-size: 12px; gap: 6px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>Імпорт чату (Antigravity/Claude)</span>
+          </button>
           <div class="search-box">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
             <input type="text" id="session-search" placeholder="Пошук у чатах...">
@@ -379,6 +383,78 @@ npm run worker</pre>
           </div>
         </section>
       </main>
+    </div>
+  </div>
+
+  <!-- Cross-Agent Chat Import Modal -->
+  <div id="import-modal" class="modal-backdrop" style="display: none;">
+    <div class="login-card glass-panel" style="max-width: 620px; width: 94%;">
+      <div class="login-header" style="text-align: left; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="brand-logo-badge" style="width: 36px; height: 36px; margin: 0; font-size: 16px;">📥</div>
+            <div>
+              <h3 style="font-size: 16px; font-weight: 700;">Безпечний імпорт та міграція чату</h3>
+              <p style="font-size: 11.5px; color: var(--text-secondary); margin: 0;">Повна санітизація метаданих, видалення системних тегів та ключів</p>
+            </div>
+          </div>
+          <button id="close-import-modal-btn" class="icon-btn">✕</button>
+        </div>
+      </div>
+
+      <!-- Source Selection Tabs -->
+      <div class="nav-pills" style="margin-bottom: 14px; position: static;">
+        <button id="import-tab-auto" class="nav-pill active" type="button">💻 З комп'ютера (Antigravity/Cursor)</button>
+        <button id="import-tab-paste" class="nav-pill" type="button">📋 Вставити текст / файл (Claude/ChatGPT)</button>
+      </div>
+
+      <!-- Auto Detect View -->
+      <div id="import-view-auto">
+        <label style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">
+          Оберіть виявлену розмову з локальної машини:
+        </label>
+        <div id="local-transcripts-list" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px;">
+          <p class="placeholder-text" style="padding: 16px; text-align: center;">Пошук локальних транскриптів...</p>
+        </div>
+      </div>
+
+      <!-- Paste Text View -->
+      <div id="import-view-paste" style="display: none;">
+        <label style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">
+          Вставте JSONL, Claude JSON або текст діалогу:
+        </label>
+        <textarea id="import-paste-input" class="custom-input" style="width: 100%; height: 130px; resize: vertical; font-family: var(--font-mono); font-size: 11.5px; padding: 10px; margin-bottom: 12px;" placeholder="Вставте вміст transcript.jsonl, експорт з Claude або ChatGPT..."></textarea>
+      </div>
+
+      <!-- Target Engine Config -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
+        <div>
+          <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">ЦІЛЬОВИЙ АГЕНТ</label>
+          <div class="custom-select-wrapper" style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 8px;">
+            <select id="import-target-engine" class="custom-select">
+              <option value="cursor">🤖 Cursor Agent</option>
+              <option value="antigravity">🚀 Antigravity Agent</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 4px;">НАЗВА СЕСІЇ (ОПЦІЙНО)</label>
+          <input type="text" id="import-session-title" class="custom-input" placeholder="Автоматично з чату" style="padding: 7px 10px;">
+        </div>
+      </div>
+
+      <!-- Sanitization Report Box -->
+      <div id="import-sanitization-report" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 8px 12px; font-size: 11.5px; color: #34d399; margin-bottom: 16px; display: none;">
+        <span>🛡️ <strong>Санітизація активна:</strong> Усі системні теги, внутрішні інструменти та секретні токени буде очищено перед імпортом.</span>
+      </div>
+
+      <div style="display: flex; gap: 8px; justify-content: flex-end;">
+        <button id="cancel-import-btn" class="btn btn-secondary">Скасувати</button>
+        <button id="execute-import-btn" class="btn btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <span>Імпортувати та створити чат</span>
+        </button>
+      </div>
     </div>
   </div>
 

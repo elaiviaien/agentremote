@@ -200,6 +200,28 @@ export class ClientWsManager {
         }
         break;
       }
+
+      case 'transcripts:list_local': {
+        const targetDev = (msg as any).payload?.deviceId || deviceManager.getActiveDeviceId();
+        if (targetDev) {
+          deviceManager.sendToWorker(targetDev, {
+            type: 'transcripts:list_local',
+            payload: { reqId: (msg as any).payload.reqId },
+          });
+        }
+        break;
+      }
+
+      case 'transcripts:read_local': {
+        const targetDev = (msg as any).payload?.deviceId || deviceManager.getActiveDeviceId();
+        if (targetDev) {
+          deviceManager.sendToWorker(targetDev, {
+            type: 'transcripts:read_local',
+            payload: { reqId: (msg as any).payload.reqId, filePath: (msg as any).payload.filePath },
+          });
+        }
+        break;
+      }
     }
   }
 

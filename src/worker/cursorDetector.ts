@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 
 export interface DiscoveredTools {
   cursorAgentCmd?: string;
@@ -170,4 +170,23 @@ export function detectCursorTools(): DiscoveredTools {
   }
 
   return result;
+}
+
+export function checkCursorAuthStatus(tools: DiscoveredTools): { loggedIn: boolean; email?: string } {
+  const binary = tools.nodeExe || tools.cursorAgentCmd;
+  if (!binary) return { loggedIn: false };
+
+  try {
+    const isWindows = process.platform === 'win32';
+    const args = tools.nodeExe && tools.agentIndexJs ? [tools.agentIndexJs, 'whoami'] : ['whoami'];
+    const res = spawnSync(binary, args, { encoding: 'utf8', timeout: 4000, shell: false });
+    const output = (res.stdout || '') + (res.stderr || '');
+    if (output.includes('Logged in as')) {
+      const match = /Logged in as\s+([^\s\r\n]+)/i.exec(output);
+      return { loggedIn: true, email: match ? match[1] : undefined };
+    }
+    return { loggedIn: false };
+  } catch {
+    return { loggedIn: false };
+  }
 }

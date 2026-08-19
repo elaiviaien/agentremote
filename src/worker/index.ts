@@ -3,10 +3,11 @@ import os from 'os';
 import path from 'path';
 import dotenv from 'dotenv';
 import { DeviceInfo, HubToWorkerMessage, WorkerToHubMessage } from '../shared/types';
-import { detectCursorTools } from './cursorDetector';
+import { detectCursorTools, checkCursorAuthStatus } from './cursorDetector';
 import { AgentRunner } from './agentRunner';
 import { TerminalRunner } from './terminalRunner';
 import { FsBridge } from './fsBridge';
+import { TranscriptScanner } from './transcriptScanner';
 
 dotenv.config();
 
@@ -98,6 +99,7 @@ class WorkerDaemon {
 
     const totalMem = Math.round(os.totalmem() / 1024 / 1024);
     const freeMem = Math.round(os.freemem() / 1024 / 1024);
+    const authStatus = checkCursorAuthStatus(this.tools);
 
     const deviceInfo: DeviceInfo = {
       id: DEVICE_ID,
@@ -110,6 +112,7 @@ class WorkerDaemon {
       arch: os.arch(),
       defaultWorkspace: DEFAULT_WORKSPACE,
       cursorCliPath: this.tools.cursorAgentCmd,
+      cursorAuthStatus: authStatus,
       antigravityAvailable: this.tools.antigravityAvailable,
       lastSeen: Date.now(),
       memoryUsage: {
@@ -284,6 +287,26 @@ class WorkerDaemon {
         this.send({
           type: 'fs:write_result',
           payload: { reqId, success: res.success, error: res.error },
+        });
+        break;
+      }
+
+      case 'transcripts:list_local' as any: {
+        const { reqId } = msg.payload as any;
+        const transcripts = TranscriptScanner.scanAntigravityTranscripts();
+        this.send({
+          type: 'transcripts:list_result' as any,
+          payload: { reqId, transcripts },
+        });
+        break;
+      }
+
+      case 'transcripts:read_local' as any: {
+        const { reqId, filePath } = msg.payload as any;
+        const result = TranscriptScanner.readAndSanitizeLocalTranscript(filePath);
+        this.send({
+          type: 'transcripts:read_result' as any,
+          payload: { reqId, result },
         });
         break;
       }

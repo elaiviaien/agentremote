@@ -4,6 +4,7 @@ import { verifyPassword, createToken, requireAuth } from '../auth';
 import { deviceManager } from '../deviceManager';
 import { sessionManager } from '../sessionManager';
 import { config } from '../config';
+import { ChatSanitizer } from '../../shared/chatSanitizer';
 
 export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // Public Login
@@ -94,9 +95,65 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     return { session };
   });
 
+  // Delete Session
   fastify.delete('/sessions/:id', { preHandler: [requireAuth] }, async (req) => {
     const { id } = req.params as { id: string };
     sessionManager.deleteSession(id);
     return { success: true };
+  });
+
+  // Import Chat / Transcript with Sanitization
+  fastify.post('/sessions/import', { preHandler: [requireAuth] }, async (req, reply) => {
+    const body = req.body as any;
+    const { rawContent, title, deviceId, model, mode, workspacePath } = body;
+
+    if (!rawContent) {
+      return reply.status(400).send({ error: 'rawContent is required' });
+    }
+
+    const sanitized = ChatSanitizer.sanitizeAny(rawContent);
+    const sessionTitle = title || sanitized.title || 'Імпортований чат';
+
+    const session = sessionManager.createSession({
+      deviceId: deviceId || deviceManager.getActiveDeviceId() || 'default',
+      title: sessionTitle,
+      workspacePath: workspacePath || '',
+      model: model || 'claude-4.5-sonnet',
+      mode: mode || 'ask',
+    });
+
+    // Populate sanitized messages
+    sanitized.messages.forEach((msg) => {
+      sessionManager.addMessage(session.id, {
+        role: msg.role,
+        content: msg.content,
+      });
+    });
+
+    const updatedSession = sessionManager.getSession(session.id);
+
+    return {
+      success: true,
+      session: updatedSession,
+      report: {
+        title: sessionTitle,
+        sourceType: sanitized.sourceType,
+        messageCount: sanitized.messages.length,
+        removedMetadataCount: sanitized.removedMetadataCount,
+        redactedSecretsCount: sanitized.redactedSecretsCount,
+        cleanSummaryContext: sanitized.cleanSummaryContext,
+      },
+    };
+  });
+
+  // Preview Sanitization endpoint
+  fastify.post('/transcripts/sanitize-preview', { preHandler: [requireAuth] }, async (req, reply) => {
+    const body = req.body as any;
+    const { rawContent } = body;
+    if (!rawContent) {
+      return reply.status(400).send({ error: 'rawContent is required' });
+    }
+    const sanitized = ChatSanitizer.sanitizeAny(rawContent);
+    return { success: true, result: sanitized };
   });
 };

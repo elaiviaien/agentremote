@@ -184,6 +184,22 @@ export class WorkerWsManager {
         });
         break;
       }
+
+      case 'transcripts:list_result': {
+        clientWsManager.broadcast({
+          type: 'transcripts:list_result',
+          payload: { reqId: (msg as any).payload.reqId, transcripts: (msg as any).payload.transcripts },
+        });
+        break;
+      }
+
+      case 'transcripts:read_result': {
+        clientWsManager.broadcast({
+          type: 'transcripts:read_result',
+          payload: { reqId: (msg as any).payload.reqId, result: (msg as any).payload.result },
+        });
+        break;
+      }
     }
   }
 }
