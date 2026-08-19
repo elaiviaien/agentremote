@@ -121,6 +121,7 @@ export type WorkerToHubMessage =
   | { type: 'agent:auth_url'; payload: { deviceId: string; url: string } }
   | { type: 'agent:auth_success'; payload: { deviceId: string } }
   | { type: 'agent:chunk'; payload: { sessionId: string; chunk: string; delta?: string } }
+  | { type: 'agent:thinking'; payload: { sessionId: string; thinking: string; delta?: string } }
   | { type: 'agent:tool_call'; payload: { sessionId: string; toolCall: ToolCallItem } }
   | { type: 'agent:tool_result'; payload: { sessionId: string; toolCallId: string; result: string; status: 'completed' | 'failed' } }
   | { type: 'agent:complete'; payload: { sessionId: string; fullContent: string; cursorChatId?: string; success: boolean; error?: string } }
@@ -193,6 +194,7 @@ export type HubToClientMessage =
   | { type: 'session:updated'; payload: ChatSession }
   | { type: 'session:deleted'; payload: { sessionId: string } }
   | { type: 'agent:chunk'; payload: { sessionId: string; chunk: string; delta?: string } }
+  | { type: 'agent:thinking'; payload: { sessionId: string; thinking: string; delta?: string } }
   | { type: 'agent:tool_call'; payload: { sessionId: string; toolCall: ToolCallItem } }
   | { type: 'agent:tool_result'; payload: { sessionId: string; toolCallId: string; result: string; status: 'completed' | 'failed' } }
   | { type: 'agent:complete'; payload: { sessionId: string; success: boolean; error?: string } }

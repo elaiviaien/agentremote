@@ -214,6 +214,20 @@ export class SessionManager {
     }
   }
 
+  public appendThinking(sessionId: string, chunk: string) {
+    const session = db.getSession(sessionId);
+    if (session) {
+      session.isStreaming = true;
+      session.status = 'running';
+      const lastMsg = [...session.messages].reverse().find((m) => m.role === 'assistant');
+      if (lastMsg) {
+        lastMsg.thinkingContent = (lastMsg.thinkingContent || '') + chunk;
+        lastMsg.isStreaming = true;
+      }
+      db.saveSession(session);
+    }
+  }
+
   public getStreamingContent(sessionId: string): string {
     return this.activeStreams.get(sessionId) || '';
   }

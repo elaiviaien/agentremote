@@ -717,6 +717,30 @@ class AgentRemoteApp {
         break;
       }
 
+      case 'agent:thinking': {
+        const sessionId = msg.payload?.sessionId;
+        const delta = msg.payload?.delta || msg.payload?.thinking || '';
+        
+        const s = this.sessions.find((x) => x.id === sessionId);
+        if (s) {
+          if (!s.isStreaming) {
+            s.isStreaming = true;
+            s.status = 'running';
+            this.renderSessions();
+          }
+          const lastMsg = [...(s.messages || [])].reverse().find((m) => m.role === 'assistant');
+          if (lastMsg) {
+            lastMsg.thinkingContent = (lastMsg.thinkingContent || '') + delta;
+            lastMsg.isStreaming = true;
+          }
+        }
+
+        if (sessionId === this.activeSessionId) {
+          this.appendAssistantThinking(sessionId, delta);
+        }
+        break;
+      }
+
       case 'session:updated': {
         const updatedSession = msg.payload;
         if (updatedSession && updatedSession.id) {
@@ -1196,7 +1220,7 @@ class AgentRemoteApp {
     session.messages.forEach((msg, idx) => {
       const isLast = idx === session.messages.length - 1;
       const isLastStreaming = isLast && isSessionStreaming && msg.role === 'assistant';
-      this.renderChatMessageElement(msg.role, msg.content, msg.toolCalls, isLastStreaming);
+      this.renderChatMessageElement(msg.role, msg.content, msg.toolCalls, isLastStreaming, msg.thinkingContent);
     });
     this.scrollToBottom();
   }
@@ -1268,7 +1292,28 @@ class AgentRemoteApp {
     this.showToast('🗑️ Чергу завдань очищено');
   }
 
-  renderChatMessageElement(role, content, toolCalls, isStreaming = false) {
+  formatThinkingHtml(thinkingText, isStreaming = false) {
+    if (!thinkingText && !isStreaming) return '';
+    return `
+      <div class="thinking-accordion ${isStreaming ? 'streaming open' : ''}">
+        <div class="thinking-accordion-header" onclick="this.closest('.thinking-accordion').classList.toggle('open')">
+          <div class="thinking-accordion-title">
+            <span class="thinking-brain-icon">🧠</span>
+            <span>Процес міркування (Thinking Process)</span>
+            ${isStreaming ? '<span class="thinking-live-badge"><span class="pulse-dot"></span> міркує...</span>' : ''}
+          </div>
+          <button type="button" class="thinking-accordion-toggle-btn" title="Розгорнути/Згорнути міркування">
+            <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </button>
+        </div>
+        <div class="thinking-accordion-body">
+          <div class="thinking-text">${this.escapeHtml(thinkingText || '')}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  renderChatMessageElement(role, content, toolCalls, isStreaming = false, thinkingContent = '') {
     const el = document.createElement('div');
     el.className = `message ${role} ${isStreaming ? 'streaming' : ''}`;
 
@@ -1284,11 +1329,24 @@ class AgentRemoteApp {
       parsedContent = marked.parse(content);
     } else if (content) {
       parsedContent = this.escapeHtml(content).replace(/\n/g, '<br>');
-    } else if (isStreaming) {
+    } else if (isStreaming && !thinkingContent && (!toolCalls || toolCalls.length === 0)) {
       parsedContent = `
         <div class="agent-thinking-wrapper" style="display:flex; align-items:center; gap:8px; padding:4px 0; color:var(--text-secondary); font-size:12.5px;">
           <span class="thinking-spinner"></span>
-          <span>Агент підключається та міркує...</span>
+          <span>Агент підключається та формує план дій...</span>
+        </div>
+      `;
+    }
+
+    const thinkingHtml = (thinkingContent || (isStreaming && isAssistant))
+      ? `<div class="thinking-container">${this.formatThinkingHtml(thinkingContent, isStreaming)}</div>`
+      : '';
+
+    let toolCallsHtml = '';
+    if (toolCalls && toolCalls.length > 0) {
+      toolCallsHtml = `
+        <div class="tool-calls-container">
+          ${toolCalls.map((tc) => this.formatToolCallHtml(tc)).join('')}
         </div>
       `;
     }
@@ -1296,21 +1354,11 @@ class AgentRemoteApp {
     el.innerHTML = `
       ${avatarHtml}
       <div class="message-bubble-wrapper" style="flex:1; min-width:0;">
-        <div class="message-bubble">
-          ${parsedContent}
-        </div>
+        ${thinkingHtml}
+        ${toolCallsHtml}
+        ${(parsedContent || (!thinkingContent && (!toolCalls || toolCalls.length === 0))) ? `<div class="message-bubble">${parsedContent}</div>` : ''}
       </div>
     `;
-
-    if (toolCalls && toolCalls.length > 0) {
-      const bubbleWrapper = el.querySelector('.message-bubble-wrapper');
-      toolCalls.forEach((tc) => {
-        const tempContainer = document.createElement('div');
-        tempContainer.innerHTML = this.formatToolCallHtml(tc);
-        const card = tempContainer.firstElementChild;
-        if (card) bubbleWrapper.appendChild(card);
-      });
-    }
 
     el.querySelectorAll('pre code').forEach((block) => {
       if (window.hljs) hljs.highlightElement(block);
@@ -1453,6 +1501,41 @@ class AgentRemoteApp {
     `;
   }
 
+  appendAssistantThinking(sessionId, delta) {
+    if (sessionId !== this.activeSessionId) return;
+
+    if (this.chatMeta) {
+      this.chatMeta.innerHTML = `<span style="color:#a78bfa; font-weight:600;"><span class="pulse-dot"></span> Агент міркує над завданням...</span>`;
+    }
+
+    let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
+    if (!assistantMsgEl) {
+      this.renderChatMessageElement('assistant', '', [], true, '');
+      assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
+    }
+
+    const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
+    let thinkingContainer = wrapper.querySelector('.thinking-container');
+    if (!thinkingContainer) {
+      thinkingContainer = document.createElement('div');
+      thinkingContainer.className = 'thinking-container';
+      wrapper.insertBefore(thinkingContainer, wrapper.firstChild);
+    }
+
+    let thinkingAccordion = thinkingContainer.querySelector('.thinking-accordion');
+    if (!thinkingAccordion) {
+      thinkingContainer.innerHTML = this.formatThinkingHtml('', true);
+      thinkingAccordion = thinkingContainer.querySelector('.thinking-accordion');
+    }
+
+    const textEl = thinkingAccordion.querySelector('.thinking-text');
+    if (textEl && delta) {
+      textEl.textContent = (textEl.textContent || '') + delta;
+    }
+
+    this.scrollToBottom();
+  }
+
   appendAssistantChunk(sessionId, delta) {
     if (sessionId !== this.activeSessionId) return;
 
@@ -1462,21 +1545,21 @@ class AgentRemoteApp {
 
     let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
     if (!assistantMsgEl) {
-      assistantMsgEl = document.createElement('div');
-      assistantMsgEl.className = 'message assistant streaming';
-      assistantMsgEl.innerHTML = `
-        <div class="message-avatar" style="background:var(--accent-primary); color:#fff; font-weight:700; font-size:10px;">AI</div>
-        <div class="message-bubble-wrapper" style="flex:1; min-width:0;">
-          <div class="message-bubble"></div>
-        </div>
-      `;
-      this.chatMessages.appendChild(assistantMsgEl);
+      this.renderChatMessageElement('assistant', '', [], true, '');
+      assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
     }
 
-    const bubble = assistantMsgEl.querySelector('.message-bubble');
+    const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
+    let bubble = wrapper.querySelector('.message-bubble');
+    if (!bubble) {
+      bubble = document.createElement('div');
+      bubble.className = 'message-bubble';
+      wrapper.appendChild(bubble);
+    }
+
     if (!bubble.rawMarkdown) {
       bubble.rawMarkdown = '';
-      bubble.innerHTML = ''; // Clear initial thinking loader
+      bubble.innerHTML = ''; // Clear initial placeholder
     }
 
     if (delta) {
@@ -1508,19 +1591,40 @@ class AgentRemoteApp {
 
     let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
     if (!assistantMsgEl) {
-      this.appendAssistantChunk(sessionId, '');
+      this.renderChatMessageElement('assistant', '', [], true, '');
       assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
     }
 
     const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = this.formatToolCallHtml(toolCall);
-    const tcEl = tempDiv.firstElementChild;
-
-    if (tcEl) {
-      wrapper.appendChild(tcEl);
-      this.currentToolCallElements.set(toolCall.id, tcEl);
+    let toolContainer = wrapper.querySelector('.tool-calls-container');
+    if (!toolContainer) {
+      toolContainer = document.createElement('div');
+      toolContainer.className = 'tool-calls-container';
+      const bubble = wrapper.querySelector('.message-bubble');
+      if (bubble) {
+        wrapper.insertBefore(toolContainer, bubble);
+      } else {
+        wrapper.appendChild(toolContainer);
+      }
     }
+
+    const existingTc = toolContainer.querySelector(`#tool-call-${toolCall.id}`);
+    if (existingTc) {
+      const temp = document.createElement('div');
+      temp.innerHTML = this.formatToolCallHtml(toolCall);
+      if (temp.firstElementChild) {
+        existingTc.replaceWith(temp.firstElementChild);
+      }
+    } else {
+      const temp = document.createElement('div');
+      temp.innerHTML = this.formatToolCallHtml(toolCall);
+      const card = temp.firstElementChild;
+      if (card) {
+        toolContainer.appendChild(card);
+        this.currentToolCallElements.set(toolCall.id, card);
+      }
+    }
+
     this.scrollToBottom();
   }
 
@@ -1590,10 +1694,17 @@ class AgentRemoteApp {
     const streamingMsg = this.chatMessages.querySelector('.message.assistant.streaming');
     if (streamingMsg) {
       streamingMsg.classList.remove('streaming');
+      
+      const liveThinkingBadge = streamingMsg.querySelector('.thinking-live-badge');
+      if (liveThinkingBadge) liveThinkingBadge.remove();
+
+      const thinkingAccordion = streamingMsg.querySelector('.thinking-accordion');
+      if (thinkingAccordion) thinkingAccordion.classList.remove('streaming');
+
       const bubble = streamingMsg.querySelector('.message-bubble');
       // If bubble is still showing thinking indicator and no text came, show fallback message
       if (bubble && !bubble.rawMarkdown && bubble.querySelector('.agent-thinking-wrapper')) {
-        bubble.innerHTML = marked ? marked.parse('✅ Завдання успішно виконано агентом.') : '✅ Завдання успішно виконано агентом.';
+        bubble.innerHTML = window.marked ? marked.parse('✅ Завдання успішно виконано агентом.') : '✅ Завдання успішно виконано агентом.';
       }
     }
 

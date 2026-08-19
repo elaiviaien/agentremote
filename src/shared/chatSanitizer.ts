@@ -122,8 +122,18 @@ export class ChatSanitizer {
           }
         }
         // Process Assistant Responses
-        else if (entry.type === 'PLANNER_RESPONSE' || entry.tool_calls) {
-          const rawContent = entry.content || '';
+        else if (entry.type === 'PLANNER_RESPONSE' || entry.tool_calls || entry.thought || entry.thinking) {
+          let rawContent = entry.content || '';
+          let thinkingContent = entry.thought || entry.thinking || '';
+
+          if (!thinkingContent && rawContent) {
+            const thinkMatch = rawContent.match(/<(?:thought|thinking)>([\s\S]*?)<\/(?:thought|thinking)>/i);
+            if (thinkMatch) {
+              thinkingContent = thinkMatch[1].trim();
+              rawContent = rawContent.replace(/<(?:thought|thinking)>[\s\S]*?<\/(?:thought|thinking)>/gi, '').trim();
+            }
+          }
+
           const { cleanText, metadataRemoved, secretsRedacted } = this.sanitizeText(rawContent);
           totalMetadataRemoved += metadataRemoved;
           totalSecretsRedacted += secretsRedacted;
@@ -147,11 +157,14 @@ export class ChatSanitizer {
             });
           }
 
-          if (cleanText || toolCalls.length > 0) {
+          if (cleanText || toolCalls.length > 0 || thinkingContent) {
             const lastMsg = cleanMessages[cleanMessages.length - 1];
             if (lastMsg && lastMsg.role === 'assistant') {
               if (cleanText) {
                 lastMsg.content = lastMsg.content ? lastMsg.content + '\n\n' + cleanText : cleanText;
+              }
+              if (thinkingContent) {
+                lastMsg.thinkingContent = lastMsg.thinkingContent ? lastMsg.thinkingContent + '\n\n' + thinkingContent : thinkingContent;
               }
               if (toolCalls.length > 0) {
                 lastMsg.toolCalls = [...(lastMsg.toolCalls || []), ...toolCalls];
@@ -160,6 +173,7 @@ export class ChatSanitizer {
               cleanMessages.push({
                 role: 'assistant',
                 content: cleanText,
+                thinkingContent: thinkingContent || undefined,
                 timestamp: entry.created_at ? new Date(entry.created_at).getTime() : Date.now(),
                 toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
               });

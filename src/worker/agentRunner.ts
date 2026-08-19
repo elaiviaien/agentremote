@@ -4,6 +4,7 @@ import { DiscoveredTools } from './cursorDetector';
 
 export interface StreamCallbacks {
   onChunk: (chunk: string, delta?: string) => void;
+  onThinking?: (thinkingText: string, delta?: string) => void;
   onToolCall: (toolCall: ToolCallItem) => void;
   onToolResult: (toolCallId: string, result: string, status: 'completed' | 'failed') => void;
   onComplete: (fullContent: string, cursorChatId?: string, success?: boolean, error?: string) => void;
@@ -162,6 +163,7 @@ export class AgentRunner {
 
     let fullOutput = '';
     let accumulatedText = '';
+    let accumulatedThinking = '';
     let buffer = '';
     let detectedChatId: string | undefined = cursorChatId;
 
@@ -195,13 +197,29 @@ export class AgentRunner {
 
           if (parsed.session_id) detectedChatId = parsed.session_id;
 
+          // 0. Thinking / Reasoning chunks
+          if (parsed.type === 'thinking' || parsed.thinking || parsed.thought || (parsed.type === 'message' && parsed.role === 'thought')) {
+            const thinkText = parsed.thinking || parsed.thought || parsed.content || (parsed.message && parsed.message.content) || '';
+            if (thinkText) {
+              accumulatedThinking += (typeof thinkText === 'string' ? thinkText : JSON.stringify(thinkText));
+              if (callbacks.onThinking) callbacks.onThinking(accumulatedThinking, typeof thinkText === 'string' ? thinkText : JSON.stringify(thinkText));
+            }
+          }
           // 1. Assistant message object
-          if (parsed.type === 'assistant' && parsed.message?.content) {
-            const rawContent = Array.isArray(parsed.message.content)
+          else if (parsed.type === 'assistant' && parsed.message?.content) {
+            let rawContent = Array.isArray(parsed.message.content)
               ? parsed.message.content.map((c: any) => c.text || '').join('')
               : (parsed.message.content || '');
 
             if (rawContent) {
+              const thinkMatch = rawContent.match(/<(?:thought|thinking)>([\s\S]*?)<\/(?:thought|thinking)>/i);
+              if (thinkMatch) {
+                const extractedThink = thinkMatch[1].trim();
+                accumulatedThinking += (accumulatedThinking ? '\n' : '') + extractedThink;
+                if (callbacks.onThinking) callbacks.onThinking(accumulatedThinking, extractedThink);
+                rawContent = rawContent.replace(/<(?:thought|thinking)>[\s\S]*?<\/(?:thought|thinking)>/gi, '').trim();
+              }
+
               if (parsed.timestamp_ms) {
                 // Incremental stream delta
                 accumulatedText += rawContent;
@@ -215,8 +233,17 @@ export class AgentRunner {
           }
           // 2. Direct delta / text chunk
           else if (parsed.delta) {
-            accumulatedText += parsed.delta;
-            callbacks.onChunk(accumulatedText, parsed.delta);
+            let deltaText = parsed.delta;
+            const thinkMatch = deltaText.match(/<(?:thought|thinking)>([\s\S]*?)<\/(?:thought|thinking)>/i);
+            if (thinkMatch) {
+              const extractedThink = thinkMatch[1].trim();
+              accumulatedThinking += (accumulatedThinking ? '\n' : '') + extractedThink;
+              if (callbacks.onThinking) callbacks.onThinking(accumulatedThinking, extractedThink);
+              deltaText = deltaText.replace(/<(?:thought|thinking)>[\s\S]*?<\/(?:thought|thinking)>/gi, '').trim();
+            }
+
+            accumulatedText += deltaText;
+            callbacks.onChunk(accumulatedText, deltaText);
           }
           // 3. Tool use / call / action
           else if (parsed.type === 'tool_use' || parsed.tool_call || parsed.type === 'call' || parsed.type === 'action') {

@@ -205,6 +205,12 @@ class WorkerDaemon {
                 payload: { sessionId, chunk, delta },
               });
             },
+            onThinking: (thinking, delta) => {
+              this.send({
+                type: 'agent:thinking',
+                payload: { sessionId, thinking, delta },
+              });
+            },
             onToolCall: (toolCall) => {
               this.send({
                 type: 'agent:tool_call',

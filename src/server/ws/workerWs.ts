@@ -87,6 +87,16 @@ export class WorkerWsManager {
         break;
       }
 
+      case 'agent:thinking': {
+        const { sessionId, thinking, delta } = msg.payload;
+        sessionManager.appendThinking(sessionId, delta || thinking);
+        clientWsManager.broadcast({
+          type: 'agent:thinking',
+          payload: msg.payload,
+        });
+        break;
+      }
+
       case 'agent:tool_call': {
         sessionManager.addToolCall(msg.payload.sessionId, msg.payload.toolCall);
         clientWsManager.broadcast({
