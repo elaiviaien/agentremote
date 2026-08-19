@@ -78,6 +78,8 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     const session = sessionManager.createSession({
       deviceId: body.deviceId || deviceManager.getActiveDeviceId() || 'default',
       title: body.title,
+      description: body.description,
+      engine: body.engine,
       workspacePath: body.workspacePath,
       model: body.model,
       mode: body.mode,
