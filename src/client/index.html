@@ -170,8 +170,9 @@
             </div>
             <div class="custom-select-wrapper">
               <select id="model-select" class="custom-select">
+                <option value="auto" selected>Auto (Cursor обирає найкращу модель)</option>
                 <optgroup label="Claude (Anthropic)">
-                  <option value="claude-4.5-sonnet" selected>Claude Sonnet 4.5 (Рекомендована)</option>
+                  <option value="claude-4.5-sonnet">Claude Sonnet 4.5</option>
                   <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 (Thinking Mode)</option>
                   <option value="claude-4-sonnet">Claude Sonnet 4</option>
                   <option value="claude-4-sonnet-thinking">Claude Sonnet 4 (Thinking)</option>
@@ -564,9 +565,10 @@ npm run worker</pre>
             <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 4px;">МОДЕЛЬ</label>
             <div class="custom-select-wrapper" style="background: var(--bg-main); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 4px 8px;">
               <select id="modal-model-select" class="custom-select">
-                <option value="claude-4.5-sonnet" selected>Claude Sonnet 4.5</option>
-                <option value="gemini-3.1-pro">Gemini 2.5 / 3.1 Pro</option>
+                <option value="auto" selected>Auto (Cursor обирає найкращу модель)</option>
+                <option value="claude-4.5-sonnet">Claude Sonnet 4.5</option>
                 <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 Thinking</option>
+                <option value="gemini-3.1-pro">Gemini 2.5 / 3.1 Pro</option>
                 <option value="gpt-5.1">GPT-5.1 Flagship</option>
                 <option value="claude-4.5-opus-high">Claude Opus 4.5</option>
               </select>

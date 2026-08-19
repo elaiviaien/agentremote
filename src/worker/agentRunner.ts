@@ -131,7 +131,7 @@ export class AgentRunner {
       args.push('--continue');
     }
 
-    if (model) {
+    if (model && model !== 'auto' && model !== 'default') {
       args.push('--model', model);
     }
 
