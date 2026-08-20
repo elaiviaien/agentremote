@@ -152,32 +152,42 @@ export class AgentRunner {
    * goes through cursor-agent. Effort is an Antigravity-only knob.
    */
   private buildAntigravityArgs(args: string[], options: AgentRunOptions) {
-    const { prompt, model, mode, cursorChatId, thinkingEffort } = options;
+    const { prompt, model, mode, workspacePath, cursorChatId, continueLastSession, thinkingEffort } = options;
 
-    args.push('--output-format', 'stream-json', '--skip-trust');
+    args.push('--output-format', 'stream-json', '--disable-slash-commands');
 
     if (model && model !== 'auto' && model !== 'default') {
-      const finalModel =
-        thinkingEffort && thinkingEffort !== 'off' && !model.includes('[')
-          ? `${model}[effort=${thinkingEffort}]`
-          : model;
-      args.push('--model', finalModel);
-      console.log(`[AgentRunner] Antigravity model: ${finalModel}`);
+      args.push('--model', model);
     }
 
+    // agy takes effort as its own flag, but model ids that already carry a level
+    // (gemini-3.7-flash-high) conflict with it: "--model X conflicts with --effort".
+    const modelCarriesEffort = Boolean(model && /-(low|medium|high)$/i.test(model));
+    if (thinkingEffort && thinkingEffort !== 'off' && !modelCarriesEffort) {
+      args.push('--effort', thinkingEffort);
+    }
+
+    // `ask` stays on agy's default mode: it answers directly, and a tool it is
+    // not allowed to run comes back as a clear permission error.
     if (mode === 'plan') {
-      args.push('--approval-mode', 'plan');
-    } else if (mode === 'ask') {
-      args.push('--approval-mode', 'default');
-    } else {
-      args.push('--approval-mode', 'yolo');
+      args.push('--mode', 'plan');
+    } else if (mode !== 'ask') {
+      args.push('--mode', 'accept-edits', '--dangerously-skip-permissions');
     }
 
     if (cursorChatId) {
-      args.push('--resume', cursorChatId);
+      args.push('--conversation', cursorChatId);
+    } else if (continueLastSession) {
+      args.push('--continue');
     }
 
-    args.push('--prompt', prompt);
+    if (workspacePath) {
+      args.push('--add-dir', workspacePath);
+    }
+
+    console.log(`[AgentRunner] Antigravity model: ${model || 'default'} effort: ${thinkingEffort || 'default'}`);
+
+    args.push('--print', prompt);
   }
 
   public run(options: AgentRunOptions, callbacks: StreamCallbacks) {
@@ -222,6 +232,7 @@ export class AgentRunner {
     let accumulatedThinking = '';
     let buffer = '';
     let detectedChatId: string | undefined = cursorChatId;
+    let explicitError: string | undefined;
 
     // Node refuses to spawn .cmd/.bat wrappers without a shell on Windows (EINVAL),
     // and under a shell we have to quote the arguments ourselves.
@@ -258,6 +269,66 @@ export class AgentRunner {
           const parsed = JSON.parse(trimmed);
 
           if (parsed.session_id) detectedChatId = parsed.session_id;
+          if (parsed.conversation_id) detectedChatId = parsed.conversation_id;
+
+          // Antigravity (`agy`) speaks its own event dialect.
+          if (isAntigravity && parsed.event) {
+            if (parsed.event === 'init') {
+              continue;
+            }
+
+            if (parsed.event === 'step_update' && parsed.step_update) {
+              const step = parsed.step_update;
+              if (step.conversation_id) detectedChatId = step.conversation_id;
+              const delta = step.text_delta || '';
+              const stepType = step.step_type || '';
+
+              if (stepType === 'thinking' || stepType === 'reasoning') {
+                if (delta && callbacks.onThinking) {
+                  accumulatedThinking += delta;
+                  callbacks.onThinking(accumulatedThinking, delta);
+                }
+              } else if (stepType === 'agent_response') {
+                if (delta) {
+                  accumulatedText += delta;
+                  callbacks.onChunk(accumulatedText, delta);
+                }
+              } else if (stepType && stepType !== 'user_input' && stepType !== 'checkpoint') {
+                const toolId = `${stepType}-${step.step_index}`;
+                if (step.state === 'ACTIVE') {
+                  callbacks.onToolCall({
+                    id: toolId,
+                    type: stepType,
+                    name: step.tool_name || stepType,
+                    input: step.tool_input || step.command || step.text_delta,
+                    status: 'running',
+                    startTime: Date.now(),
+                  });
+                } else if (step.state === 'DONE') {
+                  callbacks.onToolResult(toolId, step.result || step.text_delta || '', 'completed');
+                }
+              }
+              continue;
+            }
+
+            if (parsed.event === 'result' && parsed.result) {
+              const res = parsed.result;
+              if (res.conversation_id) detectedChatId = res.conversation_id;
+              const answer = typeof res.response === 'string' ? res.response.trim() : '';
+              // agy reports a failed tool call as status ERROR even when the turn
+              // still produced an answer — keep the answer, drop the noise.
+              if (typeof res.error === 'string' && res.error.trim() && !answer) {
+                explicitError = res.error.trim();
+              }
+              if (answer) {
+                accumulatedText = answer;
+                callbacks.onChunk(accumulatedText, '');
+              }
+              continue;
+            }
+
+            continue;
+          }
 
           // 0. Thinking / Reasoning chunks
           if (parsed.type === 'thinking' || parsed.thinking || parsed.thought || (parsed.type === 'message' && parsed.role === 'thought')) {
@@ -423,11 +494,15 @@ export class AgentRunner {
         callbacks.onChunk(accumulatedText, buffer);
       }
 
-      if (code === 0) {
+      // A non-zero exit still counts as an answer when the agent produced one
+      // (agy exits 1 on a failed tool call even after answering).
+      if ((code === 0 || accumulatedText.trim()) && !explicitError) {
         const content = this.pickHumanContent(accumulatedText, fullOutput);
         callbacks.onComplete(content, detectedChatId, true);
       } else {
-        const errorMsg = this.extractHumanError(fullOutput, accumulatedText, code);
+        const errorMsg = explicitError
+          ? `⚠️ ${explicitError}`
+          : this.extractHumanError(fullOutput, accumulatedText, code);
         callbacks.onComplete(errorMsg, detectedChatId, false, errorMsg);
       }
     });

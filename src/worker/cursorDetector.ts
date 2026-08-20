@@ -194,23 +194,20 @@ export function detectAntigravityCli(): string | undefined {
   const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
   const candidates = isWindows
     ? [
-        path.join(home, '.gemini', 'antigravity-cli', 'bin', 'antigravity.exe'),
-        path.join(home, '.gemini', 'antigravity-cli', 'bin', 'antigravity.cmd'),
+        path.join(localAppData, 'agy', 'bin', 'agy.exe'),
+        path.join(home, '.local', 'bin', 'agy.exe'),
         path.join(localAppData, 'Programs', 'antigravity', 'bin', 'antigravity.cmd'),
-        path.join(appData, 'npm', 'antigravity.cmd'),
-        path.join(appData, 'npm', 'gemini.cmd'),
       ]
     : [
-        path.join(home, '.gemini', 'antigravity-cli', 'bin', 'antigravity'),
-        '/usr/local/bin/antigravity',
-        '/usr/local/bin/gemini',
+        path.join(home, '.local', 'bin', 'agy'),
+        '/usr/local/bin/agy',
       ];
 
   for (const cand of candidates) {
     if (fs.existsSync(cand)) return cand;
   }
 
-  for (const name of ['antigravity', 'gemini']) {
+  for (const name of ['agy', 'antigravity']) {
     try {
       const out = execSync(isWindows ? 'where ' + name : 'which ' + name, {
         stdio: ['ignore', 'pipe', 'ignore'],
@@ -250,8 +247,47 @@ export function listAvailableModels(tools: DiscoveredTools): AvailableModel[] {
   }
 
   if (tools.antigravityCliCmd) {
-    for (const m of ANTIGRAVITY_MODELS) {
-      models.push({ ...m });
+    let discovered = 0;
+    const seenAntigravity = new Set<string>();
+    try {
+      const res = spawnSync(tools.antigravityCliCmd, ['models'], {
+        encoding: 'utf8',
+        timeout: 20000,
+        shell: /[.](cmd|bat)$/i.test(tools.antigravityCliCmd),
+      });
+      const out = (res.stdout || '') + (res.stderr || '');
+      for (const rawLine of out.split('\n')) {
+        const line = rawLine.trim();
+        const parts = line.split('\t');
+        if (parts.length < 2) continue;
+        const id = parts[0].trim();
+        if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) continue;
+
+        // agy lists one entry per effort level (gemini-3.7-flash-high/-medium/-low)
+        // and rejects `--effort` on those ids. Collapse such families into their
+        // base id, which is the form that does take `--effort`.
+        const levelled = /^(.*)-(low|medium|high)$/i.exec(id);
+        if (levelled) {
+          const baseId = levelled[1];
+          if (seenAntigravity.has(baseId)) continue;
+          seenAntigravity.add(baseId);
+          const label = parts[1].trim().replace(/\s*\((Low|Medium|High)\)\s*$/i, '');
+          models.push({ id: baseId, label, engine: 'antigravity', supportsEffort: true });
+        } else {
+          if (seenAntigravity.has(id)) continue;
+          seenAntigravity.add(id);
+          models.push({ id, label: parts[1].trim(), engine: 'antigravity', supportsEffort: false });
+        }
+        discovered++;
+      }
+    } catch (err) {
+      console.warn('[Detector] Failed to list Antigravity models:', err);
+    }
+
+    if (!discovered) {
+      for (const m of ANTIGRAVITY_MODELS) {
+        models.push({ ...m });
+      }
     }
   }
 

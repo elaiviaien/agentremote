@@ -2243,8 +2243,8 @@ class AgentRemoteApp {
   defaultModelFor(engine) {
     const models = this.getDeviceModels(engine);
     if (engine === 'antigravity') {
-      const preferred = models.find((m) => m.id === 'gemini-3-pro') || models[0];
-      return preferred ? preferred.id : 'gemini-3-pro';
+      const preferred = models.find((m) => m.id === 'gemini-3.7-flash') || models[0];
+      return preferred ? preferred.id : 'gemini-3.7-flash';
     }
     const composer = models.find((m) => m.id === 'composer-2.5');
     if (composer) return composer.id;

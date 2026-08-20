@@ -44,7 +44,7 @@ export class SessionManager {
       sourceSessionId: params.sourceSessionId,
       sourceFilePath: params.sourceFilePath,
       workspacePath: params.workspacePath || '',
-      model: params.model || (engine === 'antigravity' ? 'gemini-3-pro' : 'composer-2.5'),
+      model: params.model || (engine === 'antigravity' ? 'gemini-3.7-flash' : 'composer-2.5'),
       mode: params.mode || 'yolo',
       thinkingEffort: params.thinkingEffort || (engine === 'antigravity' ? 'high' : 'medium'),
       messages: [],
