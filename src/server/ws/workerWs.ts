@@ -22,7 +22,9 @@ export class WorkerWsManager {
 
     socket.on('close', () => {
       if (registeredDeviceId) {
-        deviceManager.unregisterWorker(registeredDeviceId);
+        const removed = deviceManager.unregisterWorker(registeredDeviceId, socket);
+        if (!removed) return; // stale socket; a newer connection is already online
+
         clientWsManager.broadcast({
           type: 'device:status',
           payload: { deviceId: registeredDeviceId, status: 'offline' },

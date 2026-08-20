@@ -47,6 +47,9 @@ class HubLink {
   private reconnecting = false;
   private attempts = 0;
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private pingTimer: NodeJS.Timeout | null = null;
+  private sessionCloseTimer: NodeJS.Timeout | null = null;
+  private intentionalStop = false;
 
   constructor(
     public readonly hubUrl: string,
@@ -56,12 +59,15 @@ class HubLink {
   ) {}
 
   public start() {
+    this.intentionalStop = false;
     this.connect();
   }
 
   public stop() {
+    this.intentionalStop = true;
     this.reconnecting = true;
     this.stopHeartbeat();
+    this.clearSessionCloseTimer();
     try {
       this.ws?.close();
     } catch {
@@ -77,18 +83,41 @@ class HubLink {
   };
 
   private connect() {
+    if (this.intentionalStop) return;
     const wsUrl = toWorkerWsUrl(this.hubUrl);
     console.log(`[Worker] Connecting to ${this.hubUrl} (${wsUrl.replace(WORKER_TOKEN, '***')})`);
+
+    // Drop previous socket listeners cleanly before opening a new one
+    if (this.ws) {
+      try {
+        this.ws.removeAllListeners();
+        if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+          this.ws.close();
+        }
+      } catch {
+        /* ignore */
+      }
+      this.ws = null;
+    }
+
     try {
-      this.ws = new WebSocket(wsUrl);
-      this.ws.on('open', () => {
+      this.ws = new WebSocket(wsUrl, {
+        handshakeTimeout: 20000,
+        perMessageDeflate: false,
+      });
+      const socket = this.ws;
+
+      socket.on('open', () => {
+        if (this.ws !== socket) return;
         console.log(`[Worker] Connected to ${this.hubUrl}`);
         this.reconnecting = false;
         this.attempts = 0;
+        this.clearSessionCloseTimer();
         this.send({ type: 'worker:register', payload: this.buildDeviceInfo() });
         this.startHeartbeat();
       });
-      this.ws.on('message', (data: WebSocket.Data) => {
+      socket.on('message', (data: WebSocket.Data) => {
+        if (this.ws !== socket) return;
         try {
           const msg = JSON.parse(data.toString()) as HubToWorkerMessage;
           this.onMessage(msg, this.send);
@@ -96,23 +125,30 @@ class HubLink {
           console.error(`[Worker] Parse message error (${this.hubUrl}):`, err);
         }
       });
-      this.ws.on('close', (code, reason) => {
+      socket.on('pong', () => {
+        /* Railway / proxy keepalive */
+      });
+      socket.on('close', (code, reason) => {
+        if (this.ws !== socket) return; // superseded by a newer connection attempt
         console.warn(`[Worker] Disconnected from ${this.hubUrl} (code: ${code}, reason: ${reason || 'none'})`);
         this.stopHeartbeat();
-        this.onCloseSessions(this.send);
-        this.scheduleReconnect();
+        this.ws = null;
+        // Don't abort sessions on brief blips — wait for reconnect grace period
+        this.scheduleSessionFailIfStillDown();
+        if (!this.intentionalStop) this.scheduleReconnect();
       });
-      this.ws.on('error', (err) => {
+      socket.on('error', (err) => {
         console.error(`[Worker] WebSocket error (${this.hubUrl}):`, err.message);
       });
     } catch (err: any) {
       console.error(`[Worker] Connection setup failed (${this.hubUrl}):`, err.message);
-      this.scheduleReconnect();
+      if (!this.intentionalStop) this.scheduleReconnect();
     }
   }
 
   private startHeartbeat() {
     this.stopHeartbeat();
+    // App-level heartbeat for DeviceManager lastPing
     this.heartbeatTimer = setInterval(() => {
       const totalMem = Math.round(os.totalmem() / 1024 / 1024);
       const freeMem = Math.round(os.freemem() / 1024 / 1024);
@@ -123,7 +159,18 @@ class HubLink {
           memoryUsage: { total: totalMem, free: freeMem, used: totalMem - freeMem },
         },
       });
-    }, 10000);
+    }, 8000);
+
+    // Protocol-level ping keeps Railway/load-balancer idle timeouts from killing the socket
+    this.pingTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        try {
+          this.ws.ping();
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 15000);
   }
 
   private stopHeartbeat() {
@@ -131,13 +178,39 @@ class HubLink {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
+  private clearSessionCloseTimer() {
+    if (this.sessionCloseTimer) {
+      clearTimeout(this.sessionCloseTimer);
+      this.sessionCloseTimer = null;
+    }
+  }
+
+  private scheduleSessionFailIfStillDown() {
+    this.clearSessionCloseTimer();
+    this.sessionCloseTimer = setTimeout(() => {
+      this.sessionCloseTimer = null;
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+      this.onCloseSessions(this.send);
+    }, 20000);
   }
 
   private scheduleReconnect() {
-    if (this.reconnecting) return;
+    if (this.reconnecting || this.intentionalStop) return;
     this.reconnecting = true;
     this.attempts++;
-    const delay = Math.min(1000 * Math.pow(1.5, this.attempts), 15000);
+    // Fast first retries so the Railway UI barely sees offline
+    const delay =
+      this.attempts === 1
+        ? 400
+        : this.attempts === 2
+          ? 1000
+          : Math.min(1000 * Math.pow(1.5, this.attempts - 1), 12000);
     console.log(`[Worker] Reconnecting to ${this.hubUrl} in ${(delay / 1000).toFixed(1)}s`);
     setTimeout(() => {
       this.reconnecting = false;

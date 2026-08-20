@@ -37,6 +37,16 @@ class DeviceManager {
       lastSeen: Date.now(),
     };
 
+    const previous = this.activeWorkers.get(deviceInfo.id);
+    if (previous && previous.socket !== socket) {
+      // Replaced by a newer connection — close the stale socket without treating it as offline.
+      try {
+        (previous.socket as any).close?.(1000, 'replaced');
+      } catch {
+        /* ignore */
+      }
+    }
+
     db.saveDevice(updatedInfo);
     this.activeWorkers.set(deviceInfo.id, {
       deviceInfo: updatedInfo,
@@ -52,10 +62,28 @@ class DeviceManager {
     return updatedInfo;
   }
 
-  public unregisterWorker(deviceId: string) {
+  /**
+   * Unregister only if `socket` is still the active connection for this device.
+   * Prevents a late `close` from an old reconnect attempt from marking the device offline
+   * while a newer socket is already registered.
+   */
+  public unregisterWorker(deviceId: string, socket?: WebSocket): boolean {
+    const current = this.activeWorkers.get(deviceId);
+    if (!current) return false;
+    if (socket && current.socket !== socket) {
+      console.log(`[DeviceManager] Ignoring stale disconnect for ${deviceId} (newer socket active)`);
+      return false;
+    }
+
     this.activeWorkers.delete(deviceId);
     this.updateDeviceStatus(deviceId, 'offline');
     console.log(`[DeviceManager] Worker disconnected: ${deviceId}`);
+    return true;
+  }
+
+  public isWorkerSocketActive(deviceId: string, socket: WebSocket): boolean {
+    const current = this.activeWorkers.get(deviceId);
+    return Boolean(current && current.socket === socket);
   }
 
   public updateHeartbeat(deviceId: string, memoryUsage?: any, cpuUsage?: number) {
