@@ -1,5 +1,12 @@
 import { spawn, ChildProcess } from 'child_process';
 import { AgentRunOptions, ToolCallItem } from '../shared/types';
+import {
+  ANTIGRAVITY_DEFAULT_MODEL,
+  isUsageLimitError,
+  resolveCursorModel,
+  resolveRunEngine,
+  supportsAntigravityEffort,
+} from '../shared/modelRouting';
 import { DiscoveredTools } from './cursorDetector';
 
 export interface StreamCallbacks {
@@ -34,6 +41,7 @@ export class AgentRunner {
     console.log(`[AgentRunner] Running cursor-agent login...`);
     const proc = spawn(this.tools.cursorAgentCmd, ['login'], {
       shell: true,
+      windowsHide: true,
       env: { ...process.env, NO_OPEN_BROWSER: '1' },
     });
 
@@ -77,6 +85,7 @@ export class AgentRunner {
         const proc = spawn(this.tools.cursorAgentCmd!, ['create-chat'], {
           cwd: workspacePath || process.cwd(),
           shell: true,
+          windowsHide: true,
           env: { ...process.env },
         });
 
@@ -160,10 +169,10 @@ export class AgentRunner {
       args.push('--model', model);
     }
 
-    // agy takes effort as its own flag, but model ids that already carry a level
-    // (gemini-3.7-flash-high) conflict with it: "--model X conflicts with --effort".
-    const modelCarriesEffort = Boolean(model && /-(low|medium|high)$/i.test(model));
-    if (thinkingEffort && thinkingEffort !== 'off' && !modelCarriesEffort) {
+    // agy takes effort as its own flag for models that support reasoning effort (Gemini, GPT-OSS base).
+    // Claude models (claude-opus-4-6-thinking, claude-sonnet-4-6) and model IDs that already carry a level
+    // (gemini-3.7-flash-high) reject `--effort`.
+    if (thinkingEffort && thinkingEffort !== 'off' && supportsAntigravityEffort(model)) {
       args.push('--effort', thinkingEffort);
     }
 
@@ -185,19 +194,78 @@ export class AgentRunner {
       args.push('--add-dir', workspacePath);
     }
 
-    console.log(`[AgentRunner] Antigravity model: ${model || 'default'} effort: ${thinkingEffort || 'default'}`);
+    console.log(`[AgentRunner] Antigravity model: ${model || 'default'} effort: ${thinkingEffort && supportsAntigravityEffort(model) ? thinkingEffort : 'none/unsupported'}`);
 
     args.push('--print', prompt);
   }
 
-  public run(options: AgentRunOptions, callbacks: StreamCallbacks) {
-    const { sessionId, engine, prompt, model, mode, workspacePath, cursorChatId, continueLastSession, thinkingEffort } = options;
+  public run(options: AgentRunOptions, rawCallbacks: StreamCallbacks) {
+    const { sessionId, engine, model, cursorChatId } = options;
 
     if (this.activeProcesses.has(sessionId)) {
       this.abort(sessionId);
     }
 
-    const isAntigravity = engine === 'antigravity';
+    const t0 = Date.now();
+    let loggedTtfb = false;
+    let ttfbModel = model || 'default';
+    const markTtfb = (kind: string) => {
+      if (loggedTtfb) return;
+      loggedTtfb = true;
+      console.log(`[AgentRunner] TTFB ${Date.now() - t0}ms (${kind}) session=${sessionId} model=${ttfbModel}`);
+    };
+    const callbacks: StreamCallbacks = {
+      onChunk: (chunk, delta) => {
+        markTtfb('text');
+        rawCallbacks.onChunk(chunk, delta);
+      },
+      onThinking: (thinking, delta) => {
+        markTtfb('thinking');
+        rawCallbacks.onThinking?.(thinking, delta);
+      },
+      onToolCall: (toolCall) => {
+        markTtfb('tool');
+        rawCallbacks.onToolCall(toolCall);
+      },
+      onToolResult: rawCallbacks.onToolResult,
+      onComplete: rawCallbacks.onComplete,
+      onError: rawCallbacks.onError,
+    };
+
+    const isAntigravity =
+      resolveRunEngine({
+        engine,
+        model,
+        hasAntigravityCli: Boolean(this.tools.antigravityCliCmd),
+      }) === 'antigravity';
+
+    let resolvedModel = model;
+    let resumeId = cursorChatId;
+    if (isAntigravity) {
+      if (!resolvedModel || resolvedModel === 'auto' || resolvedModel === 'default') {
+        resolvedModel = ANTIGRAVITY_DEFAULT_MODEL;
+      }
+      // Cursor chat IDs are a different namespace from agy --conversation.
+      if (engine !== 'antigravity') resumeId = undefined;
+    } else {
+      const cursorModel = resolveCursorModel(model);
+      if (cursorModel !== (model || '')) resumeId = undefined;
+      resolvedModel = cursorModel;
+    }
+
+    const runOptions: AgentRunOptions = {
+      ...options,
+      engine: isAntigravity ? 'antigravity' : 'cursor',
+      model: resolvedModel,
+      cursorChatId: resumeId,
+    };
+    ttfbModel = resolvedModel || ttfbModel;
+
+    if (isAntigravity && engine !== 'antigravity') {
+      console.log(`[AgentRunner] Routing ${resolvedModel} through agy (payload engine was ${engine || 'cursor'})`);
+    } else if (!isAntigravity && resolvedModel !== (model || '')) {
+      console.log(`[AgentRunner] Cursor remapped ${model || 'auto'} → ${resolvedModel}; drop resume`);
+    }
 
     const useDirectNode = !isAntigravity && Boolean(this.tools.nodeExe && this.tools.agentIndexJs);
     const binary = isAntigravity
@@ -219,19 +287,19 @@ export class AgentRunner {
     }
 
     if (isAntigravity) {
-      this.buildAntigravityArgs(args, options);
+      this.buildAntigravityArgs(args, runOptions);
     } else {
-      this.buildCursorArgs(args, options);
+      this.buildCursorArgs(args, runOptions);
     }
 
-    const cwd = workspacePath || process.cwd();
+    const cwd = options.workspacePath || process.cwd();
     console.log(`[AgentRunner] Spawning ${isAntigravity ? 'antigravity' : 'cursor'} agent: ${binary} ${args.join(' ')} (cwd: ${cwd})`);
 
     let fullOutput = '';
     let accumulatedText = '';
     let accumulatedThinking = '';
     let buffer = '';
-    let detectedChatId: string | undefined = cursorChatId;
+    let detectedChatId: string | undefined = resumeId;
     let explicitError: string | undefined;
 
     // Node refuses to spawn .cmd/.bat wrappers without a shell on Windows (EINVAL),
@@ -242,6 +310,7 @@ export class AgentRunner {
     const proc = spawn(needsShell ? quoteForShell(binary) : binary, spawnArgs, {
       cwd,
       shell: needsShell,
+      windowsHide: true,
       env: {
         ...process.env,
         NO_OPEN_BROWSER: '1',
@@ -503,7 +572,8 @@ export class AgentRunner {
         const errorMsg = explicitError
           ? `⚠️ ${explicitError}`
           : this.extractHumanError(fullOutput, accumulatedText, code);
-        callbacks.onComplete(errorMsg, detectedChatId, false, errorMsg);
+        const keepResume = detectedChatId && !isUsageLimitError(errorMsg);
+        callbacks.onComplete(errorMsg, keepResume ? detectedChatId : undefined, false, errorMsg);
       }
     });
 
@@ -513,7 +583,7 @@ export class AgentRunner {
       if (wasAborted) return;
       console.error(`[AgentRunner] Spawn error:`, err);
       callbacks.onError(err.message);
-      callbacks.onComplete(err.message, cursorChatId, false, err.message);
+      callbacks.onComplete(err.message, undefined, false, err.message);
     });
   }
 
@@ -534,7 +604,7 @@ export class AgentRunner {
       console.log(`[AgentRunner] Aborting session: ${sessionId}`);
       try {
         if (process.platform === 'win32' && processEntry.proc.pid) {
-          spawn('taskkill', ['/pid', processEntry.proc.pid.toString(), '/f', '/t']);
+          spawn('taskkill', ['/pid', processEntry.proc.pid.toString(), '/f', '/t'], { windowsHide: true });
         } else {
           processEntry.proc.kill('SIGINT');
         }

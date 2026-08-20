@@ -19,7 +19,7 @@ export class TranscriptWatcher {
 
   constructor(private onSyncUpdate: (payload: SyncUpdatePayload) => void) {}
 
-  public start(intervalMs = 3500) {
+  public start(intervalMs = 15000) {
     this.stop();
     this.scanAndSync(true);
     this.checkInterval = setInterval(() => {

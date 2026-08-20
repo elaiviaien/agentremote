@@ -7,7 +7,7 @@ const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 export type VoiceSpeakMode = 'full' | 'brief';
 
 export function isVoiceEnabled(): boolean {
-  return Boolean(config.geminiApiKey && config.elevenLabsApiKey);
+  return Boolean(config.elevenLabsApiKey);
 }
 
 export function stripMarkdownForSpeech(text: string): string {
@@ -26,7 +26,7 @@ export function stripMarkdownForSpeech(text: string): string {
 }
 
 export function chooseSpeakMode(text: string, hasToolCalls: boolean, forceBrief?: boolean): VoiceSpeakMode {
-  if (forceBrief || hasToolCalls) return 'brief';
+  if (forceBrief) return 'brief';
   const plain = stripMarkdownForSpeech(text);
   if (plain.length > FULL_SPEAK_MAX_CHARS) return 'brief';
   return 'full';
@@ -59,19 +59,55 @@ async function geminiGenerate(parts: Array<Record<string, unknown>>): Promise<st
   return String(text).trim();
 }
 
-export async function transcribeAudio(buffer: Buffer, mimeType: string): Promise<string> {
-  const base64 = buffer.toString('base64');
+function normalizeAudioMime(mimeType?: string): string {
   let safeMime = (mimeType || 'audio/webm').split(';')[0].trim().toLowerCase();
-  // Gemini expects canonical mime types
   if (safeMime === 'audio/mp4' || safeMime === 'video/mp4') safeMime = 'audio/mp4';
   if (safeMime === 'audio/mpeg') safeMime = 'audio/mp3';
   if (!safeMime.startsWith('audio/')) safeMime = 'audio/webm';
+  return safeMime;
+}
 
+function audioExtension(mime: string): string {
+  if (mime.includes('webm')) return 'webm';
+  if (mime.includes('mp4')) return 'm4a';
+  if (mime.includes('mp3')) return 'mp3';
+  if (mime.includes('ogg')) return 'ogg';
+  if (mime.includes('wav')) return 'wav';
+  return 'webm';
+}
+
+async function elevenLabsTranscribe(buffer: Buffer, mimeType: string): Promise<string> {
+  if (!config.elevenLabsApiKey) {
+    throw new Error('ELEVENLABS_API_KEY is not configured');
+  }
+
+  const form = new FormData();
+  const bytes = new Uint8Array(buffer);
+  form.append('file', new Blob([bytes], { type: mimeType }), `utterance.${audioExtension(mimeType)}`);
+  form.append('model_id', 'scribe_v2');
+  form.append('language_code', 'uk');
+  form.append('tag_audio_events', 'false');
+  form.append('no_verbatim', 'true');
+
+  const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+    method: 'POST',
+    headers: { 'xi-api-key': config.elevenLabsApiKey },
+    body: form,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`ElevenLabs STT ${res.status}: ${errText.slice(0, 300)}`);
+  }
+  const data: any = await res.json();
+  return String(data?.text || '').replace(/^["«»]|["«»]$/g, '').trim();
+}
+
+async function geminiTranscribe(buffer: Buffer, mimeType: string): Promise<string> {
   const text = await geminiGenerate([
     {
       inlineData: {
-        mimeType: safeMime,
-        data: base64,
+        mimeType,
+        data: buffer.toString('base64'),
       },
     },
     {
@@ -81,6 +117,22 @@ export async function transcribeAudio(buffer: Buffer, mimeType: string): Promise
     },
   ]);
   return text.replace(/^["«»]|["«»]$/g, '').trim();
+}
+
+export async function transcribeAudio(buffer: Buffer, mimeType: string): Promise<string> {
+  const safeMime = normalizeAudioMime(mimeType);
+  const started = Date.now();
+  try {
+    const text = await elevenLabsTranscribe(buffer, safeMime);
+    console.log(`[Voice] STT Scribe v2 ${Date.now() - started}ms (${buffer.length}B)`);
+    return text;
+  } catch (err: any) {
+    if (!config.geminiApiKey) throw err;
+    console.warn('[Voice] Scribe failed, falling back to Gemini STT:', err?.message || err);
+    const text = await geminiTranscribe(buffer, safeMime);
+    console.log(`[Voice] STT Gemini fallback ${Date.now() - started}ms`);
+    return text;
+  }
 }
 
 export async function makeVoiceBrief(fullText: string, meta?: { hasToolCalls?: boolean }): Promise<string> {
@@ -107,29 +159,41 @@ export async function synthesizeSpeech(text: string): Promise<Buffer> {
     throw new Error('Nothing to speak');
   }
   const voiceId = config.elevenLabsVoiceId;
-  const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'xi-api-key': config.elevenLabsApiKey,
-      Accept: 'audio/mpeg',
-    },
-    body: JSON.stringify({
-      text: spoken,
-      model_id: 'eleven_multilingual_v2',
-      voice_settings: {
-        stability: 0.45,
-        similarity_boost: 0.75,
+  const preferred = config.elevenLabsTtsModel || 'eleven_flash_v2_5';
+  const models = preferred === 'eleven_multilingual_v2'
+    ? ['eleven_multilingual_v2']
+    : [preferred, 'eleven_multilingual_v2'];
+
+  let lastErr = '';
+  for (const modelId of models) {
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`;
+    const started = Date.now();
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'xi-api-key': config.elevenLabsApiKey,
+        Accept: 'audio/mpeg',
       },
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`ElevenLabs error ${res.status}: ${errText.slice(0, 300)}`);
+      body: JSON.stringify({
+        text: spoken,
+        model_id: modelId,
+        voice_settings: {
+          stability: 0.4,
+          similarity_boost: 0.7,
+        },
+      }),
+    });
+    if (!res.ok) {
+      lastErr = await res.text().catch(() => '');
+      console.warn(`[Voice] TTS ${modelId} failed ${res.status}: ${lastErr.slice(0, 180)}`);
+      continue;
+    }
+    const ab = await res.arrayBuffer();
+    console.log(`[Voice] TTS ${modelId} ${Date.now() - started}ms (${spoken.length} chars)`);
+    return Buffer.from(ab);
   }
-  const ab = await res.arrayBuffer();
-  return Buffer.from(ab);
+  throw new Error(`ElevenLabs error: ${lastErr.slice(0, 300) || 'all TTS models failed'}`);
 }
 
 export async function prepareAndSpeak(opts: {
@@ -138,10 +202,19 @@ export async function prepareAndSpeak(opts: {
   forceBrief?: boolean;
 }): Promise<{ audio: Buffer; mode: VoiceSpeakMode; spokenText: string }> {
   const mode = chooseSpeakMode(opts.text || '', Boolean(opts.hasToolCalls), opts.forceBrief);
-  let spokenText =
-    mode === 'full'
-      ? stripMarkdownForSpeech(opts.text || '')
-      : await makeVoiceBrief(opts.text || '', { hasToolCalls: opts.hasToolCalls });
+  let spokenText = stripMarkdownForSpeech(opts.text || '');
+  if (mode === 'brief') {
+    if (config.geminiApiKey) {
+      try {
+        spokenText = await makeVoiceBrief(opts.text || '', { hasToolCalls: opts.hasToolCalls });
+      } catch (err: any) {
+        console.warn('[Voice] Gemini brief failed, speaking truncated original:', err?.message || err);
+        spokenText = spokenText.slice(0, 400);
+      }
+    } else {
+      spokenText = spokenText.slice(0, 400);
+    }
+  }
 
   if (!spokenText) {
     spokenText = mode === 'brief' ? 'Завдання виконано.' : '';

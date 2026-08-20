@@ -21,6 +21,7 @@ export class TerminalRunner {
 
     const proc = spawn(shell, args, {
       cwd: cwd || process.cwd(),
+      windowsHide: true,
       env: { ...process.env },
     });
 
@@ -51,7 +52,7 @@ export class TerminalRunner {
     if (proc) {
       if (process.platform === 'win32' && proc.pid) {
         try {
-          spawn('taskkill', ['/pid', proc.pid.toString(), '/f', '/t']);
+          spawn('taskkill', ['/pid', proc.pid.toString(), '/f', '/t'], { windowsHide: true });
         } catch {}
       } else {
         proc.kill('SIGKILL');

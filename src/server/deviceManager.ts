@@ -20,7 +20,13 @@ class DeviceManager {
       for (const [id, worker] of this.activeWorkers.entries()) {
         if (now - worker.lastPing > 90000) {
           console.log(`[DeviceManager] Worker ${id} timed out. Disconnecting.`);
-          worker.socket.terminate();
+          try {
+            if (typeof worker.socket?.terminate === 'function') {
+              worker.socket.terminate();
+            } else if (typeof worker.socket?.close === 'function') {
+              worker.socket.close();
+            }
+          } catch {}
           this.activeWorkers.delete(id);
           this.updateDeviceStatus(id, 'offline');
         }
@@ -86,24 +92,47 @@ class DeviceManager {
     return Boolean(current && current.socket === socket);
   }
 
-  public updateHeartbeat(deviceId: string, memoryUsage?: any, cpuUsage?: number) {
+  public updateHeartbeat(deviceId: string, memoryUsage?: any, cpuUsage?: number): DeviceInfo | null {
     const worker = this.activeWorkers.get(deviceId);
     if (worker) {
       worker.lastPing = Date.now();
       worker.deviceInfo.lastSeen = Date.now();
+      worker.deviceInfo.status = 'online';
       if (memoryUsage) worker.deviceInfo.memoryUsage = memoryUsage;
       if (cpuUsage !== undefined) worker.deviceInfo.cpuUsage = cpuUsage;
       db.saveDevice(worker.deviceInfo);
+      return { ...worker.deviceInfo, status: 'online' };
     }
+    return null;
   }
 
-  public updateDeviceStatus(deviceId: string, status: 'online' | 'offline') {
+  public updateDeviceLimits(deviceId: string, limits?: any, cursorAuthStatus?: any): DeviceInfo | null {
+    const worker = this.activeWorkers.get(deviceId);
+    if (worker) {
+      worker.lastPing = Date.now();
+      worker.deviceInfo.lastSeen = Date.now();
+      worker.deviceInfo.status = 'online';
+      if (limits) (worker.deviceInfo as any).limits = limits;
+      if (cursorAuthStatus) (worker.deviceInfo as any).cursorAuthStatus = cursorAuthStatus;
+      db.saveDevice(worker.deviceInfo);
+      return { ...worker.deviceInfo, status: 'online' };
+    }
+    return null;
+  }
+
+  public updateDeviceStatus(deviceId: string, status: 'online' | 'offline'): DeviceInfo | null {
     const dev = db.getDevice(deviceId);
     if (dev) {
       dev.status = status;
       dev.lastSeen = Date.now();
       db.saveDevice(dev);
+      return { ...dev };
     }
+    return null;
+  }
+
+  public getOnlineDevicesCount(): number {
+    return this.activeWorkers.size;
   }
 
   public getDevices(): DeviceInfo[] {

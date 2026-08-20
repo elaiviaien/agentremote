@@ -9,10 +9,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Syne:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+  <link rel="stylesheet" href="/vendor/github-dark-dimmed.min.css">
+  <script src="/vendor/highlight.min.js"></script>
+  <script src="/vendor/marked.min.js"></script>
+  <script src="/vendor/purify.min.js"></script>
 </head>
 <body data-theme="ashen">
   <!-- Login Gate Modal -->
@@ -152,10 +152,26 @@
           </div>
         </div>
 
+        <!-- Projects / Folders Section -->
+        <div class="sidebar-section sidebar-projects-section">
+          <div class="section-title">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              <span>ПРОЄКТИ</span>
+            </div>
+            <button type="button" id="new-project-btn" class="btn-icon-mini" title="Створити новий проєкт / папку">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+          <div id="project-list" class="project-list">
+            <!-- Dynamic Projects List -->
+          </div>
+        </div>
+
         <!-- Session List -->
         <div class="sidebar-section">
           <div class="section-title">
-            <span>ІСТОРІЯ СЕСІЙ</span>
+            <span id="session-list-header-title">ІСТОРІЯ СЕСІЙ</span>
             <span id="session-count" class="count-badge">0</span>
           </div>
           <div id="session-list" class="session-list">
@@ -241,150 +257,89 @@
       <!-- Center Workspace Panel -->
       <main class="app-main">
         <!-- Tab 1: Chat View -->
+        <!-- Tab 1: Chat View (Supports Multi-Pane Split Screen 1-4 chats + Side Artifact Viewer) -->
         <section id="tab-chat" class="tab-content active">
-          <!-- Chat Header -->
-          <div class="chat-header">
-            <div class="chat-title-info">
-              <div class="chat-title-row">
-                <h3 id="current-chat-title">Новий чат Cursor</h3>
-                <span id="session-badge" class="session-badge">СЕСІЯ</span>
-              </div>
-              <span id="chat-meta" class="meta-text">Готовий до запуску завдань</span>
-            </div>
-            <div class="chat-actions">
-              <button id="sync-ide-chat-btn" class="btn btn-secondary btn-sm" title="Синхронізувати повідомлення з локальної IDE (Antigravity / Cursor)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                <span>Синхронізувати з IDE</span>
+          <!-- Split Layout & Artifacts Control Bar -->
+          <div class="chat-top-toolbar">
+            <div class="split-controls-group">
+              <span class="split-label">ВІКНА:</span>
+              <button type="button" class="split-layout-btn active" data-layout="1" title="1 чат на весь екран">
+                <span class="layout-icon">❚</span>
+                <span>1</span>
               </button>
-              <button id="login-cursor-btn" class="btn btn-secondary btn-sm" title="Авторизуватися в Cursor">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                <span>Увійти в Cursor</span>
+              <button type="button" class="split-layout-btn" data-layout="2" title="2 чати поруч">
+                <span class="layout-icon">❚❚</span>
+                <span>2</span>
+              </button>
+              <button type="button" class="split-layout-btn" data-layout="3" title="3 чати поруч">
+                <span class="layout-icon">❚❚❚</span>
+                <span>3</span>
+              </button>
+              <button type="button" class="split-layout-btn" data-layout="4" title="4 чати (сітка 2x2)">
+                <span class="layout-icon">⊞</span>
+                <span>4</span>
+              </button>
+            </div>
+            <div class="chat-top-actions">
+              <button type="button" id="session-artifacts-btn" class="btn btn-secondary btn-xs" style="font-size: 11px; padding: 4px 8px; gap: 5px;" title="Список артефактів та згенерованих файлів цього чату">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <span>Артефакти</span>
+                <span id="session-artifacts-count" class="count-badge" style="display:none; font-size:9.5px; padding:0 5px; background:var(--accent-primary); color:#fff; border-radius:10px;">0</span>
+              </button>
+              <button type="button" id="add-split-pane-btn" class="btn btn-secondary btn-xs" style="font-size: 11px; padding: 4px 8px; gap: 4px;" title="Додати паралельне вікно чату (до 4-х)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>+ Додати вікно</span>
               </button>
             </div>
           </div>
 
-          <!-- Message Stream Container -->
-          <div id="chat-messages" class="chat-messages">
-            <div class="welcome-box">
-              <div class="welcome-badge">LiuLiu · Ashen</div>
-              <h3>Віддалений AI Асистент для Cursor &amp; Antigravity</h3>
-              <p>Керуйте розробкою на вашому комп'ютері чи сервері прямо з браузера будь-якого пристрою.</p>
-              
-              <div class="quick-prompt-chips">
-                <button class="chip-btn" data-prompt="Зроби огляд проекту і поясни структуру коду">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                  <span>Огляд структури проекту</span>
-                </button>
-                <button class="chip-btn" data-prompt="Перевір git статус та останні зміни">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>
-                  <span>Перевірити git статус</span>
-                </button>
-                <button class="chip-btn" data-prompt="Запусти тести та перевір чи все збирається">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                  <span>Запустити білд і тести</span>
-                </button>
-                <button class="chip-btn" data-prompt="Знайди потенційні баги або невикористаний код">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                  <span>Пошук проблем у коді</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Bottom Prompt Input -->
-          <div class="chat-input-area">
-            <div class="input-controls">
-              <div class="input-controls-left">
-                <div class="device-pill-small">
-                  <span class="dot-live"></span>
-                  <span id="active-device-indicator">Пристрій: Пошук...</span>
-                </div>
-                <!-- Inline Chat Model Selector -->
-                <div class="inline-select-wrapper">
-                  <select id="chat-model-select" class="custom-select-sm" title="Змінити модель для цього чату">
-                    <option value="auto">✨ Auto (Найкраща модель)</option>
-                    <optgroup label="Google Antigravity &amp; Gemini">
-                      <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
-                      <option value="gemini-3.7-flash-thinking">Gemini 3.7 Flash Thinking</option>
-                      <option value="gemini-3.1-pro">Gemini 3.1 Pro</option>
-                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                    </optgroup>
-                    <optgroup label="Claude (Anthropic)">
-                      <option value="claude-3.7-sonnet">Claude 3.7 Sonnet</option>
-                      <option value="claude-4.5-sonnet">Claude Sonnet 4.5</option>
-                      <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 Thinking</option>
-                      <option value="claude-4.5-opus-high">Claude Opus 4.5</option>
-                    </optgroup>
-                    <optgroup label="OpenAI GPT">
-                      <option value="gpt-5.1">GPT-5.1</option>
-                      <option value="gpt-5-mini">GPT-5 Mini</option>
-                    </optgroup>
-                  </select>
-                </div>
-              </div>
-              <div class="input-right-controls">
-                <!-- Thinking Effort Selector -->
-                <div id="thinking-effort-wrapper" class="inline-select-wrapper">
-                  <span class="thinking-effort-label" style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 3px;">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"></path><line x1="9" y1="22" x2="15" y2="22"></line></svg>
-                    <span>Effort:</span>
-                  </span>
-                  <select id="thinking-effort-select" class="custom-select-sm" title="Thinking Effort (Рівень міркування моделі)">
-                    <option value="medium" selected>🧠 Medium (Збалансовано)</option>
-                    <option value="high">🚀 High (Глибоке міркування)</option>
-                    <option value="low">⚡ Low (Швидко)</option>
-                    <option value="off">🚫 Off (Вимкнено)</option>
-                  </select>
-                </div>
-
-                <button id="stop-agent-btn" class="btn btn-danger btn-sm" style="display: none;">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
-                  <span>Зупинити агента</span>
-                </button>
-              </div>
+          <!-- Main Chat Container: Panes Grid + Side Artifact Viewer Panel -->
+          <div class="chat-view-body" id="chat-view-body">
+            <!-- Dynamic Panes Grid Container -->
+            <div id="chat-panes-grid" class="chat-panes-grid" data-layout="1">
+              <!-- Dynamic Panes rendered by app.js -->
             </div>
 
-            <!-- Dynamic Message Queue Container -->
-            <div id="chat-queue-container" class="chat-queue-container" style="display: none; margin-bottom: 8px;">
-              <div class="queue-header" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 8px 8px 0 0;">
-                <div style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--accent-primary);">
-                  <span class="pulse-dot"></span>
-                  <span>Черга завдань (<span id="queue-count">0</span>)</span>
+            <!-- Side Artifact Viewer Panel (Antigravity-Style) -->
+            <aside id="chat-artifact-viewer" class="chat-artifact-viewer" style="display: none;">
+              <div class="artifact-viewer-header">
+                <div class="artifact-header-left">
+                  <span id="artifact-viewer-icon" class="artifact-file-icon">📄</span>
+                  <div class="artifact-title-group">
+                    <span id="artifact-viewer-title" class="artifact-viewer-title">artifact.md</span>
+                    <span id="artifact-viewer-path" class="artifact-viewer-path" title="">/path/to/file</span>
+                  </div>
                 </div>
-                <button id="clear-queue-btn" class="btn btn-secondary btn-xs" style="padding: 2px 8px; font-size: 10.5px;" title="Очистити всі завдання з черги">Очистити</button>
+                <div class="artifact-header-actions">
+                  <div class="artifact-view-mode-toggle" id="artifact-view-mode-toggle">
+                    <button type="button" class="artifact-mode-btn active" data-mode="rendered" title="Форматований вигляд (Markdown/Прев'ю)">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                      <span>Прев'ю</span>
+                    </button>
+                    <button type="button" class="artifact-mode-btn" data-mode="raw" title="Вихідний код">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                      <span>Код</span>
+                    </button>
+                  </div>
+                  <button type="button" id="artifact-copy-btn" class="btn-icon-mini" title="Копіювати вміст артефакту">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  </button>
+                  <button type="button" id="artifact-download-btn" class="btn-icon-mini" title="Завантажити файл">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  </button>
+                  <button type="button" id="artifact-close-btn" class="btn-icon-mini danger" title="Закрити панель артефакту">✕</button>
+                </div>
               </div>
-              <div id="queue-items-list" class="queue-items-list" style="display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; background: var(--bg-card); border: 1px solid rgba(56, 189, 248, 0.2); border-top: none; border-radius: 0 0 8px 8px; max-height: 120px; overflow-y: auto;">
-                <!-- Dynamically populated queued items -->
-              </div>
-            </div>
 
-            <div id="pararaid-hud" class="pararaid-hud" hidden>
-              <div class="pararaid-hud-row">
-                <span class="pararaid-hud-brand">ParaRaid</span>
-                <span id="pararaid-hud-stage" class="pararaid-hud-stage">Слухаю</span>
+              <div class="artifact-viewer-body">
+                <div id="artifact-rendered-content" class="artifact-rendered-content markdown-body">
+                  <!-- Rendered markdown or preview -->
+                </div>
+                <div id="artifact-raw-content" class="artifact-raw-content" style="display: none;">
+                  <pre><code id="artifact-raw-code" class="hljs"></code></pre>
+                </div>
               </div>
-              <div id="pararaid-vu" class="pararaid-vu" aria-hidden="true"></div>
-              <div id="pararaid-hud-detail" class="pararaid-hud-detail">Говоріть у мікрофон — смужки мають стрибати</div>
-            </div>
-            <div class="input-box-wrapper">
-              <textarea id="prompt-input" placeholder="Завдання для агента... (Enter — надіслати)" rows="2"></textarea>
-              <div class="input-actions-bar">
-                <span id="voice-mode-status" class="voice-mode-status" style="display:none;" aria-live="polite"></span>
-                <button type="button" id="voice-mode-btn" class="voice-mode-btn" title="ParaRaid — голосовий зв'язок" aria-pressed="false">
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M12 8.5 L15.5 12 L12 15.5 L8.5 12 Z" stroke="currentColor" stroke-width="1.8" fill="rgba(232,93,76,0.2)"/>
-                    <path d="M12 4.2a7.8 7.8 0 0 1 0 15.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/>
-                    <path d="M12 1.5a10.5 10.5 0 0 1 0 21" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.45"/>
-                    <path d="M12 4.2a7.8 7.8 0 0 0 0 15.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/>
-                    <path d="M12 1.5a10.5 10.5 0 0 0 0 21" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.45"/>
-                  </svg>
-                </button>
-                <span class="shortcut-hint" id="send-shortcut-hint">⌘ + Enter / Enter</span>
-                <button id="send-btn" class="send-btn" title="Надіслати або додати в чергу">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                </button>
-              </div>
-            </div>
+            </aside>
           </div>
         </section>
 
@@ -637,15 +592,23 @@ npm run worker</pre>
           </div>
         </div>
 
-        <!-- Machine Selection -->
-        <div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-            <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block;">ЦІЛЬОВА МАШИНА / СЕРВЕР</label>
-            <span id="modal-device-status-badge" style="font-size: 10px; color: var(--success); font-weight: 600;">● Онлайн</span>
+        <!-- Machine & Project Selection -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block;">ЦІЛЬОВА МАШИНА</label>
+              <span id="modal-device-status-badge" style="font-size: 10px; color: var(--success); font-weight: 600;">● Онлайн</span>
+            </div>
+            <select id="modal-device-select" class="custom-select full-width">
+              <option value="">Пошук машин...</option>
+            </select>
           </div>
-          <select id="modal-device-select" class="custom-select full-width">
-            <option value="">Пошук машин...</option>
-          </select>
+          <div>
+            <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 4px;">ПРОЄКТ / ПАПКА</label>
+            <select id="modal-project-select" class="custom-select full-width">
+              <option value="">Без проєкту</option>
+            </select>
+          </div>
         </div>
 
         <!-- Workspace Folder -->
@@ -790,7 +753,130 @@ npm run worker</pre>
     </div>
   </div>
 
-  <script src="/voiceMode.js"></script>
-  <script src="/app.js"></script>
+  <!-- Project Modal (Create / Edit Project) -->
+  <div id="project-modal" class="modal-backdrop" style="display: none;">
+    <div class="login-card glass-panel modal-sheet" style="max-width: 540px; width: 94%;">
+      <div class="login-header modal-sheet-header" style="text-align: left; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div id="project-modal-icon-badge" class="brand-logo-badge" style="width: 38px; height: 38px; margin: 0; font-size: 18px;">
+              📁
+            </div>
+            <div>
+              <h3 id="project-modal-title" style="font-size: 16px; margin: 0; color: var(--text-primary);">Новий проєкт</h3>
+              <p style="font-size: 11px; color: var(--text-muted); margin: 2px 0 0 0;">Організація та групування чатів у спільну робочу папку</p>
+            </div>
+          </div>
+          <button type="button" id="close-project-modal-btn" class="icon-btn">✕</button>
+        </div>
+      </div>
+
+      <div class="modal-sheet-body" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px;">
+        <!-- Project Name & Emoji -->
+        <div>
+          <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 4px;">НАЗВА ПРОЄКТУ</label>
+          <div style="display: flex; gap: 8px;">
+            <div class="dropdown-icon-btn-wrapper" style="position: relative;">
+              <button type="button" id="project-icon-btn" class="btn btn-secondary" style="font-size: 18px; padding: 6px 12px; min-width: 44px;" title="Обрати іконку">📁</button>
+              <div id="project-icon-picker" class="project-icon-picker" style="display: none;">
+                <button type="button" class="icon-pick-btn" data-icon="📁">📁</button>
+                <button type="button" class="icon-pick-btn" data-icon="🚀">🚀</button>
+                <button type="button" class="icon-pick-btn" data-icon="⚡">⚡</button>
+                <button type="button" class="icon-pick-btn" data-icon="🤖">🤖</button>
+                <button type="button" class="icon-pick-btn" data-icon="🌐">🌐</button>
+                <button type="button" class="icon-pick-btn" data-icon="📦">📦</button>
+                <button type="button" class="icon-pick-btn" data-icon="💻">💻</button>
+                <button type="button" class="icon-pick-btn" data-icon="🎯">🎯</button>
+                <button type="button" class="icon-pick-btn" data-icon="🛠️">🛠️</button>
+                <button type="button" class="icon-pick-btn" data-icon="📱">📱</button>
+                <button type="button" class="icon-pick-btn" data-icon="🔒">🔒</button>
+                <button type="button" class="icon-pick-btn" data-icon="🎨">🎨</button>
+                <button type="button" class="icon-pick-btn" data-icon="🧪">🧪</button>
+                <button type="button" class="icon-pick-btn" data-icon="📊">📊</button>
+                <button type="button" class="icon-pick-btn" data-icon="🔧">🔧</button>
+                <button type="button" class="icon-pick-btn" data-icon="🧩">🧩</button>
+              </div>
+            </div>
+            <input type="text" id="project-name-input" class="custom-input" placeholder="Наприклад: E-Commerce API або Telegram Bot" style="flex: 1; padding: 9px 12px;">
+          </div>
+        </div>
+
+        <!-- Description -->
+        <div>
+          <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 4px;">ОПИС (ОПЦІЙНО)</label>
+          <input type="text" id="project-desc-input" class="custom-input" placeholder="Короткий опис цілей або модулів проєкту" style="padding: 8px 12px;">
+        </div>
+
+        <!-- Default Workspace Path -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block;">РОБОЧА ПАПКА ПРОЄКТУ ЗА ЗАМОВЧУВАННЯМ</label>
+            <button type="button" id="project-use-current-ws-btn" class="btn-link-mini">Поточна папка</button>
+          </div>
+          <div class="input-with-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <input type="text" id="project-workspace-input" class="custom-input" placeholder="C:\Users\...\my-project" style="padding: 9px 12px 9px 34px;">
+          </div>
+        </div>
+
+        <!-- Engine & Color Options -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div>
+            <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 4px;">РУШІЙ ЗА ЗАМОВЧУВАННЯМ</label>
+            <select id="project-engine-select" class="custom-select full-width">
+              <option value="">Не задано</option>
+              <option value="cursor">Cursor Agent</option>
+              <option value="antigravity">Google Antigravity</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 11px; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 4px;">КОЛІРНИЙ АКЦЕНТ</label>
+            <div id="project-color-picker" class="project-color-picker">
+              <span class="color-dot active" data-color="#38bdf8" style="background:#38bdf8;" title="Блакитний"></span>
+              <span class="color-dot" data-color="#a855f7" style="background:#a855f7;" title="Фіолетовий"></span>
+              <span class="color-dot" data-color="#10b981" style="background:#10b981;" title="Смарагдовий"></span>
+              <span class="color-dot" data-color="#f59e0b" style="background:#f59e0b;" title="Бурштиновий"></span>
+              <span class="color-dot" data-color="#f43f5e" style="background:#f43f5e;" title="Рожевий"></span>
+              <span class="color-dot" data-color="#06b6d4" style="background:#06b6d4;" title="Бірюзовий"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-sheet-footer" style="justify-content: space-between;">
+        <button type="button" id="delete-project-btn" class="btn btn-danger btn-sm" style="display: none; font-size: 11.5px;">
+          Видалити проєкт
+        </button>
+        <div style="display: flex; gap: 8px; margin-left: auto;">
+          <button type="button" id="cancel-project-modal-btn" class="btn btn-secondary btn-sm">Скасувати</button>
+          <button type="button" id="save-project-btn" class="btn btn-primary btn-sm">Зберегти проєкт</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Session Artifacts List Modal -->
+  <div id="session-artifacts-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-sheet" style="max-width: 500px;">
+      <div class="modal-sheet-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 18px;">📑</span>
+          <h3 style="margin: 0; font-size: 14.5px; font-weight: 700;">Артефакти поточної сесії</h3>
+        </div>
+        <button type="button" id="close-artifacts-modal-btn" class="btn-icon-mini">✕</button>
+      </div>
+      <div class="modal-sheet-body" style="max-height: 400px; overflow-y: auto; padding: 12px 16px;">
+        <div id="session-artifacts-list" class="session-artifacts-list">
+          <!-- Dynamic artifacts items -->
+        </div>
+      </div>
+      <div class="modal-sheet-footer">
+        <button type="button" id="cancel-artifacts-modal-btn" class="btn btn-secondary btn-sm">Закрити</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/voiceMode.js?v=tts-ios-4"></script>
+  <script src="/app.js?v=tts-3"></script>
 </body>
 </html>

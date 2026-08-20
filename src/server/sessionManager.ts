@@ -1,5 +1,7 @@
-import { ChatSession, ChatMessage, ToolCallItem } from '../shared/types';
+import { ChatSession, ChatSessionSummary, ChatMessage, ToolCallItem, Project } from '../shared/types';
 import { applyStreamText } from '../shared/streamText';
+import { appendTextToBlocks, appendToolToBlocks } from '../shared/messageBlocks';
+import { truncateToolCallItem, truncateString, ChatSanitizer } from '../shared/chatSanitizer';
 import { db } from './db';
 import { randomUUID } from 'crypto';
 
@@ -10,6 +12,32 @@ export class SessionManager {
     return db.getSessions(deviceId);
   }
 
+  public getSessionSummaries(deviceId?: string): ChatSessionSummary[] {
+    const sessions = db.getSessions(deviceId);
+    return sessions.map((s) => ({
+      id: s.id,
+      deviceId: s.deviceId,
+      title: s.title,
+      description: s.description,
+      projectId: s.projectId,
+      isPinned: Boolean(s.isPinned),
+      engine: s.engine,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      cursorChatId: s.cursorChatId,
+      sourceSessionId: s.sourceSessionId,
+      sourceFilePath: s.sourceFilePath,
+      workspacePath: s.workspacePath,
+      model: s.model,
+      mode: s.mode,
+      messageCount: Array.isArray(s.messages) ? s.messages.length : 0,
+      isStreaming: s.isStreaming,
+      status: s.status,
+      thinkingEffort: s.thinkingEffort,
+      promptQueue: s.promptQueue,
+    }));
+  }
+
   public getSession(id: string): ChatSession | undefined {
     return db.getSession(id);
   }
@@ -18,6 +46,8 @@ export class SessionManager {
     deviceId: string;
     title?: string;
     description?: string;
+    projectId?: string;
+    isPinned?: boolean;
     engine?: 'cursor' | 'antigravity';
     workspacePath?: string;
     model?: string;
@@ -37,6 +67,8 @@ export class SessionManager {
       deviceId: params.deviceId,
       title: params.title || defaultTitle,
       description: params.description || defaultDesc,
+      projectId: params.projectId || undefined,
+      isPinned: Boolean(params.isPinned),
       engine,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -58,6 +90,8 @@ export class SessionManager {
     params: {
       title?: string;
       description?: string;
+      projectId?: string | null;
+      isPinned?: boolean;
       engine?: 'cursor' | 'antigravity';
       workspacePath?: string;
       model?: string;
@@ -76,6 +110,8 @@ export class SessionManager {
 
     if (params.title !== undefined) session.title = params.title;
     if (params.description !== undefined) session.description = params.description;
+    if (params.projectId !== undefined) session.projectId = params.projectId === null || params.projectId === '' ? undefined : params.projectId;
+    if (params.isPinned !== undefined) session.isPinned = Boolean(params.isPinned);
     if (params.engine !== undefined) session.engine = params.engine;
     if (params.workspacePath !== undefined) session.workspacePath = params.workspacePath;
     if (params.model !== undefined) session.model = params.model;
@@ -91,6 +127,82 @@ export class SessionManager {
     session.updatedAt = Date.now();
     db.saveSession(session);
     return session;
+  }
+
+  public togglePin(id: string): ChatSession | null {
+    const session = db.getSession(id);
+    if (!session) return null;
+    session.isPinned = !session.isPinned;
+    session.updatedAt = Date.now();
+    db.saveSession(session);
+    return session;
+  }
+
+  public setSessionProject(id: string, projectId?: string): ChatSession | null {
+    const session = db.getSession(id);
+    if (!session) return null;
+    session.projectId = projectId || undefined;
+    session.updatedAt = Date.now();
+    db.saveSession(session);
+    return session;
+  }
+
+  // Projects API
+  public getProjects(): Project[] {
+    return db.getProjects();
+  }
+
+  public getProject(id: string): Project | undefined {
+    return db.getProject(id);
+  }
+
+  public createProject(params: {
+    name: string;
+    description?: string;
+    icon?: string;
+    color?: string;
+    workspacePath?: string;
+    defaultEngine?: 'cursor' | 'antigravity';
+    defaultModel?: string;
+    isPinned?: boolean;
+  }): Project {
+    const project: Project = {
+      id: randomUUID(),
+      name: params.name || 'Новий проект',
+      description: params.description || '',
+      icon: params.icon || '📁',
+      color: params.color || '#38bdf8',
+      workspacePath: params.workspacePath || '',
+      defaultEngine: params.defaultEngine,
+      defaultModel: params.defaultModel,
+      isPinned: Boolean(params.isPinned),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    db.saveProject(project);
+    return project;
+  }
+
+  public updateProject(id: string, updates: Partial<Project>): Project | null {
+    const existing = db.getProject(id);
+    if (!existing) return null;
+
+    const updated: Project = {
+      ...existing,
+      ...updates,
+      id: existing.id,
+      createdAt: existing.createdAt,
+      updatedAt: Date.now(),
+    };
+    db.saveProject(updated);
+    return updated;
+  }
+
+  public deleteProject(id: string): boolean {
+    const existing = db.getProject(id);
+    if (!existing) return false;
+    db.deleteProject(id);
+    return true;
   }
 
   public syncExternalMessages(
@@ -119,7 +231,8 @@ export class SessionManager {
         content: m.content,
         timestamp: m.timestamp || Date.now(),
         model: m.model || session.model,
-        toolCalls: m.toolCalls,
+        thinkingContent: m.thinkingContent,
+        toolCalls: Array.isArray(m.toolCalls) ? m.toolCalls.map((tc) => truncateToolCallItem(tc)) : undefined,
       }));
     }
 
@@ -158,6 +271,17 @@ export class SessionManager {
     return session.promptQueue;
   }
 
+  public updateQueuedPrompt(sessionId: string, index: number, newPrompt: string): string[] {
+    const session = db.getSession(sessionId);
+    if (!session || !session.promptQueue) return [];
+    if (index >= 0 && index < session.promptQueue.length && newPrompt.trim()) {
+      session.promptQueue[index] = newPrompt.trim();
+      session.updatedAt = Date.now();
+      db.saveSession(session);
+    }
+    return session.promptQueue;
+  }
+
   public clearQueue(sessionId: string) {
     const session = db.getSession(sessionId);
     if (!session) return;
@@ -187,8 +311,7 @@ export class SessionManager {
         session.title.includes('Новий чат') ||
         session.title === 'Untitled Chat')
     ) {
-      const firstLine = message.content.split('\n')[0].trim();
-      session.title = firstLine.slice(0, 42) + (firstLine.length > 42 ? '...' : '');
+      session.title = ChatSanitizer.cleanTitleFromPrompt(message.content, 34);
       const wsName = session.workspacePath ? session.workspacePath.split(/[/\\]/).pop() : '';
       session.description = wsName ? `📂 ${wsName} • ${message.content.slice(0, 50)}...` : message.content.slice(0, 60);
     }
@@ -208,7 +331,7 @@ export class SessionManager {
       session.status = 'running';
       const lastMsg = [...session.messages].reverse().find((m) => m.role === 'assistant');
       if (lastMsg) {
-        lastMsg.content = updated;
+        appendTextToBlocks(lastMsg, payload);
         lastMsg.isStreaming = true;
       }
       db.saveSession(session);
@@ -248,15 +371,21 @@ export class SessionManager {
     session.isStreaming = true;
     session.status = 'running';
 
+    const safeToolCall = truncateToolCallItem(toolCall);
+
     // Find the last assistant message
     const lastMsg = [...session.messages].reverse().find((m) => m.role === 'assistant');
     if (lastMsg) {
       if (!lastMsg.toolCalls) lastMsg.toolCalls = [];
-      const existing = lastMsg.toolCalls.find((t) => t.id === toolCall.id);
+      const existing = lastMsg.toolCalls.find((t) => t.id === safeToolCall.id);
       if (existing) {
-        Object.assign(existing, toolCall);
+        Object.assign(existing, safeToolCall);
+        if (!lastMsg.blocks?.some((b) => b.type === 'tool' && b.toolCallId === safeToolCall.id)) {
+          appendToolToBlocks(lastMsg, safeToolCall);
+        }
       } else {
-        lastMsg.toolCalls.push(toolCall);
+        lastMsg.toolCalls.push(safeToolCall);
+        appendToolToBlocks(lastMsg, safeToolCall);
       }
       db.saveSession(session);
     }
@@ -266,11 +395,13 @@ export class SessionManager {
     const session = db.getSession(sessionId);
     if (!session) return;
 
+    const safeResult = truncateString(result, 3000);
+
     for (const msg of session.messages) {
       if (msg.toolCalls) {
         const found = msg.toolCalls.find((t) => t.id === toolCallId);
         if (found) {
-          found.output = result;
+          found.output = safeResult;
           found.status = status;
           db.saveSession(session);
           break;

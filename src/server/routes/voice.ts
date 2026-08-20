@@ -58,7 +58,7 @@ export const voiceRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
     }
 
     try {
-      const { audio, mode, spokenText } = await prepareAndSpeak({
+      const { audio, mode } = await prepareAndSpeak({
         text,
         hasToolCalls: Boolean(body.hasToolCalls),
         forceBrief: Boolean(body.forceBrief),
@@ -66,7 +66,6 @@ export const voiceRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
 
       reply.header('Content-Type', 'audio/mpeg');
       reply.header('X-Voice-Mode', mode);
-      reply.header('X-Voice-Text', encodeURIComponent(spokenText.slice(0, 500)));
       reply.header('Cache-Control', 'no-store');
       return reply.send(audio);
     } catch (err: any) {

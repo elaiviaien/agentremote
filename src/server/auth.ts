@@ -33,7 +33,7 @@ export function hashPassword(password: string): string {
 }
 
 export function createToken(username: string): string {
-  return jwt.sign({ username }, config.jwtSecret, { expiresIn: '30d' });
+  return jwt.sign({ username }, config.jwtSecret, { expiresIn: '7d' });
 }
 
 export function verifyToken(token: string): TokenPayload | null {

@@ -1,4 +1,4 @@
-import { applyStreamText } from './shared/streamText';
+import { applyStreamText } from '../src/shared/streamText';
 
 function assertEqual(actual: string, expected: string, label: string) {
   if (actual !== expected) {

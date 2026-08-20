@@ -1,11 +1,15 @@
 import { WebSocket } from 'ws';
 import { WorkerToHubMessage } from '../../shared/types';
+import { isUsageLimitError } from '../../shared/modelRouting';
 import { deviceManager } from '../deviceManager';
 import { sessionManager } from '../sessionManager';
 import { clientWsManager } from './clientWs';
 import { config } from '../config';
 
 export class WorkerWsManager {
+  private disconnectFailTimers = new Map<string, NodeJS.Timeout>();
+  private static readonly DISCONNECT_FAIL_MS = 10 * 60 * 1000;
+
   public handleConnection(socket: WebSocket, token?: string) {
     let registeredDeviceId: string | null = null;
 
@@ -25,18 +29,43 @@ export class WorkerWsManager {
         const removed = deviceManager.unregisterWorker(registeredDeviceId, socket);
         if (!removed) return; // stale socket; a newer connection is already online
 
+        const updatedDev = deviceManager.getDevice(registeredDeviceId);
         clientWsManager.broadcast({
           type: 'device:status',
           payload: { deviceId: registeredDeviceId, status: 'offline' },
         });
-        this.failRunningSessions(registeredDeviceId);
+        if (updatedDev) {
+          clientWsManager.broadcast({
+            type: 'device:updated',
+            payload: updatedDev,
+          });
+        }
+        this.scheduleFailRunningSessions(registeredDeviceId);
       }
     });
   }
 
+  private cancelFailRunningSessions(deviceId: string) {
+    const timer = this.disconnectFailTimers.get(deviceId);
+    if (timer) {
+      clearTimeout(timer);
+      this.disconnectFailTimers.delete(deviceId);
+    }
+  }
+
+  private scheduleFailRunningSessions(deviceId: string) {
+    this.cancelFailRunningSessions(deviceId);
+    const timer = setTimeout(() => {
+      this.disconnectFailTimers.delete(deviceId);
+      if (deviceManager.getDevice(deviceId)?.status === 'online') return;
+      this.failRunningSessions(deviceId);
+    }, WorkerWsManager.DISCONNECT_FAIL_MS);
+    this.disconnectFailTimers.set(deviceId, timer);
+  }
+
   /**
-   * A worker that disappears mid-run can never send `agent:complete`, which would
-   * leave the session (and the composer in the web client) stuck in "running".
+   * Only mark sessions failed after a long disconnect. Brief hub/worker blips
+   * must not abort a task that is still running on the machine.
    */
   private failRunningSessions(deviceId: string) {
     const stuck = sessionManager
@@ -85,6 +114,7 @@ export class WorkerWsManager {
 
         const saved = deviceManager.registerWorker(devInfo, socket);
         setRegisteredId(devInfo.id);
+        this.cancelFailRunningSessions(devInfo.id);
 
         clientWsManager.broadcast({
           type: 'device:updated',
@@ -93,8 +123,44 @@ export class WorkerWsManager {
         break;
       }
 
+      case 'worker:running_sessions': {
+        const { deviceId, sessionIds } = msg.payload;
+        this.cancelFailRunningSessions(deviceId);
+        for (const sessionId of sessionIds || []) {
+          const session = sessionManager.getSession(sessionId);
+          if (!session) continue;
+          if (session.deviceId && session.deviceId !== deviceId) continue;
+          sessionManager.updateSession(sessionId, { isStreaming: true, status: 'running' });
+          const updated = sessionManager.getSession(sessionId);
+          if (updated) {
+            clientWsManager.broadcast({ type: 'session:updated', payload: updated });
+          }
+        }
+        break;
+      }
+
       case 'worker:heartbeat': {
-        deviceManager.updateHeartbeat(msg.payload.deviceId, msg.payload.memoryUsage, msg.payload.cpuUsage);
+        const updated = deviceManager.updateHeartbeat(msg.payload.deviceId, msg.payload.memoryUsage, msg.payload.cpuUsage);
+        if (updated) {
+          clientWsManager.broadcast({
+            type: 'device:updated',
+            payload: updated,
+          });
+        }
+        break;
+      }
+
+      case 'worker:limits': {
+        const { deviceId, limits, cursorAuthStatus } = msg.payload;
+        if (deviceId) {
+          const updated = deviceManager.updateDeviceLimits(deviceId, limits, cursorAuthStatus);
+          if (updated) {
+            clientWsManager.broadcast({
+              type: 'device:updated',
+              payload: updated,
+            });
+          }
+        }
         break;
       }
 
@@ -159,14 +225,18 @@ export class WorkerWsManager {
 
       case 'agent:complete': {
         const { sessionId, fullContent, cursorChatId, success, error, aborted } = msg.payload as any;
+        const usageLimited = success === false && isUsageLimitError(error || fullContent);
         sessionManager.finalizeAssistantMessage(
           sessionId,
           aborted ? undefined : fullContent,
-          cursorChatId
+          usageLimited || success === false ? undefined : cursorChatId
         );
+        if (usageLimited) {
+          sessionManager.updateSession(sessionId, { cursorChatId: '' });
+        }
         clientWsManager.broadcast({
           type: 'agent:complete',
-          payload: { sessionId, success, error, cursorChatId, aborted } as any,
+          payload: { sessionId, success, error, cursorChatId: usageLimited ? undefined : cursorChatId, aborted } as any,
         });
 
         if (aborted) {
@@ -195,6 +265,7 @@ export class WorkerWsManager {
             sessionManager.addMessage(session.id, {
               role: 'assistant',
               content: '',
+              blocks: [],
               isStreaming: true,
               model: session.model,
             });
@@ -219,8 +290,8 @@ export class WorkerWsManager {
                   model: session.model,
                   mode: session.mode,
                   workspacePath: session.workspacePath,
-                  cursorChatId: session.cursorChatId,
-                  continueLastSession: true,
+                  cursorChatId: session.cursorChatId || undefined,
+                  continueLastSession: false,
                   thinkingEffort: session.thinkingEffort || 'medium',
                 },
               });

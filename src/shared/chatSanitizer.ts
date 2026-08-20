@@ -87,6 +87,67 @@ export class ChatSanitizer {
   }
 
   /**
+   * Generates a clean, short, human-readable title from a user prompt
+   */
+  public static cleanTitleFromPrompt(prompt: string, maxLength = 34): string {
+    if (!prompt) return 'Новий чат';
+
+    // 1. Sanitize text first
+    let text = this.sanitizeText(prompt).cleanText;
+
+    // 2. Remove code blocks, markdown symbols, URLs
+    text = text.replace(/```[\s\S]*?```/g, ' ');
+    text = text.replace(/`[^`]+`/g, ' ');
+    text = text.replace(/https?:\/\/\S+/g, ' ');
+    text = text.replace(/[#*_\->~[\]()]+/g, ' ');
+
+    // 3. Take first non-empty line
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    let title = lines[0] || '';
+
+    // 4. Strip common conversational prefixes in Ukrainian and English
+    const prefixPatterns = [
+      /^(?:хочу\s+(?:щоб|якщо)\s+(?:була\s+можливість\s+)?)/i,
+      /^(?:треба\s+(?:щоб|зробити|додати)\s+(?:можливість\s+)?)/i,
+      /^(?:зроби\s+(?:так\s+щоб|будь\s+ласка\s+)?)/i,
+      /^(?:чи\s+(?:можна|працює|є|буде)\s+)/i,
+      /^(?:допоможи\s+(?:мені\s+)?(?:з|у|в)?\s+)/i,
+      /^(?:як\s+(?:зробити|налаштувати|додати)\s+)/i,
+      /^(?:будь\s+ласка[,\s]+)/i,
+      /^(?:can\s+you\s+(?:please\s+)?(?:help\s+me\s+with\s+)?)/i,
+      /^(?:please\s+(?:help\s+me\s+with\s+)?)/i,
+      /^(?:i\s+want\s+(?:to\s+)?)/i,
+      /^(?:how\s+to\s+)/i,
+      /^(?:could\s+you\s+)/i,
+    ];
+
+    for (const pat of prefixPatterns) {
+      title = title.replace(pat, '');
+    }
+
+    // 5. Clean punctuation and collapse spaces
+    title = title.replace(/[?!:;.,]+$/, '').replace(/\s+/g, ' ').trim();
+
+    if (!title) return 'Новий чат';
+
+    // 6. Capitalize first letter
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+
+    // 7. Truncate smoothly at word boundary
+    if (title.length > maxLength) {
+      const cut = title.slice(0, maxLength);
+      const lastSpace = cut.lastIndexOf(' ');
+      if (lastSpace > maxLength * 0.55) {
+        title = cut.slice(0, lastSpace).trim() + '…';
+      } else {
+        title = cut.trim() + '…';
+      }
+    }
+
+    return title;
+  }
+
+  /**
    * Parses Antigravity transcript.jsonl content
    */
   public static parseAntigravityJsonl(jsonlContent: string): SanitizedChatResult {
@@ -117,7 +178,7 @@ export class ChatSanitizer {
             });
 
             if (detectedTitle === 'Antigravity Imported Chat') {
-              detectedTitle = cleanText.split('\n')[0].slice(0, 45) + '...';
+              detectedTitle = this.cleanTitleFromPrompt(cleanText);
             }
           }
         }
@@ -141,19 +202,39 @@ export class ChatSanitizer {
           const toolCalls: ToolCallItem[] = [];
           if (entry.tool_calls && Array.isArray(entry.tool_calls)) {
             entry.tool_calls.forEach((tc: any) => {
-              const params = tc.parameters || tc.arguments || tc.input || {};
-              const summary = params.toolSummary || params.CommandLine || params.TargetFile || params.AbsolutePath || params.Query || params.path || '';
-              const action = params.toolAction || '';
-              toolCalls.push({
-                id: tc.id || Math.random().toString(36).substring(2, 8),
+              let params = tc.args || tc.parameters || tc.arguments || tc.input || {};
+              if (typeof params === 'string') {
+                try { params = JSON.parse(params); } catch {}
+              }
+              if (typeof params === 'object' && params !== null) {
+                const cleaned: any = {};
+                for (const [k, v] of Object.entries(params)) {
+                  if (typeof v === 'string') {
+                    let s = v.trim();
+                    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']'))) {
+                      try { s = JSON.parse(s); } catch {}
+                    }
+                    cleaned[k] = s;
+                  } else {
+                    cleaned[k] = v;
+                  }
+                }
+                params = cleaned;
+              }
+
+              const summary = params.toolSummary || params.Description || params.CommandLine || params.TargetFile || params.AbsolutePath || params.Query || params.path || '';
+              const action = params.toolAction || params.Instruction || '';
+              const item: ToolCallItem = {
+                id: tc.id || `tc-${entry.step_index || Math.random().toString(36).substring(2, 8)}`,
                 type: tc.name || 'tool',
                 name: tc.name || 'Tool Execution',
-                summary,
-                action,
+                summary: truncateString(summary, 200, '...'),
+                action: truncateString(action, 100, '...'),
                 input: params,
                 output: tc.output || tc.result || undefined,
                 status: tc.status || 'completed',
-              });
+              };
+              toolCalls.push(truncateToolCallItem(item));
             });
           }
 
@@ -179,6 +260,21 @@ export class ChatSanitizer {
               });
             }
           }
+        } else if ((entry.type === 'GENERIC' || entry.type === 'TOOL_RESPONSE') && entry.content) {
+          // Attach output to the last tool call in history that doesn't have an output yet
+          let attached = false;
+          for (let i = cleanMessages.length - 1; i >= 0; i--) {
+            const msg = cleanMessages[i];
+            if (msg.toolCalls && msg.toolCalls.length > 0) {
+              const pendingTc = [...msg.toolCalls].reverse().find((t) => !t.output);
+              if (pendingTc) {
+                pendingTc.output = entry.content.trim();
+                attached = true;
+                break;
+              }
+            }
+          }
+          if (!attached) totalMetadataRemoved++;
         } else {
           // Ignored internal tool execution / checkpoint / system message lines
           totalMetadataRemoved++;
@@ -248,7 +344,7 @@ export class ChatSanitizer {
               });
 
               if (!detectedTitle) {
-                detectedTitle = cleanText.split('\n')[0].slice(0, 45) + '...';
+                detectedTitle = this.cleanTitleFromPrompt(cleanText);
               }
             }
           }
@@ -454,3 +550,50 @@ export class ChatSanitizer {
     return summary.trim();
   }
 }
+
+/**
+ * Truncates string to a maximum length with indicator
+ */
+export function truncateString(str: string | undefined | null, maxLen: number = 2000, suffix = '\n... [обрізано для оптимізації]'): string {
+  if (!str || typeof str !== 'string') return '';
+  if (str.length <= maxLen) return str;
+  return str.slice(0, maxLen) + suffix;
+}
+
+/**
+ * Truncates tool call inputs and outputs to prevent memory/database bloat
+ */
+export function truncateToolCallItem(toolCall: ToolCallItem, maxInputLen = 2000, maxOutputLen = 3000): ToolCallItem {
+  if (!toolCall) return toolCall;
+  const cloned: ToolCallItem = { ...toolCall };
+
+  if (typeof cloned.summary === 'string') {
+    cloned.summary = truncateString(cloned.summary, 200, '...');
+  }
+  if (typeof cloned.action === 'string') {
+    cloned.action = truncateString(cloned.action, 100, '...');
+  }
+
+  if (typeof cloned.input === 'string') {
+    cloned.input = truncateString(cloned.input, maxInputLen);
+  } else if (cloned.input && typeof cloned.input === 'object') {
+    const truncatedInput: Record<string, any> = {};
+    for (const [key, val] of Object.entries(cloned.input)) {
+      if (typeof val === 'string') {
+        const isBigCodeKey = /content|code|replacement|script|diff/i.test(key);
+        const limit = isBigCodeKey ? 800 : maxInputLen;
+        truncatedInput[key] = truncateString(val, limit);
+      } else {
+        truncatedInput[key] = val;
+      }
+    }
+    cloned.input = truncatedInput;
+  }
+
+  if (typeof cloned.output === 'string') {
+    cloned.output = truncateString(cloned.output, maxOutputLen);
+  }
+
+  return cloned;
+}
+

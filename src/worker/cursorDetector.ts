@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import { execSync, spawnSync } from 'child_process';
 import { AvailableModel } from '../shared/types';
+import { supportsAntigravityEffort } from '../shared/modelRouting';
 
 export interface DiscoveredTools {
   cursorAgentCmd?: string;
@@ -154,7 +155,7 @@ export function detectCursorTools(): DiscoveredTools {
   if (!result.cursorAgentCmd) {
     try {
       const checkCmd = isWindows ? 'where cursor-agent' : 'which cursor-agent';
-      const out = execSync(checkCmd, { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8' }).trim();
+      const out = execSync(checkCmd, { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8', windowsHide: true }).trim();
       if (out) {
         result.cursorAgentCmd = out.split('\n')[0].trim();
       }
@@ -164,7 +165,7 @@ export function detectCursorTools(): DiscoveredTools {
   if (!result.cursorCliCmd) {
     try {
       const checkCmd = isWindows ? 'where cursor' : 'which cursor';
-      const out = execSync(checkCmd, { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8' }).trim();
+      const out = execSync(checkCmd, { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8', windowsHide: true }).trim();
       if (out) {
         result.cursorCliCmd = out.split('\n')[0].trim();
       }
@@ -172,6 +173,7 @@ export function detectCursorTools(): DiscoveredTools {
   }
 
   result.antigravityCliCmd = detectAntigravityCli();
+  if (result.antigravityCliCmd) result.antigravityAvailable = true;
 
   return result;
 }
@@ -212,8 +214,10 @@ export function detectAntigravityCli(): string | undefined {
       const out = execSync(isWindows ? 'where ' + name : 'which ' + name, {
         stdio: ['ignore', 'pipe', 'ignore'],
         encoding: 'utf-8',
+        windowsHide: true,
       }).trim();
-      if (out) return out.split('\n')[0].trim();
+      const found = out.split('\n')[0].trim();
+      if (found && !/gemini/i.test(found)) return found;
     } catch {}
   }
 
@@ -233,12 +237,14 @@ export function listAvailableModels(tools: DiscoveredTools): AvailableModel[] {
       const args = tools.nodeExe && tools.agentIndexJs
         ? [tools.agentIndexJs, '--list-models']
         : ['--list-models'];
-      const res = spawnSync(binary, args, { encoding: 'utf8', timeout: 15000, shell: false });
+      const res = spawnSync(binary, args, { encoding: 'utf8', timeout: 15000, shell: false, windowsHide: true });
       const out = (res.stdout || '') + (res.stderr || '');
       for (const rawLine of out.split('\n')) {
         const line = rawLine.trim();
         const match = /^([a-z0-9][a-z0-9._-]*)\s+-\s+(.+)$/i.exec(line);
         if (!match) continue;
+        // Gemini ids in the Cursor catalogue still burn Cursor Pro API quota.
+        if (/^gemini/i.test(match[1])) continue;
         models.push({ id: match[1], label: match[2].trim(), engine: 'cursor', supportsEffort: false });
       }
     } catch (err) {
@@ -254,6 +260,7 @@ export function listAvailableModels(tools: DiscoveredTools): AvailableModel[] {
         encoding: 'utf8',
         timeout: 20000,
         shell: /[.](cmd|bat)$/i.test(tools.antigravityCliCmd),
+        windowsHide: true,
       });
       const out = (res.stdout || '') + (res.stderr || '');
       for (const rawLine of out.split('\n')) {
@@ -272,11 +279,11 @@ export function listAvailableModels(tools: DiscoveredTools): AvailableModel[] {
           if (seenAntigravity.has(baseId)) continue;
           seenAntigravity.add(baseId);
           const label = parts[1].trim().replace(/\s*\((Low|Medium|High)\)\s*$/i, '');
-          models.push({ id: baseId, label, engine: 'antigravity', supportsEffort: true });
+          models.push({ id: baseId, label, engine: 'antigravity', supportsEffort: supportsAntigravityEffort(baseId) });
         } else {
           if (seenAntigravity.has(id)) continue;
           seenAntigravity.add(id);
-          models.push({ id, label: parts[1].trim(), engine: 'antigravity', supportsEffort: false });
+          models.push({ id, label: parts[1].trim(), engine: 'antigravity', supportsEffort: supportsAntigravityEffort(id) });
         }
         discovered++;
       }
@@ -295,14 +302,16 @@ export function listAvailableModels(tools: DiscoveredTools): AvailableModel[] {
 }
 
 /**
- * Antigravity has no `--list-models`, so its catalogue is declared here. Effort
- * is an Antigravity-only concept: Cursor encodes it in the model id instead.
+ * Antigravity fallback model catalogue.
  */
 export const ANTIGRAVITY_MODELS: AvailableModel[] = [
-  { id: 'gemini-3-pro', label: 'Gemini 3 Pro', engine: 'antigravity', supportsEffort: true },
-  { id: 'gemini-3-flash', label: 'Gemini 3 Flash', engine: 'antigravity', supportsEffort: true },
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', engine: 'antigravity', supportsEffort: true },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', engine: 'antigravity', supportsEffort: true },
+  { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash', engine: 'antigravity', supportsEffort: true },
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', engine: 'antigravity', supportsEffort: true },
+  { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', engine: 'antigravity', supportsEffort: true },
+  { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', engine: 'antigravity', supportsEffort: true },
+  { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)', engine: 'antigravity', supportsEffort: false },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', engine: 'antigravity', supportsEffort: false },
+  { id: 'gpt-oss-120b', label: 'GPT-OSS 120B', engine: 'antigravity', supportsEffort: true },
 ];
 
 export function checkCursorAuthStatus(tools: DiscoveredTools): { loggedIn: boolean; email?: string } {
@@ -311,7 +320,7 @@ export function checkCursorAuthStatus(tools: DiscoveredTools): { loggedIn: boole
 
   try {
     const args = tools.nodeExe && tools.agentIndexJs ? [tools.agentIndexJs, 'whoami'] : ['whoami'];
-    const res = spawnSync(binary, args, { encoding: 'utf8', timeout: 4000, shell: false });
+    const res = spawnSync(binary, args, { encoding: 'utf8', timeout: 4000, shell: false, windowsHide: true });
     const output = (res.stdout || '') + (res.stderr || '');
     if (output.includes('Logged in as')) {
       const match = /Logged in as\s+([^\s\r\n]+)/i.exec(output);
@@ -472,7 +481,7 @@ export function getAgentLimitsInfo(tools: DiscoveredTools) {
   if (binary) {
     try {
       const args = tools.nodeExe && tools.agentIndexJs ? [tools.agentIndexJs, 'about'] : ['about'];
-      const res = spawnSync(binary, args, { encoding: 'utf8', timeout: 4000, shell: false });
+      const res = spawnSync(binary, args, { encoding: 'utf8', timeout: 4000, shell: false, windowsHide: true });
       const out = (res.stdout || '') + (res.stderr || '');
 
       const tierMatch = /Subscription Tier\s+([^\r\n]+)/i.exec(out);

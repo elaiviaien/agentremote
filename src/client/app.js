@@ -12,6 +12,52 @@ function applyStreamText(previous, payload) {
   return prev + chunk;
 }
 
+function ensureMessageBlocks(msg) {
+  if (!msg.blocks) msg.blocks = [];
+  return msg.blocks;
+}
+
+function appendTextToMessageBlocks(msg, payload) {
+  const blocks = ensureMessageBlocks(msg);
+  const last = blocks[blocks.length - 1];
+  if (last && last.type === 'text') {
+    last.content = applyStreamText(last.content, payload);
+  } else {
+    const initial = applyStreamText('', payload);
+    if (initial) blocks.push({ type: 'text', content: initial });
+  }
+  msg.content = applyStreamText(msg.content || '', payload);
+}
+
+function appendToolToMessageBlocks(msg, toolCall) {
+  const blocks = ensureMessageBlocks(msg);
+  if (!blocks.some((b) => b.type === 'tool' && b.toolCallId === toolCall.id)) {
+    blocks.push({ type: 'tool', toolCallId: toolCall.id });
+  }
+}
+
+function getRenderableMessageBlocks(msg) {
+  if (msg.blocks && msg.blocks.length > 0) return msg.blocks;
+  const legacy = [];
+  if (msg.content) legacy.push({ type: 'text', content: msg.content });
+  if (msg.toolCalls) {
+    for (const tc of msg.toolCalls) {
+      legacy.push({ type: 'tool', toolCallId: tc.id });
+    }
+  }
+  return legacy;
+}
+
+function isGeminiModelId(model) {
+  if (!model) return false;
+  const id = String(model).replace(/\[effort=.*?\]/gi, '').trim();
+  return /^gemini/i.test(id);
+}
+
+function isUsageLimitError(text) {
+  return Boolean(text && /usage limit|spend limit|you've hit your usage limit/i.test(text));
+}
+
 class AgentRemoteApp {
   constructor() {
     this.token = localStorage.getItem('agentremote_token') || sessionStorage.getItem('agentremote_token') || '';
@@ -41,6 +87,13 @@ class AgentRemoteApp {
 
     // Recent workspace folders (max 8)
     this.recentFolders = JSON.parse(localStorage.getItem('agentremote_recent_folders') || '[]');
+
+    // Projects State
+    this.projects = [];
+    this.activeProjectId = localStorage.getItem('agentremote_active_project_id') || 'all';
+    this.editingProjectId = null;
+    this.selectedProjectIcon = '📁';
+    this.selectedProjectColor = '#38bdf8';
 
     this.initElements();
     this.initEvents();
@@ -87,6 +140,9 @@ class AgentRemoteApp {
     this.sessionSearch = document.getElementById('session-search');
     this.sessionList = document.getElementById('session-list');
     this.sessionCount = document.getElementById('session-count');
+    this.projectList = document.getElementById('project-list');
+    this.newProjectBtn = document.getElementById('new-project-btn');
+    this.sessionListHeaderTitle = document.getElementById('session-list-header-title');
     this.modelSelect = document.getElementById('model-select');
     this.chatModelSelect = document.getElementById('chat-model-select');
     this.modeSelect = document.getElementById('mode-select');
@@ -104,6 +160,8 @@ class AgentRemoteApp {
     this.currentChatTitle = document.getElementById('current-chat-title');
     this.sessionBadge = document.getElementById('session-badge');
     this.chatMeta = document.getElementById('chat-meta');
+    this.chatPinBtn = document.getElementById('chat-pin-btn');
+    this.chatProjectBadge = document.getElementById('chat-project-badge');
     this.syncIdeChatBtn = document.getElementById('sync-ide-chat-btn');
     this.chatMessages = document.getElementById('chat-messages');
     this.promptInput = document.getElementById('prompt-input');
@@ -117,6 +175,26 @@ class AgentRemoteApp {
     this.queueItemsList = document.getElementById('queue-items-list');
     this.clearQueueBtn = document.getElementById('clear-queue-btn');
     this.sendShortcutHint = document.getElementById('send-shortcut-hint');
+
+    // Artifact Viewer Elements
+    this.sessionArtifactsBtn = document.getElementById('session-artifacts-btn');
+    this.sessionArtifactsCount = document.getElementById('session-artifacts-count');
+    this.chatArtifactViewer = document.getElementById('chat-artifact-viewer');
+    this.artifactViewerIcon = document.getElementById('artifact-viewer-icon');
+    this.artifactViewerTitle = document.getElementById('artifact-viewer-title');
+    this.artifactViewerPath = document.getElementById('artifact-viewer-path');
+    this.artifactViewModeToggle = document.getElementById('artifact-view-mode-toggle');
+    this.artifactCopyBtn = document.getElementById('artifact-copy-btn');
+    this.artifactDownloadBtn = document.getElementById('artifact-download-btn');
+    this.artifactCloseBtn = document.getElementById('artifact-close-btn');
+    this.artifactRenderedContent = document.getElementById('artifact-rendered-content');
+    this.artifactRawContent = document.getElementById('artifact-raw-content');
+    this.artifactRawCode = document.getElementById('artifact-raw-code');
+
+    this.sessionArtifactsModal = document.getElementById('session-artifacts-modal');
+    this.sessionArtifactsList = document.getElementById('session-artifacts-list');
+    this.closeArtifactsModalBtn = document.getElementById('close-artifacts-modal-btn');
+    this.cancelArtifactsModalBtn = document.getElementById('cancel-artifacts-modal-btn');
 
     // Files Tab elements
     this.filesTreePanel = document.getElementById('files-tree-panel');
@@ -173,8 +251,26 @@ class AgentRemoteApp {
     this.modalModeSelect = document.getElementById('modal-mode-select');
     this.modalSessionTitle = document.getElementById('modal-session-title');
     this.modalSessionDesc = document.getElementById('modal-session-desc');
+    this.modalProjectSelect = document.getElementById('modal-project-select');
     this.modalOpenImportBtn = document.getElementById('modal-open-import-btn');
     this.currentSelectedEngine = 'cursor';
+
+    // Project Modal Elements
+    this.projectModal = document.getElementById('project-modal');
+    this.projectModalTitle = document.getElementById('project-modal-title');
+    this.projectModalIconBadge = document.getElementById('project-modal-icon-badge');
+    this.closeProjectModalBtn = document.getElementById('close-project-modal-btn');
+    this.cancelProjectModalBtn = document.getElementById('cancel-project-modal-btn');
+    this.saveProjectBtn = document.getElementById('save-project-btn');
+    this.deleteProjectBtn = document.getElementById('delete-project-btn');
+    this.projectNameInput = document.getElementById('project-name-input');
+    this.projectDescInput = document.getElementById('project-desc-input');
+    this.projectWorkspaceInput = document.getElementById('project-workspace-input');
+    this.projectUseCurrentWsBtn = document.getElementById('project-use-current-ws-btn');
+    this.projectEngineSelect = document.getElementById('project-engine-select');
+    this.projectIconBtn = document.getElementById('project-icon-btn');
+    this.projectIconPicker = document.getElementById('project-icon-picker');
+    this.projectColorPicker = document.getElementById('project-color-picker');
 
     // Import Modal Elements
     this.importModal = document.getElementById('import-modal');
@@ -431,7 +527,109 @@ class AgentRemoteApp {
       this.syncIdeChatBtn.addEventListener('click', () => this.syncCurrentChatWithIde());
     }
 
-    this.loginCursorBtn.addEventListener('click', () => this.triggerCursorLogin());
+    if (this.chatPinBtn) {
+      this.chatPinBtn.addEventListener('click', () => {
+        if (this.activeSessionId) this.togglePinSession(this.activeSessionId);
+      });
+    }
+
+    if (this.chatProjectBadge) {
+      this.chatProjectBadge.addEventListener('click', () => this.promptChangeSessionProject());
+    }
+
+    if (this.newProjectBtn) {
+      this.newProjectBtn.addEventListener('click', () => this.openProjectModal());
+    }
+    if (this.closeProjectModalBtn) {
+      this.closeProjectModalBtn.addEventListener('click', () => this.closeProjectModal());
+    }
+    if (this.cancelProjectModalBtn) {
+      this.cancelProjectModalBtn.addEventListener('click', () => this.closeProjectModal());
+    }
+    if (this.saveProjectBtn) {
+      this.saveProjectBtn.addEventListener('click', () => this.saveProject());
+    }
+    if (this.deleteProjectBtn) {
+      this.deleteProjectBtn.addEventListener('click', () => this.deleteProject(this.editingProjectId));
+    }
+    if (this.projectUseCurrentWsBtn) {
+      this.projectUseCurrentWsBtn.addEventListener('click', () => {
+        this.projectWorkspaceInput.value = this.workspaceInput.value || '';
+      });
+    }
+    if (this.projectIconBtn && this.projectIconPicker) {
+      this.projectIconBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.projectIconPicker.style.display = this.projectIconPicker.style.display === 'none' ? 'grid' : 'none';
+      });
+      this.projectIconPicker.addEventListener('click', (e) => {
+        const btn = e.target.closest('.icon-pick-btn');
+        if (btn && btn.dataset.icon) {
+          this.selectedProjectIcon = btn.dataset.icon;
+          this.projectIconBtn.innerText = this.selectedProjectIcon;
+          if (this.projectModalIconBadge) this.projectModalIconBadge.innerText = this.selectedProjectIcon;
+          this.projectIconPicker.style.display = 'none';
+        }
+      });
+    }
+    if (this.projectColorPicker) {
+      this.projectColorPicker.addEventListener('click', (e) => {
+        const dot = e.target.closest('.color-dot');
+        if (dot && dot.dataset.color) {
+          this.selectedProjectColor = dot.dataset.color;
+          this.projectColorPicker.querySelectorAll('.color-dot').forEach((d) => d.classList.remove('active'));
+          dot.classList.add('active');
+        }
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      if (this.projectIconPicker && !e.target.closest('.dropdown-icon-btn-wrapper')) {
+        this.projectIconPicker.style.display = 'none';
+      }
+    });
+
+    if (this.splitLayoutBtns) {
+      this.splitLayoutBtns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const layout = parseInt(btn.dataset.layout, 10);
+          this.setSplitLayout(layout);
+        });
+      });
+    }
+
+    if (this.addSplitPaneBtn) {
+      this.addSplitPaneBtn.addEventListener('click', () => {
+        this.addPane();
+      });
+    }
+
+    if (this.sessionArtifactsBtn) {
+      this.sessionArtifactsBtn.addEventListener('click', () => this.openSessionArtifactsModal());
+    }
+    if (this.closeArtifactsModalBtn) {
+      this.closeArtifactsModalBtn.addEventListener('click', () => (this.sessionArtifactsModal.style.display = 'none'));
+    }
+    if (this.cancelArtifactsModalBtn) {
+      this.cancelArtifactsModalBtn.addEventListener('click', () => (this.sessionArtifactsModal.style.display = 'none'));
+    }
+    if (this.artifactCloseBtn) {
+      this.artifactCloseBtn.addEventListener('click', () => this.closeArtifactViewer());
+    }
+    if (this.artifactCopyBtn) {
+      this.artifactCopyBtn.addEventListener('click', () => this.copyCurrentArtifactContent());
+    }
+    if (this.artifactDownloadBtn) {
+      this.artifactDownloadBtn.addEventListener('click', () => this.downloadCurrentArtifactFile());
+    }
+    if (this.artifactViewModeToggle) {
+      this.artifactViewModeToggle.addEventListener('click', (e) => {
+        const btn = e.target.closest('.artifact-mode-btn');
+        if (btn && btn.dataset.mode) {
+          this.setArtifactViewerMode(btn.dataset.mode);
+        }
+      });
+    }
 
     this.newChatBtn.addEventListener('click', () => this.openNewChatModal('cursor'));
     this.newAntigravityChatBtn.addEventListener('click', () => this.openNewChatModal('antigravity'));
@@ -445,10 +643,38 @@ class AgentRemoteApp {
     this.sessionSearch.addEventListener('input', () => this.renderSessions());
 
     document.addEventListener('click', (e) => {
+      // 1. Quick prompt chips
       const chip = e.target.closest('.chip-btn');
       if (chip && chip.dataset.prompt) {
         this.promptInput.value = chip.dataset.prompt;
         this.promptInput.focus();
+        return;
+      }
+
+      // 2. Interactive Artifact Chips and Tool Artifact buttons
+      const artifactBtn = e.target.closest('.chat-artifact-chip, .tool-artifact-view-btn');
+      if (artifactBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (artifactBtn.dataset.toolCallId) {
+          this.openArtifactFromToolCall(artifactBtn.dataset.toolCallId);
+        } else if (artifactBtn.dataset.path) {
+          this.openArtifact({ path: artifactBtn.dataset.path, title: artifactBtn.dataset.title || artifactBtn.innerText.trim() });
+        }
+        return;
+      }
+
+      // 3. File and Markdown links in messages
+      const msgLink = e.target.closest('.message-bubble a, .markdown-body a');
+      if (msgLink && msgLink.getAttribute('href')) {
+        const href = msgLink.getAttribute('href');
+        const isLocalFileLink = href.startsWith('file://') || href.startsWith('artifact://') || /\.(md|markdown|json|ts|js|py|html|css|txt|yaml|yml|sh|svg)($|#)/i.test(href);
+        if (isLocalFileLink && !href.startsWith('http://') && !href.startsWith('https://')) {
+          e.preventDefault();
+          e.stopPropagation();
+          const cleanTitle = msgLink.innerText.trim() || href.split(/[/\\]/).pop() || 'Артефакт';
+          this.openArtifact({ path: href, title: cleanTitle });
+        }
       }
     });
 
@@ -703,6 +929,7 @@ class AgentRemoteApp {
 
     this.ws.onopen = () => {
       console.log('[WebSocket] Connected to Cloud Hub');
+      this.syncAfterReconnect();
     };
 
     this.ws.onmessage = (event) => {
@@ -725,6 +952,25 @@ class AgentRemoteApp {
     };
   }
 
+  async syncAfterReconnect() {
+    this.markAgentActivity();
+    try {
+      await this.loadDevices();
+    } catch (err) {
+      console.warn('[App] Device refresh after reconnect failed:', err);
+    }
+    if (!this.activeSessionId) return;
+    await this.loadActiveSessionDetails(this.activeSessionId, true);
+    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+    if (session && (session.isStreaming || session.status === 'running')) {
+      this.isStreaming = true;
+      this.startAgentStallWatchdog();
+    }
+    setTimeout(() => {
+      if (this.activeSessionId) this.loadActiveSessionDetails(this.activeSessionId, true);
+    }, 1200);
+  }
+
   handleWsMessage(msg) {
     switch (msg.type) {
       case 'agent:chunk': {
@@ -739,7 +985,7 @@ class AgentRemoteApp {
           }
           const lastMsg = [...(s.messages || [])].reverse().find((m) => m.role === 'assistant');
           if (lastMsg) {
-            lastMsg.content = applyStreamText(lastMsg.content || '', {
+            appendTextToMessageBlocks(lastMsg, {
               chunk: msg.payload?.chunk,
               delta: msg.payload?.delta,
             });
@@ -790,12 +1036,21 @@ class AgentRemoteApp {
         if (updatedSession && updatedSession.id) {
           const idx = this.sessions.findIndex((x) => x.id === updatedSession.id);
           if (idx >= 0) {
-            this.sessions[idx] = updatedSession;
+            const existing = this.sessions[idx];
+            this.sessions[idx] = {
+              ...existing,
+              ...updatedSession,
+              messages: updatedSession.messages && updatedSession.messages.length > 0 ? updatedSession.messages : (existing.messages || []),
+              _loaded: updatedSession.messages && updatedSession.messages.length > 0 ? true : Boolean(existing._loaded),
+            };
           } else {
-            this.sessions.unshift(updatedSession);
+            this.sessions.unshift({
+              ...updatedSession,
+              _loaded: Boolean(updatedSession.messages && updatedSession.messages.length > 0),
+            });
           }
           this.renderSessions();
-          if (this.activeSessionId === updatedSession.id) {
+          if (this.activeSessionId === updatedSession.id && !this.isStreaming) {
             this.renderActiveChat();
           }
         }
@@ -809,6 +1064,20 @@ class AgentRemoteApp {
         if (s) {
           s.isStreaming = true;
           s.status = 'running';
+          const lastMsg = [...(s.messages || [])].reverse().find((m) => m.role === 'assistant');
+          if (lastMsg) {
+            if (!lastMsg.toolCalls) lastMsg.toolCalls = [];
+            const existing = lastMsg.toolCalls.find((t) => t.id === toolCall.id);
+            if (existing) {
+              Object.assign(existing, toolCall);
+              if (!lastMsg.blocks?.some((b) => b.type === 'tool' && b.toolCallId === toolCall.id)) {
+                appendToolToMessageBlocks(lastMsg, toolCall);
+              }
+            } else {
+              lastMsg.toolCalls.push(toolCall);
+              appendToolToMessageBlocks(lastMsg, toolCall);
+            }
+          }
           this.renderSessions();
         }
         if (sessionId === this.activeSessionId) {
@@ -820,6 +1089,17 @@ class AgentRemoteApp {
       case 'agent:tool_result': {
         this.markAgentActivity();
         const { sessionId, toolCallId, result, status } = msg.payload;
+        const s = this.sessions.find((x) => x.id === sessionId);
+        if (s) {
+          for (const msg of s.messages || []) {
+            const found = msg.toolCalls?.find((t) => t.id === toolCallId);
+            if (found) {
+              found.output = result;
+              found.status = status;
+              break;
+            }
+          }
+        }
         if (sessionId === this.activeSessionId) {
           this.renderToolResult(sessionId, toolCallId, result, status);
         }
@@ -833,7 +1113,8 @@ class AgentRemoteApp {
         if (s) {
           s.isStreaming = false;
           s.status = 'idle';
-          if (cursorChatId) s.cursorChatId = cursorChatId;
+          if (success !== false && cursorChatId) s.cursorChatId = cursorChatId;
+          if (success === false && isUsageLimitError(error)) s.cursorChatId = undefined;
           this.renderSessions();
         }
         if (sessionId === this.activeSessionId) {
@@ -858,6 +1139,17 @@ class AgentRemoteApp {
         if (sessionId === this.activeSessionId) {
           this.handleAgentError(sessionId, error);
         }
+        break;
+      }
+
+      case 'hub:status': {
+        this.renderHubStatus(msg.payload);
+        break;
+      }
+
+      case 'devices:list': {
+        this.devices = msg.payload || [];
+        this.renderDevices();
         break;
       }
 
@@ -908,7 +1200,13 @@ class AgentRemoteApp {
       case 'fs:file':
       case 'fs:file_result': {
         const payload = msg.payload || {};
-        if (payload.reqId === this.pendingFileReqId || !this.pendingFileReqId) {
+        if (payload.reqId === this._pendingArtifactReqId) {
+          this._pendingArtifactReqId = null;
+          if (this.currentActiveArtifact) {
+            this.currentActiveArtifact.content = payload.content;
+          }
+          this.displayArtifactContent(payload.content, payload.path);
+        } else if (payload.reqId === this.pendingFileReqId || !this.pendingFileReqId) {
           this.displayFileContent(payload.path, payload.content, payload.size, payload.error);
         }
         break;
@@ -932,6 +1230,50 @@ class AgentRemoteApp {
               const count = res.messages ? res.messages.length : (res.messageCount || 1);
               this.importSanitizedCount.innerText = `Готово до імпорту • ${count} повідомлень`;
             }
+      case 'state:init': {
+        if (msg.payload?.projects) {
+          this.projects = msg.payload.projects;
+          this.renderProjects();
+          this.populateModalProjectSelect();
+        }
+        break;
+      }
+
+      case 'project:updated': {
+        const proj = msg.payload;
+        if (proj && proj.id) {
+          const idx = this.projects.findIndex((p) => p.id === proj.id);
+          if (idx >= 0) {
+            this.projects[idx] = proj;
+          } else {
+            this.projects.push(proj);
+          }
+          this.renderProjects();
+          this.renderSessions();
+          this.populateModalProjectSelect();
+          if (this.activeSessionId) {
+            this.renderActiveChat();
+          }
+        }
+        break;
+      }
+
+      case 'project:deleted': {
+        const { projectId } = msg.payload || {};
+        if (projectId) {
+          this.projects = this.projects.filter((p) => p.id !== projectId);
+          for (const s of this.sessions) {
+            if (s.projectId === projectId) s.projectId = undefined;
+          }
+          if (this.activeProjectId === projectId) {
+            this.selectProject('all');
+          } else {
+            this.renderProjects();
+            this.renderSessions();
+          }
+          this.populateModalProjectSelect();
+          if (this.activeSessionId) {
+            this.renderActiveChat();
           }
         }
         break;
@@ -940,7 +1282,362 @@ class AgentRemoteApp {
   }
 
   async loadInitialData() {
-    await Promise.all([this.loadDevices(), this.loadSessions()]);
+    await Promise.all([this.loadDevices(), this.loadProjects(), this.loadSessions()]);
+  }
+
+  async loadProjects() {
+    try {
+      const res = await fetch('/api/projects', {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        this.projects = data.projects || [];
+        this.renderProjects();
+        this.populateModalProjectSelect();
+      }
+    } catch (err) {
+      console.error('[App] Failed to load projects:', err);
+    }
+  }
+
+  renderProjects() {
+    if (!this.projectList) return;
+    this.projectList.innerHTML = '';
+
+    // 1. "Усі чати" (All)
+    const allItem = document.createElement('div');
+    allItem.className = `project-item ${this.activeProjectId === 'all' ? 'active' : ''}`;
+    allItem.innerHTML = `
+      <div class="project-item-left">
+        <span class="project-item-icon">🌟</span>
+        <span class="project-item-name">Усі чати</span>
+      </div>
+      <div class="project-item-right">
+        <span class="project-item-count">${this.sessions.length}</span>
+      </div>
+    `;
+    allItem.addEventListener('click', () => this.selectProject('all'));
+    this.projectList.appendChild(allItem);
+
+    // 2. User projects
+    this.projects.forEach((proj) => {
+      const count = this.sessions.filter((s) => s.projectId === proj.id).length;
+      const item = document.createElement('div');
+      item.className = `project-item ${this.activeProjectId === proj.id ? 'active' : ''}`;
+      const icon = proj.icon || '📁';
+      const color = proj.color || '#38bdf8';
+      item.innerHTML = `
+        <div class="project-item-left">
+          <span class="project-item-icon" style="color:${color};">${icon}</span>
+          <span class="project-item-name">${this.escapeHtml(proj.name)}</span>
+        </div>
+        <div class="project-item-right">
+          <span class="project-item-count">${count}</span>
+          <button type="button" class="project-item-edit-btn" title="Налаштування проєкту">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </button>
+        </div>
+      `;
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.project-item-edit-btn')) {
+          e.stopPropagation();
+          this.openProjectModal(proj);
+        } else {
+          this.selectProject(proj.id);
+        }
+      });
+      this.projectList.appendChild(item);
+    });
+
+    // 3. "Без проєкту" (Unassigned)
+    if (this.projects.length > 0) {
+      const unassignedCount = this.sessions.filter((s) => !s.projectId).length;
+      const unassignedItem = document.createElement('div');
+      unassignedItem.className = `project-item ${this.activeProjectId === 'unassigned' ? 'active' : ''}`;
+      unassignedItem.innerHTML = `
+        <div class="project-item-left">
+          <span class="project-item-icon">📂</span>
+          <span class="project-item-name">Без проєкту</span>
+        </div>
+        <div class="project-item-right">
+          <span class="project-item-count">${unassignedCount}</span>
+        </div>
+      `;
+      unassignedItem.addEventListener('click', () => this.selectProject('unassigned'));
+      this.projectList.appendChild(unassignedItem);
+    }
+  }
+
+  selectProject(projectId) {
+    this.activeProjectId = projectId;
+    localStorage.setItem('agentremote_active_project_id', projectId);
+    this.renderProjects();
+    this.renderSessions();
+
+    if (this.sessionListHeaderTitle) {
+      if (projectId === 'all') {
+        this.sessionListHeaderTitle.innerText = 'ІСТОРІЯ СЕСІЙ';
+      } else if (projectId === 'unassigned') {
+        this.sessionListHeaderTitle.innerText = 'БЕЗ ПРОЄКТУ';
+      } else {
+        const proj = this.projects.find((p) => p.id === projectId);
+        this.sessionListHeaderTitle.innerText = proj ? `${proj.icon || '📁'} ${proj.name}`.toUpperCase() : 'ПРОЄКТ';
+      }
+    }
+  }
+
+  openProjectModal(projectToEdit = null) {
+    this.editingProjectId = projectToEdit ? projectToEdit.id : null;
+    this.selectedProjectIcon = projectToEdit?.icon || '📁';
+    this.selectedProjectColor = projectToEdit?.color || '#38bdf8';
+
+    if (this.projectModalTitle) {
+      this.projectModalTitle.innerText = projectToEdit ? 'Редагувати проєкт' : 'Новий проєкт';
+    }
+    if (this.projectModalIconBadge) {
+      this.projectModalIconBadge.innerText = this.selectedProjectIcon;
+    }
+    if (this.projectIconBtn) {
+      this.projectIconBtn.innerText = this.selectedProjectIcon;
+    }
+    if (this.projectNameInput) {
+      this.projectNameInput.value = projectToEdit?.name || '';
+    }
+    if (this.projectDescInput) {
+      this.projectDescInput.value = projectToEdit?.description || '';
+    }
+    if (this.projectWorkspaceInput) {
+      this.projectWorkspaceInput.value = projectToEdit?.workspacePath || this.workspaceInput?.value || '';
+    }
+    if (this.projectEngineSelect) {
+      this.projectEngineSelect.value = projectToEdit?.defaultEngine || '';
+    }
+    if (this.deleteProjectBtn) {
+      this.deleteProjectBtn.style.display = projectToEdit ? 'inline-flex' : 'none';
+    }
+    if (this.projectIconPicker) {
+      this.projectIconPicker.style.display = 'none';
+    }
+
+    if (this.projectColorPicker) {
+      const dots = this.projectColorPicker.querySelectorAll('.color-dot');
+      dots.forEach((dot) => {
+        dot.classList.toggle('active', dot.dataset.color === this.selectedProjectColor);
+      });
+    }
+
+    if (this.projectModal) {
+      this.projectModal.style.display = 'flex';
+      setTimeout(() => this.projectNameInput?.focus(), 50);
+    }
+  }
+
+  closeProjectModal() {
+    if (this.projectModal) this.projectModal.style.display = 'none';
+    if (this.projectIconPicker) this.projectIconPicker.style.display = 'none';
+    this.editingProjectId = null;
+  }
+
+  async saveProject() {
+    const name = this.projectNameInput?.value.trim();
+    if (!name) {
+      this.showToast('Введіть назву проєкту');
+      this.projectNameInput?.focus();
+      return;
+    }
+
+    const payload = {
+      name,
+      description: this.projectDescInput?.value.trim() || '',
+      icon: this.selectedProjectIcon,
+      color: this.selectedProjectColor,
+      workspacePath: this.projectWorkspaceInput?.value.trim() || '',
+      defaultEngine: this.projectEngineSelect?.value || undefined,
+    };
+
+    try {
+      if (this.editingProjectId) {
+        const res = await fetch(`/api/projects/${this.editingProjectId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const idx = this.projects.findIndex((p) => p.id === this.editingProjectId);
+          if (idx >= 0) this.projects[idx] = data.project;
+          this.showToast(`✨ Проєкт "${name}" оновлено`);
+        }
+      } else {
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          this.projects.push(data.project);
+          this.selectProject(data.project.id);
+          this.showToast(`✨ Створено новий проєкт: ${name}`);
+        }
+      }
+
+      this.renderProjects();
+      this.populateModalProjectSelect();
+      this.closeProjectModal();
+    } catch (err) {
+      console.error('[App] Failed to save project:', err);
+      this.showToast('Помилка збереження проєкту');
+    }
+  }
+
+  async deleteProject(projectId) {
+    if (!projectId) return;
+    const proj = this.projects.find((p) => p.id === projectId);
+    if (!confirm(`Видалити проєкт "${proj?.name || 'цей проєкт'}"?\n(Чати всередині перейдуть у загальний список)`)) return;
+
+    try {
+      await fetch(`/api/projects/${projectId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+
+      this.projects = this.projects.filter((p) => p.id !== projectId);
+      for (const s of this.sessions) {
+        if (s.projectId === projectId) s.projectId = undefined;
+      }
+
+      if (this.activeProjectId === projectId) {
+        this.selectProject('all');
+      } else {
+        this.renderProjects();
+        this.renderSessions();
+      }
+
+      this.populateModalProjectSelect();
+      this.closeProjectModal();
+      this.showToast('Проєкт видалено');
+    } catch (err) {
+      console.error('[App] Failed to delete project:', err);
+      this.showToast('Помилка видалення проєкту');
+    }
+  }
+
+  populateModalProjectSelect() {
+    if (!this.modalProjectSelect) return;
+    const currentVal = this.modalProjectSelect.value;
+    this.modalProjectSelect.innerHTML = '<option value="">Без проєкту</option>';
+    this.projects.forEach((p) => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.innerText = `${p.icon || '📁'} ${p.name}`;
+      if (p.id === currentVal || (p.id === this.activeProjectId && this.activeProjectId !== 'all' && this.activeProjectId !== 'unassigned')) {
+        opt.selected = true;
+      }
+      this.modalProjectSelect.appendChild(opt);
+    });
+  }
+
+  async togglePinSession(sessionId) {
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const newPinned = !session.isPinned;
+    session.isPinned = newPinned;
+    this.renderSessions();
+    this.renderPanes();
+    this.showToast(newPinned ? '📌 Чат закріплено зверху' : 'Відкріплено');
+
+    try {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          type: 'session:pin',
+          payload: { sessionId, isPinned: newPinned }
+        }));
+      } else {
+        await fetch(`/api/sessions/${sessionId}/pin`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.token}`
+          },
+          body: JSON.stringify({ isPinned: newPinned })
+        });
+      }
+    } catch (err) {
+      console.error('[App] Failed to toggle pin:', err);
+    }
+  }
+
+  promptChangeSessionProject() {
+    if (!this.activeSessionId) return;
+    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+    if (!session) return;
+
+    const options = [
+      'Без проєкту',
+      ...this.projects.map((p) => `${p.icon || '📁'} ${p.name}`),
+      '+ Створити новий проєкт...'
+    ];
+
+    const currentIdx = !session.projectId
+      ? 0
+      : this.projects.findIndex((p) => p.id === session.projectId) + 1;
+
+    const choice = prompt(
+      `Оберіть проєкт для цього чату:\n` +
+        options.map((opt, idx) => `${idx + 1}. ${opt}${idx === currentIdx ? ' (поточний)' : ''}`).join('\n'),
+      String(currentIdx + 1)
+    );
+
+    if (!choice) return;
+    const num = parseInt(choice.trim(), 10);
+    if (isNaN(num) || num < 1 || num > options.length) return;
+
+    if (num === options.length) {
+      this.openProjectModal();
+      return;
+    }
+
+    const selectedProjectId = num === 1 ? undefined : this.projects[num - 2]?.id;
+    this.setSessionProject(session.id, selectedProjectId);
+  }
+
+  async setSessionProject(sessionId, projectId) {
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    session.projectId = projectId || undefined;
+    this.renderProjects();
+    this.renderSessions();
+    this.renderPanes();
+    const proj = this.projects.find((p) => p.id === projectId);
+    this.showToast(proj ? `📁 Переміщено в проєкт "${proj.name}"` : 'Чат переміщено в загальний список');
+
+    try {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({
+          type: 'session:move_project',
+          payload: { sessionId, projectId: projectId || undefined }
+        }));
+      } else {
+        await fetch(`/api/sessions/${sessionId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.token}`
+          },
+          body: JSON.stringify({ projectId: projectId || null })
+        });
+      }
+    } catch (err) {
+      console.error('[App] Failed to move session:', err);
+    }
   }
 
   async loadDevices() {
@@ -968,7 +1665,17 @@ class AgentRemoteApp {
       });
       if (res.ok) {
         const data = await res.json();
-        this.sessions = data.sessions || [];
+        const incoming = data.sessions || [];
+
+        // Preserve already loaded messages and status from memory
+        this.sessions = incoming.map((summary) => {
+          const existing = this.sessions.find((s) => s.id === summary.id);
+          return {
+            ...summary,
+            messages: existing && existing.messages && existing._loaded ? existing.messages : (existing && existing.messages ? existing.messages : []),
+            _loaded: Boolean(existing && existing._loaded),
+          };
+        });
 
         // Restore active session from localStorage on reload
         const savedSessionId = localStorage.getItem('agentremote_active_session_id');
@@ -978,11 +1685,53 @@ class AgentRemoteApp {
           this.activeSessionId = this.sessions[0].id;
         }
 
+        this.renderProjects();
         this.renderSessions();
-        this.renderActiveChat();
+        if (this.activeSessionId) {
+          await this.loadActiveSessionDetails(this.activeSessionId);
+        } else {
+          this.renderActiveChat();
+        }
       }
     } catch (err) {
       console.error('[App] Failed to load sessions:', err);
+    }
+  }
+
+  async loadActiveSessionDetails(sessionId, force = false) {
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (!session) {
+      this.renderActiveChat();
+      return;
+    }
+    if (!force && session._loaded && session.messages && session.messages.length > 0) {
+      this.renderActiveChat();
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.session) {
+          Object.assign(session, data.session, { _loaded: true });
+        }
+      }
+    } catch (err) {
+      console.error(`[App] Failed to load session details for ${sessionId}:`, err);
+    }
+    this.renderActiveChat();
+  }
+
+  renderHubStatus(status) {
+    if (!status) return;
+    this.latestHubStatus = status;
+    const tag = document.querySelector('.hub-status-tag');
+    if (tag) {
+      tag.innerHTML = `● Live · RAM: ${status.ramMb}MB · Сесій: ${status.activeSessions}`;
+      tag.style.color = '#38bdf8';
     }
   }
 
@@ -1009,23 +1758,37 @@ class AgentRemoteApp {
 
       const activeDev = this.getActiveDevice();
       const isOnline = activeDev && activeDev.status === 'online';
-      this.deviceStatusDot.className = `device-status-indicator ${isOnline ? 'online' : 'offline'}`;
+      const isRecentlySeen = activeDev && !isOnline && activeDev.lastSeen && (Date.now() - activeDev.lastSeen < 75000);
+
+      let statusClass = 'offline';
+      let statusLabel = 'OFFLINE';
+      if (isOnline) {
+        statusClass = 'online';
+        statusLabel = 'ONLINE';
+      } else if (isRecentlySeen) {
+        statusClass = 'reconnecting';
+        statusLabel = 'ПЕРЕПІДКЛЮЧЕННЯ';
+      }
+
+      this.deviceStatusDot.className = `device-status-indicator ${statusClass}`;
 
       const shortName = activeDev ? (activeDev.name || 'PC').slice(0, 14) : '—';
       const isNarrow = window.innerWidth <= 480;
       const isCursorLoggedIn = Boolean(activeDev && activeDev.cursorAuthStatus && activeDev.cursorAuthStatus.loggedIn);
+      const reconnectSuffix = isRecentlySeen ? ' 🔄 Перепідключення...' : (isOnline ? '' : ' (Офлайн)');
+
       if (isNarrow) {
-        this.activeDeviceIndicator.innerText = `${shortName}${isOnline ? '' : ' ○'}`;
+        this.activeDeviceIndicator.innerText = `${shortName}${isOnline ? '' : (isRecentlySeen ? ' 🔄' : ' ○')}`;
         this.activeDeviceIndicator.title = activeDev
-          ? `${activeDev.name} (${isOnline ? 'ONLINE' : 'OFFLINE'})`
+          ? `${activeDev.name} (${statusLabel})`
           : 'Не обрано';
       } else if (isCursorLoggedIn) {
         this.loginCursorBtn.style.display = 'none';
         const emailLabel = activeDev.cursorAuthStatus.email ? ` • ${activeDev.cursorAuthStatus.email}` : ' • 🔑 Вхід виконано';
-        this.activeDeviceIndicator.innerText = `Пристрій: ${activeDev.name} (${isOnline ? 'ONLINE' : 'OFFLINE'})${emailLabel}`;
+        this.activeDeviceIndicator.innerText = `Пристрій: ${activeDev.name}${reconnectSuffix}${emailLabel}`;
       } else {
         this.loginCursorBtn.style.display = 'inline-flex';
-        this.activeDeviceIndicator.innerText = `Пристрій: ${activeDev ? activeDev.name : 'Не обрано'} (${isOnline ? 'ONLINE' : 'OFFLINE'})`;
+        this.activeDeviceIndicator.innerText = `Пристрій: ${activeDev ? activeDev.name : 'Не обрано'}${reconnectSuffix}`;
       }
 
       if (!isNarrow) {
@@ -1146,13 +1909,78 @@ class AgentRemoteApp {
     }
   }
 
-  renderSessions() {
-    const query = (this.sessionSearch.value || '').toLowerCase().trim();
-    const filtered = this.sessions.filter(
-      (s) => !query || (s.title && s.title.toLowerCase().includes(query)) || (s.description && s.description.toLowerCase().includes(query))
-    );
+  cleanTitleFromPrompt(prompt, maxLength = 34) {
+    if (!prompt) return 'Новий чат';
+    let text = prompt.replace(/<[^>]+>/g, ' ');
+    text = text.replace(/```[\s\S]*?```/g, ' ');
+    text = text.replace(/`[^`]+`/g, ' ');
+    text = text.replace(/https?:\/\/\S+/g, ' ');
+    text = text.replace(/[#*_\->~[\]()]+/g, ' ');
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    let title = lines[0] || '';
 
-    this.sessionCount.innerText = filtered.length;
+    const prefixPatterns = [
+      /^(?:хочу\s+(?:щоб|якщо)\s+(?:була\s+можливість\s+)?)/i,
+      /^(?:треба\s+(?:щоб|зробити|додати)\s+(?:можливість\s+)?)/i,
+      /^(?:зроби\s+(?:так\s+щоб|будь\s+ласка\s+)?)/i,
+      /^(?:чи\s+(?:можна|працює|є|буде)\s+)/i,
+      /^(?:допоможи\s+(?:мені\s+)?(?:з|у|в)?\s+)/i,
+      /^(?:як\s+(?:зробити|налаштувати|додати)\s+)/i,
+      /^(?:будь\s+ласка[,\s]+)/i,
+      /^(?:can\s+you\s+(?:please\s+)?(?:help\s+me\s+with\s+)?)/i,
+      /^(?:please\s+(?:help\s+me\s+with\s+)?)/i,
+      /^(?:i\s+want\s+(?:to\s+)?)/i,
+      /^(?:how\s+to\s+)/i,
+      /^(?:could\s+you\s+)/i,
+    ];
+    for (const pat of prefixPatterns) {
+      title = title.replace(pat, '');
+    }
+    title = title.replace(/[?!:;.,]+$/, '').replace(/\s+/g, ' ').trim();
+    if (!title) return 'Новий чат';
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+    if (title.length > maxLength) {
+      const cut = title.slice(0, maxLength);
+      const lastSpace = cut.lastIndexOf(' ');
+      if (lastSpace > maxLength * 0.55) {
+        title = cut.slice(0, lastSpace).trim() + '…';
+      } else {
+        title = cut.trim() + '…';
+      }
+    }
+    return title;
+  }
+
+  renderSessions() {
+    const query = (this.sessionSearch?.value || '').toLowerCase().trim();
+    let filtered = this.sessions.filter((s) => {
+      // 1. Project filter
+      if (this.activeProjectId === 'unassigned') {
+        if (s.projectId) return false;
+      } else if (this.activeProjectId !== 'all') {
+        if (s.projectId !== this.activeProjectId) return false;
+      }
+      // 2. Search query
+      if (query) {
+        const titleMatch = s.title && s.title.toLowerCase().includes(query);
+        const descMatch = s.description && s.description.toLowerCase().includes(query);
+        const wsMatch = s.workspacePath && s.workspacePath.toLowerCase().includes(query);
+        if (!titleMatch && !descMatch && !wsMatch) return false;
+      }
+      return true;
+    });
+
+    // 3. Sort: Pinned first, then by updatedAt descending
+    filtered = [...filtered].sort((a, b) => {
+      const aPinned = Boolean(a.isPinned);
+      const bPinned = Boolean(b.isPinned);
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+
+    if (this.sessionCount) this.sessionCount.innerText = filtered.length;
+
+    if (!this.sessionList) return;
 
     if (filtered.length === 0) {
       this.sessionList.innerHTML = '<p class="meta-text" style="padding:16px 6px; text-align:center;">Сесій не знайдено</p>';
@@ -1162,10 +1990,14 @@ class AgentRemoteApp {
     this.sessionList.innerHTML = '';
     filtered.forEach((s) => {
       const item = document.createElement('div');
-      item.className = `session-item ${s.id === this.activeSessionId ? 'active' : ''}`;
+      const isCurrentActive = s.id === this.activeSessionId;
+      const isOpenInPane = this.panes && this.panes.some((p) => p.sessionId === s.id);
+      const isPinned = Boolean(s.isPinned);
+
+      item.className = `session-item ${isCurrentActive ? 'active' : ''} ${isPinned ? 'pinned' : ''}`;
 
       const formattedDate = new Date(s.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const isAntigravity = s.engine === 'antigravity' || (s.model && s.model.includes('gemini'));
+      const isAntigravity = s.engine === 'antigravity';
       const engineTag = isAntigravity
         ? '<span class="session-engine-tag antigravity">AGY</span>'
         : '<span class="session-engine-tag cursor">CURSOR</span>';
@@ -1175,25 +2007,54 @@ class AgentRemoteApp {
         ? '<span class="session-running-badge" style="display:inline-flex; align-items:center; gap:4px; font-size:9.5px; padding:1px 5px; border-radius:4px; background:rgba(56,189,248,0.15); color:var(--accent-primary); font-weight:700; border:1px solid rgba(56,189,248,0.3);"><span class="pulse-dot"></span> виконується</span>'
         : '';
 
+      const pinBadge = isPinned ? '<span class="session-pin-indicator" title="Закріплений чат">📌</span>' : '';
+
+      let projectTag = '';
+      if (this.activeProjectId === 'all' && s.projectId) {
+        const proj = this.projects.find((p) => p.id === s.projectId);
+        if (proj) {
+          projectTag = `<span class="session-project-tag" style="color:${proj.color || 'inherit'};">${proj.icon || '📁'} ${this.escapeHtml(proj.name)}</span>`;
+        }
+      }
+
       const descText = s.description || (s.workspacePath ? s.workspacePath.split(/[/\\]/).filter(Boolean).pop() : 'Робоча сесія');
+      const messageCount = s.messageCount !== undefined ? s.messageCount : (s.messages ? s.messages.length : 0);
+      const sessionTitle = s.title || (isAntigravity ? 'Чат Antigravity' : 'Чат Cursor');
 
       item.innerHTML = `
         <div class="session-info">
           <div class="session-header-line">
-            <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+            <div class="session-tags-row">
+              ${pinBadge}
               ${engineTag}
               ${runningTag}
+              ${projectTag}
             </div>
-            <div class="session-title">${this.escapeHtml(s.title || (isAntigravity ? 'Чат Antigravity' : 'Чат Cursor'))}</div>
+            <span class="session-date-inline">${formattedDate}</span>
           </div>
-          <div class="session-desc">${this.escapeHtml(descText)}</div>
-          <div class="session-date">${formattedDate} • ${s.model === 'auto' ? 'Auto' : s.model || (isAntigravity ? 'Gemini' : 'Claude')} • ${s.messages ? s.messages.length : 0} повід.</div>
+          <div class="session-title" title="${this.escapeHtml(sessionTitle)}">${this.escapeHtml(sessionTitle)}</div>
+          <div class="session-desc" title="${this.escapeHtml(descText)}">${this.escapeHtml(descText)}</div>
+          <div class="session-date">${s.model === 'auto' ? 'Auto' : s.model || (isAntigravity ? 'Gemini' : 'Claude')} • ${messageCount} повід.</div>
         </div>
-        <button class="session-delete-btn" title="Видалити сесію">✕</button>
+        <div class="session-actions-group">
+          <button type="button" class="session-pin-btn ${isPinned ? 'active' : ''}" title="${isPinned ? 'Відкріпити чат' : 'Закріпити зверху'}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="${isPinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 17v5M5 17h14l-1.5-6H6.5L5 17zM9 3h6l1 4H8l1-4z"/></svg>
+          </button>
+          <button type="button" class="session-split-btn" title="Відкрити поруч (Split Screen)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg>
+          </button>
+          <button type="button" class="session-delete-btn" title="Видалити сесію">✕</button>
+        </div>
       `;
 
       item.addEventListener('click', (e) => {
-        if (e.target.classList.contains('session-delete-btn')) {
+        if (e.target.closest('.session-pin-btn')) {
+          e.stopPropagation();
+          this.togglePinSession(s.id);
+        } else if (e.target.closest('.session-split-btn')) {
+          e.stopPropagation();
+          this.addPane(s.id);
+        } else if (e.target.closest('.session-delete-btn')) {
           e.stopPropagation();
           this.deleteSession(s.id);
         } else {
@@ -1205,19 +2066,27 @@ class AgentRemoteApp {
     });
   }
 
-  selectSession(sessionId) {
+  async selectSession(sessionId) {
     this.activeSessionId = sessionId;
     if (sessionId) {
       localStorage.setItem('agentremote_active_session_id', sessionId);
     } else {
       localStorage.removeItem('agentremote_active_session_id');
     }
+
+    // Set sessionId on active pane
+    const activePane = this.panes.find((p) => p.id === this.activePaneId) || this.panes[0];
+    if (activePane) {
+      activePane.sessionId = sessionId;
+    }
+
     this.renderSessions();
-    this.renderActiveChat();
-    this.appSidebar.classList.remove('open');
+    this.appSidebar?.classList.remove('open');
     if (this.sidebarBackdrop) {
       this.sidebarBackdrop.classList.remove('show');
     }
+    await this.loadActiveSessionDetails(sessionId);
+    this.renderPanes();
   }
 
   async deleteSession(sessionId) {
@@ -1227,6 +2096,8 @@ class AgentRemoteApp {
       headers: { Authorization: `Bearer ${this.token}` },
     });
     this.sessions = this.sessions.filter((s) => s.id !== sessionId);
+
+    // If active session was deleted, reassign
     if (this.activeSessionId === sessionId) {
       this.activeSessionId = this.sessions[0] ? this.sessions[0].id : null;
       if (this.activeSessionId) {
@@ -1235,166 +2106,588 @@ class AgentRemoteApp {
         localStorage.removeItem('agentremote_active_session_id');
       }
     }
+
+    // Reassign any pane that was showing this session
+    this.panes.forEach((p) => {
+      if (p.sessionId === sessionId) {
+        p.sessionId = this.sessions[0]?.id || null;
+      }
+    });
+
+    this.renderProjects();
     this.renderSessions();
-    this.renderActiveChat();
+    this.renderPanes();
   }
 
-  renderActiveChat() {
-    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+  // ================= MULTI-CHAT SPLIT SCREEN METHODS =================
+  setSplitLayout(layoutCount) {
+    const layout = Math.max(1, Math.min(4, layoutCount));
+    this.splitLayout = layout;
+    localStorage.setItem('agentremote_split_layout', String(layout));
+
+    if (this.splitLayoutBtns) {
+      this.splitLayoutBtns.forEach((btn) => {
+        btn.classList.toggle('active', parseInt(btn.dataset.layout, 10) === layout);
+      });
+    }
+
+    // Adjust panes list to match layout count
+    while (this.panes.length < layout) {
+      const paneId = `pane-${this.panes.length + 1}`;
+      const openSessionIds = new Set(this.panes.map((p) => p.sessionId).filter(Boolean));
+      const nextSession = this.sessions.find((s) => !openSessionIds.has(s.id)) || this.sessions[0];
+      this.panes.push({ id: paneId, sessionId: nextSession ? nextSession.id : null });
+    }
+    if (this.panes.length > layout) {
+      this.panes = this.panes.slice(0, layout);
+    }
+
+    if (!this.panes.some((p) => p.id === this.activePaneId)) {
+      this.activePaneId = this.panes[0]?.id || 'pane-1';
+    }
+
+    this.renderPanes();
+    this.renderSessions();
+  }
+
+  addPane(sessionId = null) {
+    if (this.panes.length >= 4) {
+      this.showToast('Досягнуто максимум 4 паралельних вікна');
+      return;
+    }
+    const newCount = this.panes.length + 1;
+    this.setSplitLayout(newCount);
+    if (sessionId) {
+      const lastPane = this.panes[this.panes.length - 1];
+      if (lastPane) {
+        lastPane.sessionId = sessionId;
+        this.activePaneId = lastPane.id;
+        this.activeSessionId = sessionId;
+        this.renderPanes();
+        this.renderSessions();
+      }
+    }
+  }
+
+  closePane(paneId) {
+    if (this.panes.length <= 1) return;
+    this.panes = this.panes.filter((p) => p.id !== paneId);
+    this.setSplitLayout(this.panes.length);
+  }
+
+  focusPane(paneId) {
+    this.activePaneId = paneId;
+    const pane = this.panes.find((p) => p.id === paneId);
+    if (pane && pane.sessionId) {
+      this.activeSessionId = pane.sessionId;
+    }
+    const allPanes = document.querySelectorAll('.chat-pane');
+    allPanes.forEach((p) => {
+      p.classList.toggle('focused', p.dataset.paneId === paneId);
+    });
+    this.renderSessions();
+  }
+
+  renderPanes() {
+    if (!this.chatPanesGrid) return;
+
+    if (!this.panes || this.panes.length === 0) {
+      this.panes = [{ id: 'pane-1', sessionId: this.activeSessionId }];
+    }
+
+    // Ensure pane count matches splitLayout
+    while (this.panes.length < this.splitLayout) {
+      const newId = `pane-${this.panes.length + 1}`;
+      const openSessionIds = new Set(this.panes.map((p) => p.sessionId).filter(Boolean));
+      const nextSession = this.sessions.find((s) => !openSessionIds.has(s.id)) || this.sessions[0];
+      this.panes.push({ id: newId, sessionId: nextSession ? nextSession.id : null });
+    }
+    if (this.panes.length > this.splitLayout) {
+      this.panes = this.panes.slice(0, this.splitLayout);
+    }
+
+    if (!this.panes.some((p) => p.id === this.activePaneId)) {
+      this.activePaneId = this.panes[0]?.id || 'pane-1';
+    }
+
+    this.chatPanesGrid.dataset.layout = String(this.splitLayout);
+    this.chatPanesGrid.innerHTML = '';
+
+    if (this.splitLayoutBtns) {
+      this.splitLayoutBtns.forEach((btn) => {
+        btn.classList.toggle('active', parseInt(btn.dataset.layout, 10) === this.splitLayout);
+      });
+    }
+
+    this.panes.forEach((pane, idx) => {
+      const paneEl = this.createPaneElement(pane, idx);
+      this.chatPanesGrid.appendChild(paneEl);
+      this.renderPaneContent(pane, paneEl);
+    });
+
+    this.extractSessionArtifacts(this.activeSessionId);
+  }
+
+  createPaneElement(pane, index) {
+    const paneEl = document.createElement('div');
+    paneEl.className = `chat-pane ${pane.id === this.activePaneId ? 'focused' : ''}`;
+    paneEl.dataset.paneId = pane.id;
+
+    const session = this.sessions.find((s) => s.id === pane.sessionId);
+    const isPinned = Boolean(session && session.isPinned);
+    const isRunning = Boolean(session && (session.isStreaming || session.status === 'running'));
+    const isAntigravity = session && session.engine === 'antigravity';
+    const engineTag = session ? (isAntigravity ? 'AGY' : 'CURSOR') : 'CHAT';
+
+    const sessionOptions = this.sessions
+      .map((s) => {
+        const isPin = s.isPinned ? '📌 ' : '';
+        const title = this.escapeHtml(s.title || (s.engine === 'antigravity' ? 'Antigravity' : 'Cursor'));
+        const isSel = s.id === pane.sessionId ? 'selected' : '';
+        return `<option value="${s.id}" ${isSel}>${isPin}${title}</option>`;
+      })
+      .join('');
+
+    const paneCount = this.panes.length;
+
+    paneEl.innerHTML = `
+      <div class="chat-pane-header">
+        <div class="chat-pane-title-area">
+          <button type="button" class="pane-pin-btn ${isPinned ? 'active' : ''}" title="${isPinned ? 'Відкріпити' : 'Закріпити'}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="${isPinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 17v5M5 17h14l-1.5-6H6.5L5 17zM9 3h6l1 4H8l1-4z"/></svg>
+          </button>
+          <select class="pane-session-select" title="Оберіть сесію для цього вікна">
+            ${sessionOptions || '<option value="">Немає сесій</option>'}
+          </select>
+          <span class="session-engine-tag ${isAntigravity ? 'antigravity' : 'cursor'}">${engineTag}</span>
+          ${isRunning ? '<span class="session-running-badge" style="display:inline-flex; align-items:center; gap:4px; font-size:9.5px; padding:1px 5px; border-radius:4px; background:rgba(56,189,248,0.15); color:var(--accent-primary); font-weight:700; border:1px solid rgba(56,189,248,0.3);"><span class="pulse-dot"></span> виконується</span>' : ''}
+        </div>
+        <div class="chat-pane-actions">
+          <button type="button" class="pane-action-btn pane-new-chat-btn" title="Створити новий чат у цьому вікні">+</button>
+          <button type="button" class="pane-action-btn pane-sync-btn" title="Синхронізувати з IDE">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          </button>
+          ${paneCount > 1 ? '<button type="button" class="pane-action-btn pane-close-btn danger" title="Закрити це вікно">✕</button>' : ''}
+        </div>
+      </div>
+
+      <div class="chat-pane-messages-wrapper" style="position:relative; flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden;">
+        <div class="chat-pane-messages chat-messages">
+          <!-- Messages will be rendered here -->
+        </div>
+        <button type="button" class="scroll-to-bottom-btn" title="Прокрутити вниз до нових повідомлень">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          <span>Вниз</span>
+        </button>
+      </div>
+
+      <div class="chat-pane-input-area chat-input-area">
+        <div class="input-controls">
+          <div class="input-controls-left">
+            <div class="inline-select-wrapper">
+              <select class="pane-model-select custom-select-sm" title="Модель для цього чату">
+                ${this.buildModelOptionsHtml(session?.engine || 'cursor', session?.model)}
+              </select>
+            </div>
+            <div class="pane-effort-wrapper inline-select-wrapper" style="${this.modelSupportsEffort(session?.engine || 'cursor', session?.model) ? '' : 'display:none;'}">
+              <select class="pane-effort-select custom-select-sm" title="Thinking Effort">
+                <option value="high" ${session?.thinkingEffort === 'high' ? 'selected' : ''}>🚀 High</option>
+                <option value="medium" ${session?.thinkingEffort === 'medium' || !session?.thinkingEffort ? 'selected' : ''}>🧠 Med</option>
+                <option value="low" ${session?.thinkingEffort === 'low' ? 'selected' : ''}>⚡ Low</option>
+                <option value="off" ${session?.thinkingEffort === 'off' ? 'selected' : ''}>🚫 Off</option>
+              </select>
+            </div>
+          </div>
+          <div class="input-right-controls">
+            <button type="button" class="pane-stop-btn btn btn-danger btn-sm" style="${isRunning ? 'display:inline-flex;' : 'display:none;'}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
+              <span>Зупинити</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="pane-queue-box" style="${session?.promptQueue && session.promptQueue.length > 0 ? '' : 'display:none;'}">
+          <!-- Queue items -->
+        </div>
+
+        <div class="input-box-wrapper">
+          <textarea class="pane-prompt-input" placeholder="Завдання для агента... (Enter — надіслати)" rows="2"></textarea>
+          <div class="input-actions-bar">
+            <span class="shortcut-hint">Enter</span>
+            <button type="button" class="pane-send-btn send-btn" title="${isRunning ? 'Додати в чергу' : 'Надіслати'}">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Attach scroll listener and scroll down button
+    const messagesEl = paneEl.querySelector('.chat-pane-messages');
+    const scrollDownBtn = paneEl.querySelector('.scroll-to-bottom-btn');
+    if (messagesEl) {
+      this.attachScrollListener(messagesEl);
+      if (scrollDownBtn) {
+        scrollDownBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.smartScrollToBottom(messagesEl, true);
+        });
+      }
+    }
+
+    // Pane focus
+    paneEl.addEventListener('click', () => {
+      this.focusPane(pane.id);
+    });
+
+    // Session dropdown
+    const sessSelect = paneEl.querySelector('.pane-session-select');
+    sessSelect.addEventListener('change', async (e) => {
+      pane.sessionId = e.target.value;
+      this.activeSessionId = pane.sessionId;
+      await this.loadActiveSessionDetails(pane.sessionId);
+      this.renderPanes();
+      this.renderSessions();
+    });
+
+    // Pin toggle
+    const pinBtn = paneEl.querySelector('.pane-pin-btn');
+    pinBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (pane.sessionId) this.togglePinSession(pane.sessionId);
+    });
+
+    // Close pane
+    const closeBtn = paneEl.querySelector('.pane-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closePane(pane.id);
+      });
+    }
+
+    // New chat
+    const newChatBtn = paneEl.querySelector('.pane-new-chat-btn');
+    if (newChatBtn) {
+      newChatBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.openNewChatModal(session?.engine || 'cursor');
+      });
+    }
+
+    // Sync IDE
+    const syncBtn = paneEl.querySelector('.pane-sync-btn');
+    if (syncBtn) {
+      syncBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.syncCurrentChatWithIde();
+      });
+    }
+
+    // Model select
+    const modelSelect = paneEl.querySelector('.pane-model-select');
+    modelSelect.addEventListener('change', (e) => {
+      if (session) session.model = e.target.value;
+      const effortWrap = paneEl.querySelector('.pane-effort-wrapper');
+      if (effortWrap) {
+        effortWrap.style.display = this.modelSupportsEffort(session?.engine || 'cursor', e.target.value) ? '' : 'none';
+      }
+    });
+
+    // Effort select
+    const effortSelect = paneEl.querySelector('.pane-effort-select');
+    if (effortSelect) {
+      effortSelect.addEventListener('change', (e) => {
+        if (session) session.thinkingEffort = e.target.value;
+      });
+    }
+
+    // Prompt textarea & Send button
+    const textarea = paneEl.querySelector('.pane-prompt-input');
+    const sendBtn = paneEl.querySelector('.pane-send-btn');
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this.sendPrompt(pane.id);
+      }
+    });
+    sendBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.sendPrompt(pane.id);
+    });
+
+    // Stop button
+    const stopBtn = paneEl.querySelector('.pane-stop-btn');
+    if (stopBtn) {
+      stopBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.stopAgent(pane.sessionId);
+      });
+    }
+
+    return paneEl;
+  }
+
+  renderPaneContent(pane, paneEl) {
+    const messagesEl = paneEl.querySelector('.chat-pane-messages');
+    if (!messagesEl) return;
+
+    const session = this.sessions.find((s) => s.id === pane.sessionId);
     if (!session) {
-      this.currentChatTitle.innerText = 'Новий чат Cursor';
-      this.chatMeta.innerText = 'Оберіть сесію або почніть нову';
-      this.isStreaming = false;
-      this.stopAgentBtn.style.display = 'none';
-      this.sendBtn.disabled = false;
-      this.chatMessages.innerHTML = `
+      messagesEl.innerHTML = `
         <div class="welcome-box">
-          <div class="welcome-badge">LiuLiu · Ashen</div>
-          <h3>Створіть або оберіть сесію</h3>
-          <p>Натисніть "+ Cursor" або "+ Antigravity" у бічній панелі щоб почати розробку.</p>
+          <div class="welcome-badge">Вікно чату</div>
+          <h3>Оберіть або створіть сесію</h3>
+          <p>Виберіть сесію зі списку вгорі або створіть новий чат кнопкою "+".</p>
         </div>
       `;
       return;
     }
 
-    const isSessionStreaming = Boolean(session.isStreaming || session.status === 'running');
-    this.isStreaming = isSessionStreaming;
-    if (isSessionStreaming) {
-      this.startAgentStallWatchdog();
-    } else {
-      this.stopAgentStallWatchdog();
-    }
-    this.stopAgentBtn.style.display = isSessionStreaming ? 'inline-flex' : 'none';
-    this.sendBtn.disabled = false;
-
-    if (isSessionStreaming) {
-      this.sendBtn.title = 'Додати повідомлення у чергу';
-      if (this.sendShortcutHint) this.sendShortcutHint.innerText = 'Enter — додати в чергу';
-    } else {
-      this.sendBtn.title = 'Надіслати';
-      if (this.sendShortcutHint) this.sendShortcutHint.innerText = '⌘ + Enter / Enter';
+    if (!session._loaded && (!session.messages || session.messages.length === 0)) {
+      messagesEl.innerHTML = `
+        <div class="welcome-box">
+          <div class="welcome-badge">Завантаження</div>
+          <h3>${this.escapeHtml(session.title || 'Сесія')}</h3>
+          <p><span class="pulse-dot"></span> Завантаження повідомлень чату...</p>
+        </div>
+      `;
+      return;
     }
 
-    this.currentChatTitle.innerText = session.title || 'Чат розробки';
-    if (isSessionStreaming && this.chatMeta) {
-      this.chatMeta.innerHTML = `<span style="color:var(--accent-primary); font-weight:600;"><span class="pulse-dot"></span> Агент виконує завдання...</span>`;
-    } else if (this.chatMeta) {
-      this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
-    }
-
-    if (session.engine === 'antigravity') {
-      if (!session.model || session.model === 'auto') session.model = this.defaultModelFor('antigravity');
-      if (!session.thinkingEffort) session.thinkingEffort = 'high';
-    }
-
-    const sessionEngine = session.engine === 'antigravity' ? 'antigravity' : 'cursor';
-    const activeModel = session.model && session.model !== 'auto' ? session.model : this.defaultModelFor(sessionEngine);
-
-    [this.modelSelect, this.chatModelSelect].forEach((sel) => {
-      if (!sel) return;
-      sel.innerHTML = this.buildModelOptionsHtml(sessionEngine, activeModel);
-      sel.value = activeModel;
-      this.refreshCustomSelect(sel);
-    });
-    session.model = activeModel;
-
-    if (session.mode && this.modeSelect) {
-      this.modeSelect.value = session.mode;
-    }
-    if (this.thinkingEffortSelect) {
-      this.thinkingEffortSelect.value = session.thinkingEffort || (sessionEngine === 'antigravity' ? 'high' : 'medium');
-    }
-    this.syncEffortVisibility(sessionEngine, activeModel);
-
-    this.renderQueue();
-
-    if (session.messages.length === 0) {
-      this.chatMessages.innerHTML = `
+    if (!session.messages || session.messages.length === 0) {
+      messagesEl.innerHTML = `
         <div class="welcome-box">
           <div class="welcome-badge">Готовий до роботи</div>
           <h3>${this.escapeHtml(session.title)}</h3>
-          <p>Напишіть завдання або оберіть одну зі швидких дій нижче:</p>
-          <div class="quick-prompt-chips">
-            <button class="chip-btn" data-prompt="Зроби огляд проекту і поясни структуру коду">Огляд структури проекту</button>
-            <button class="chip-btn" data-prompt="Перевір git статус та останні зміни">Перевірити git статус</button>
-            <button class="chip-btn" data-prompt="Запусти тести та перевір чи все збирається">Запустити білд і тести</button>
-            <button class="chip-btn" data-prompt="Знайди потенційні баги або невикористаний код">Пошук проблем у коді</button>
-          </div>
+          <p>Напишіть завдання для агента у полі внизу.</p>
         </div>
       `;
       return;
     }
 
-    this.chatMessages.innerHTML = '';
+    const prevScrollTop = messagesEl.scrollTop;
+    const wasScrolledUp = Boolean(messagesEl._userScrolledUp);
+
+    messagesEl.innerHTML = '';
+    const isSessionStreaming = Boolean(session.isStreaming || session.status === 'running');
     session.messages.forEach((msg, idx) => {
       const isLast = idx === session.messages.length - 1;
       const isLastStreaming = isLast && isSessionStreaming && msg.role === 'assistant';
-      this.renderChatMessageElement(msg.role, msg.content, msg.toolCalls, isLastStreaming, msg.thinkingContent);
+      this.renderChatMessageElement(msg.role, msg.content, msg.toolCalls, isLastStreaming, msg.thinkingContent, msg, messagesEl);
     });
-    this.scrollToBottom();
+
+    if (wasScrolledUp) {
+      messagesEl.scrollTop = prevScrollTop;
+      const btn = messagesEl.parentElement?.querySelector('.scroll-to-bottom-btn');
+      if (btn) btn.classList.add('visible');
+    } else {
+      this.smartScrollToBottom(messagesEl, true);
+    }
+    this.renderQueue(pane.sessionId);
   }
 
-  renderQueue() {
-    const session = this.sessions.find((s) => s.id === this.activeSessionId);
-    if (!this.chatQueueContainer || !this.queueItemsList) return;
+  renderActiveChat() {
+    this.renderPanes();
+  }
 
-    const queue = (session && session.promptQueue) || [];
-    if (queue.length === 0) {
-      this.chatQueueContainer.style.display = 'none';
-      return;
+  renderQueue(targetSessionId = null) {
+    const activeSess = this.sessions.find((s) => s.id === (targetSessionId || this.activeSessionId));
+
+    // 1. Render in main queue container (if present)
+    if (this.chatQueueContainer && this.queueItemsList) {
+      const queue = (activeSess && activeSess.promptQueue) || [];
+      if (queue.length === 0) {
+        this.chatQueueContainer.style.display = 'none';
+      } else {
+        this.chatQueueContainer.style.display = 'block';
+        if (this.queueCount) this.queueCount.innerText = queue.length;
+        this.queueItemsList.innerHTML = '';
+        queue.forEach((promptText, idx) => {
+          const itemEl = this.createQueueItemElement(promptText, idx, activeSess);
+          this.queueItemsList.appendChild(itemEl);
+        });
+      }
     }
 
-    this.chatQueueContainer.style.display = 'block';
-    if (this.queueCount) this.queueCount.innerText = queue.length;
+    // 2. Render in each pane's queue box
+    if (this.panes && this.panes.length > 0) {
+      this.panes.forEach((pane) => {
+        const paneEl = document.querySelector(`[data-pane-id="${pane.id}"]`);
+        if (!paneEl) return;
+        const queueBox = paneEl.querySelector('.pane-queue-box');
+        if (!queueBox) return;
 
-    this.queueItemsList.innerHTML = '';
-    queue.forEach((promptText, idx) => {
-      const itemEl = document.createElement('div');
-      itemEl.className = 'queue-item';
+        const session = this.sessions.find((s) => s.id === pane.sessionId);
+        const queue = (session && session.promptQueue) || [];
+
+        if (queue.length === 0) {
+          queueBox.style.display = 'none';
+          queueBox.innerHTML = '';
+        } else {
+          queueBox.style.display = 'block';
+          queueBox.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; font-size:10.5px; color:var(--text-muted);">
+              <span>📋 Черга завдань (${queue.length})</span>
+              <button type="button" class="pane-clear-queue-btn btn-xs" style="background:none; border:none; color:var(--accent-error); cursor:pointer; font-size:10px;">очистити</button>
+            </div>
+            <div class="pane-queue-items-list" style="display:flex; flex-direction:column; gap:4px;"></div>
+          `;
+
+          const clearBtn = queueBox.querySelector('.pane-clear-queue-btn');
+          if (clearBtn) {
+            clearBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.clearActiveSessionQueue(session.id);
+            });
+          }
+
+          const listEl = queueBox.querySelector('.pane-queue-items-list');
+          queue.forEach((promptText, idx) => {
+            const itemEl = this.createQueueItemElement(promptText, idx, session);
+            listEl.appendChild(itemEl);
+          });
+        }
+      });
+    }
+  }
+
+  createQueueItemElement(promptText, index, session) {
+    const itemEl = document.createElement('div');
+    itemEl.className = 'queue-item';
+
+    const renderNormalView = () => {
       itemEl.innerHTML = `
         <div class="queue-item-info">
-          <span class="queue-item-num">#${idx + 1}</span>
+          <span class="queue-item-num">#${index + 1}</span>
           <span class="queue-item-text" title="${this.escapeHtml(promptText)}">${this.escapeHtml(promptText)}</span>
         </div>
-        <button class="queue-item-del-btn" title="Видалити з черги">✕</button>
+        <div class="queue-item-actions">
+          <button type="button" class="queue-item-edit-btn" title="Редагувати повідомлення">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+          </button>
+          <button type="button" class="queue-item-del-btn" title="Видалити з черги">✕</button>
+        </div>
       `;
+
+      itemEl.querySelector('.queue-item-edit-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        renderEditView();
+      });
 
       itemEl.querySelector('.queue-item-del-btn').addEventListener('click', (e) => {
         e.stopPropagation();
-        this.removeQueuedPrompt(idx);
+        this.removeQueuedPrompt(session ? session.id : this.activeSessionId, index);
+      });
+    };
+
+    const renderEditView = () => {
+      itemEl.innerHTML = `
+        <div class="queue-item-edit-form">
+          <span class="queue-item-num">#${index + 1}</span>
+          <input type="text" class="queue-item-edit-input" value="${this.escapeHtml(promptText)}" placeholder="Текст завдання..." />
+          <button type="button" class="queue-item-save-btn" title="Зберегти (Enter)">✓</button>
+          <button type="button" class="queue-item-cancel-btn" title="Скасувати (Esc)">✕</button>
+        </div>
+      `;
+
+      const input = itemEl.querySelector('.queue-item-edit-input');
+      const saveBtn = itemEl.querySelector('.queue-item-save-btn');
+      const cancelBtn = itemEl.querySelector('.queue-item-cancel-btn');
+
+      input.focus();
+      input.select();
+
+      const doSave = () => {
+        const val = input.value.trim();
+        if (!val) {
+          this.showToast('Текст завдання не може бути порожнім');
+          return;
+        }
+        promptText = val;
+        this.editQueuedPrompt(session ? session.id : this.activeSessionId, index, val);
+      };
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          doSave();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          renderNormalView();
+        }
       });
 
-      this.queueItemsList.appendChild(itemEl);
-    });
+      saveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        doSave();
+      });
+
+      cancelBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        renderNormalView();
+      });
+    };
+
+    renderNormalView();
+    return itemEl;
   }
 
-  removeQueuedPrompt(index) {
-    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+  editQueuedPrompt(sessionId, index, newPrompt) {
+    const targetSessionId = sessionId || this.activeSessionId;
+    const session = this.sessions.find((s) => s.id === targetSessionId);
+    if (!session || !session.promptQueue || !session.promptQueue[index]) return;
+
+    session.promptQueue[index] = newPrompt.trim();
+    this.renderQueue(targetSessionId);
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'agent:update_queued_prompt',
+          payload: { sessionId: targetSessionId, index, newPrompt: newPrompt.trim() },
+        })
+      );
+    }
+    this.showToast('✏️ Завдання в черзі оновлено');
+  }
+
+  removeQueuedPrompt(sessionId, index) {
+    let targetSessionId = sessionId;
+    let targetIndex = index;
+    if (typeof sessionId === 'number' && index === undefined) {
+      targetIndex = sessionId;
+      targetSessionId = this.activeSessionId;
+    }
+
+    const session = this.sessions.find((s) => s.id === targetSessionId);
     if (!session || !session.promptQueue) return;
-    session.promptQueue.splice(index, 1);
-    this.renderQueue();
+    session.promptQueue.splice(targetIndex, 1);
+    this.renderQueue(targetSessionId);
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(
         JSON.stringify({
           type: 'agent:remove_queued_prompt',
-          payload: { sessionId: this.activeSessionId, index },
+          payload: { sessionId: targetSessionId, index: targetIndex },
         })
       );
     }
+    this.showToast('🗑️ Завдання видалено з черги');
   }
 
-  clearActiveSessionQueue() {
-    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+  clearActiveSessionQueue(sessionId = null) {
+    const targetSessionId = sessionId || this.activeSessionId;
+    const session = this.sessions.find((s) => s.id === targetSessionId);
     if (!session || !session.promptQueue) return;
     session.promptQueue = [];
-    this.renderQueue();
+    this.renderQueue(targetSessionId);
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(
         JSON.stringify({
           type: 'agent:clear_queue',
-          payload: { sessionId: this.activeSessionId },
+          payload: { sessionId: targetSessionId },
         })
       );
     }
@@ -1423,7 +2716,7 @@ class AgentRemoteApp {
     `;
   }
 
-  renderChatMessageElement(role, content, toolCalls, isStreaming = false, thinkingContent = '') {
+  renderChatMessageElement(role, content, toolCalls, isStreaming = false, thinkingContent = '', msgOrBlocks = null) {
     const el = document.createElement('div');
     el.className = `message ${role} ${isStreaming ? 'streaming' : ''}`;
 
@@ -1434,41 +2727,88 @@ class AgentRemoteApp {
       ? `<div class="message-avatar" style="background:var(--accent-primary); color:#fff; font-weight:700; font-size:11px;">ВИ</div>`
       : `<div class="message-avatar" style="background:var(--accent-primary); color:#fff; font-weight:700; font-size:10px;">AI</div>`;
 
-    let parsedContent = '';
-    if (isAssistant && window.marked && content) {
-      parsedContent = this.renderMarkdownSafe(content);
-    } else if (content) {
-      parsedContent = this.escapeHtml(content).replace(/\n/g, '<br>');
-    } else if (isStreaming && !thinkingContent && (!toolCalls || toolCalls.length === 0)) {
-      parsedContent = `
-        <div class="agent-thinking-wrapper" style="display:inline-flex; align-items:center; gap:8px; padding:2px 0; color:var(--text-secondary); font-size:12.5px;">
-          <span class="thinking-spinner"></span>
-          <span>Агент підключається та формує план дій...</span>
-        </div>
-      `;
-    }
-
     const thinkingHtml = thinkingContent
       ? `<div class="thinking-container">${this.formatThinkingHtml(thinkingContent, isStreaming)}</div>`
       : '';
 
-    let toolCallsHtml = '';
-    if (toolCalls && toolCalls.length > 0) {
-      toolCallsHtml = `
-        <div class="tool-calls-container">
-          ${toolCalls.map((tc) => this.formatToolCallHtml(tc)).join('')}
+    let bodyHtml = '';
+    let hasRenderableContent = Boolean(thinkingContent);
+
+    if (isAssistant && msgOrBlocks && typeof msgOrBlocks === 'object') {
+      const blocks = getRenderableMessageBlocks(msgOrBlocks);
+      const blockParts = [];
+      let currentToolGroup = [];
+
+      const flushToolGroup = () => {
+        if (currentToolGroup.length === 0) return;
+        if (currentToolGroup.length === 1) {
+          blockParts.push(this.formatToolCallHtml(currentToolGroup[0]));
+        } else {
+          blockParts.push(this.formatToolGroupHtml(currentToolGroup, isStreaming));
+        }
+        currentToolGroup = [];
+      };
+
+      for (const block of blocks) {
+        if (block.type === 'text' && block.content) {
+          flushToolGroup();
+          const parsedContent = window.marked
+            ? this.renderMarkdownSafe(block.content)
+            : this.escapeHtml(block.content).replace(/\n/g, '<br>');
+          blockParts.push(`<div class="message-bubble">${parsedContent}</div>`);
+          hasRenderableContent = true;
+        } else if (block.type === 'tool') {
+          const tc = (toolCalls || msgOrBlocks.toolCalls || []).find((t) => t.id === block.toolCallId);
+          if (tc) {
+            currentToolGroup.push(tc);
+            hasRenderableContent = true;
+          }
+        }
+      }
+      flushToolGroup();
+
+      bodyHtml = blockParts.join('');
+    } else {
+      let parsedContent = '';
+      if (isAssistant && window.marked && content) {
+        parsedContent = this.renderMarkdownSafe(content);
+      } else if (content) {
+        parsedContent = this.escapeHtml(content).replace(/\n/g, '<br>');
+      }
+
+      const blockParts = [];
+      if (toolCalls && toolCalls.length > 0) {
+        if (toolCalls.length === 1) {
+          blockParts.push(this.formatToolCallHtml(toolCalls[0]));
+        } else {
+          blockParts.push(this.formatToolGroupHtml(toolCalls, isStreaming));
+        }
+        hasRenderableContent = true;
+      }
+
+      if (parsedContent) {
+        blockParts.push(`<div class="message-bubble">${parsedContent}</div>`);
+        hasRenderableContent = true;
+      }
+      bodyHtml = blockParts.join('');
+    }
+
+    if (isStreaming && isAssistant && !hasRenderableContent) {
+      bodyHtml = `
+        <div class="message-bubble">
+          <div class="agent-thinking-wrapper" style="display:inline-flex; align-items:center; gap:8px; padding:2px 0; color:var(--text-secondary); font-size:12.5px;">
+            <span class="thinking-spinner"></span>
+            <span>Агент підключається та формує план дій...</span>
+          </div>
         </div>
       `;
     }
-
-    const hasBubble = Boolean(parsedContent || (!thinkingContent && (!toolCalls || toolCalls.length === 0)));
 
     el.innerHTML = `
       ${avatarHtml}
       <div class="message-bubble-wrapper" style="flex:1; min-width:0;">
         ${thinkingHtml}
-        ${toolCallsHtml}
-        ${hasBubble ? `<div class="message-bubble">${parsedContent}</div>` : ''}
+        ${bodyHtml}
       </div>
     `;
 
@@ -1476,39 +2816,94 @@ class AgentRemoteApp {
       if (window.hljs) hljs.highlightElement(block);
     });
 
+    el.querySelectorAll('.tool-call-card').forEach((card) => {
+      const id = card.id?.replace('tool-call-', '');
+      if (id) this.currentToolCallElements.set(id, card);
+    });
+
     this.chatMessages.appendChild(el);
+  }
+
+  getStreamingAssistantWrapper() {
+    let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
+    if (!assistantMsgEl) {
+      this.renderChatMessageElement('assistant', '', [], true, '', { blocks: [], toolCalls: [] });
+      assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
+    }
+    return assistantMsgEl?.querySelector('.message-bubble-wrapper') || null;
+  }
+
+  clearStreamingPlaceholder(wrapper) {
+    const initialPlaceholder = wrapper.querySelector('.agent-thinking-wrapper');
+    if (initialPlaceholder) {
+      const bubble = initialPlaceholder.closest('.message-bubble');
+      if (bubble && !bubble.rawMarkdown) bubble.remove();
+    }
+  }
+
+  getOrCreateActiveTextBubble(wrapper) {
+    const streamBlocks = [...wrapper.querySelectorAll('.message-bubble, .tool-call-card')];
+    const lastBlock = streamBlocks[streamBlocks.length - 1];
+    if (lastBlock && lastBlock.classList.contains('message-bubble')) {
+      return lastBlock;
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className = 'message-bubble';
+    wrapper.appendChild(bubble);
+    return bubble;
   }
 
   getToolMeta(toolName, input = {}) {
     const name = (toolName || '').toLowerCase();
     
     if (name.includes('command') || name.includes('terminal') || name.includes('bash') || name.includes('exec') || name.includes('shell')) {
-      const cmd = input.command || input.CommandLine || input.cmd || '';
+      const cmd = input.CommandLine || input.command || input.cmd || '';
       return {
         icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>`,
         label: 'Термінал',
         badgeClass: 'badge-terminal',
-        summary: cmd ? `$ ${cmd}` : 'Виконання команди',
+        summary: cmd ? `$ ${cmd}` : (input.toolSummary || input.toolAction || 'Виконання команди'),
       };
     }
-    if (name.includes('replace') || name.includes('edit') || name.includes('write')) {
+    if (name.includes('write') || name.includes('create')) {
+      const file = input.TargetFile || input.file || input.path || input.target || '';
+      const fileName = file ? file.split(/[/\\]/).pop() : '';
+      return {
+        icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>`,
+        label: 'Створення файлу',
+        badgeClass: 'badge-edit',
+        summary: fileName || input.toolSummary || file || 'Створення нового файлу',
+      };
+    }
+    if (name.includes('replace') || name.includes('edit')) {
       const file = input.TargetFile || input.file || input.path || input.target || '';
       const fileName = file ? file.split(/[/\\]/).pop() : '';
       return {
         icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`,
         label: 'Редагування',
         badgeClass: 'badge-edit',
-        summary: fileName || file || 'Модифікація файлу',
+        summary: fileName || input.toolSummary || file || 'Модифікація файлу',
       };
     }
-    if (name.includes('view') || name.includes('read')) {
+    if (name.includes('view') || name.includes('read_file') || (name.includes('read') && !name.includes('url'))) {
       const file = input.AbsolutePath || input.path || input.TargetFile || input.file || '';
       const fileName = file ? file.split(/[/\\]/).pop() : '';
       return {
         icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`,
         label: 'Перегляд',
         badgeClass: 'badge-view',
-        summary: fileName || file || 'Читання файлу',
+        summary: fileName || input.toolSummary || file || 'Читання файлу',
+      };
+    }
+    if (name.includes('list_dir') || name.includes('dir') || name.includes('ls')) {
+      const dir = input.DirectoryPath || input.path || input.dir || '';
+      const dirName = dir ? dir.split(/[/\\]/).pop() || dir : '';
+      return {
+        icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
+        label: 'Каталог',
+        badgeClass: 'badge-generic',
+        summary: dirName || input.toolSummary || 'Огляд структури папки',
       };
     }
     if (name.includes('grep') || name.includes('search') || name.includes('find')) {
@@ -1517,7 +2912,7 @@ class AgentRemoteApp {
         icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>`,
         label: 'Пошук',
         badgeClass: 'badge-search',
-        summary: query ? `"${query}"` : 'Пошук у проекті',
+        summary: query ? `"${query}"` : (input.toolSummary || 'Пошук у проєкті'),
       };
     }
     if (name.includes('subagent') || name.includes('agent')) {
@@ -1526,7 +2921,7 @@ class AgentRemoteApp {
         icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>`,
         label: 'Субагент',
         badgeClass: 'badge-subagent',
-        summary: role || 'Фоновий агент',
+        summary: role || input.toolSummary || 'Фоновий субагент',
       };
     }
     if (name.includes('url') || name.includes('web') || name.includes('browser')) {
@@ -1535,7 +2930,15 @@ class AgentRemoteApp {
         icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`,
         label: 'Веб',
         badgeClass: 'badge-web',
-        summary: url || 'Веб-сторінка',
+        summary: url || input.toolSummary || 'Веб-сторінка',
+      };
+    }
+    if (name.includes('question') || name.includes('ask')) {
+      return {
+        icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`,
+        label: 'Запитання',
+        badgeClass: 'badge-web',
+        summary: input.toolSummary || 'Уточнююче запитання',
       };
     }
 
@@ -1543,14 +2946,68 @@ class AgentRemoteApp {
       icon: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
       label: toolName || 'Дія',
       badgeClass: 'badge-generic',
-      summary: '',
+      summary: input.toolSummary || input.toolAction || '',
     };
   }
 
+  formatToolGroupHtml(toolList, isStreaming = false) {
+    if (!toolList || toolList.length === 0) return '';
+    if (toolList.length === 1) return this.formatToolCallHtml(toolList[0]);
+
+    const hasRunning = toolList.some((t) => t.status === 'running');
+    const hasError = toolList.some((t) => t.status === 'failed' || t.status === 'error');
+
+    const actionNames = toolList.map((t) => {
+      let raw = t.input || t.arguments || t.args || t.parameters;
+      if (typeof raw === 'string' && (raw.trim().startsWith('{') || raw.trim().startsWith('['))) {
+        try { raw = JSON.parse(raw); } catch {}
+      }
+      const meta = this.getToolMeta(t.name || t.type, raw || {});
+      return meta.label || t.name || 'дія';
+    });
+    const uniqueActionNames = [...new Set(actionNames)];
+    const actionSummaryStr = uniqueActionNames.slice(0, 3).join(', ') + (uniqueActionNames.length > 3 ? '...' : '');
+
+    const statusBadge = hasRunning
+      ? '<span class="tool-group-status running"><span class="pulse-dot"></span> виконується...</span>'
+      : hasError
+      ? '<span class="tool-group-status error">✕ помилки</span>'
+      : `<span class="tool-group-status completed">✓ ${toolList.length} дій завершено</span>`;
+
+    const cardsHtml = toolList.map((t) => this.formatToolCallHtml(t)).join('');
+
+    return `
+      <div class="tool-calls-group ${hasRunning ? 'running' : 'collapsed'}">
+        <div class="tool-calls-group-header" onclick="this.closest('.tool-calls-group').classList.toggle('collapsed')">
+          <div class="tool-calls-group-left">
+            <span class="tool-calls-group-icon">⚡</span>
+            <span class="tool-calls-group-title">Виклики дій (${toolList.length}):</span>
+            <span class="tool-calls-group-summary">${this.escapeHtml(actionSummaryStr)}</span>
+          </div>
+          <div class="tool-calls-group-right">
+            ${statusBadge}
+            <button type="button" class="tool-group-toggle-btn" title="Показати/Приховати всі дії">
+              <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+          </div>
+        </div>
+        <div class="tool-calls-group-body">
+          ${cardsHtml}
+        </div>
+      </div>
+    `;
+  }
+
   formatToolCallHtml(tc) {
-    const rawInput = tc.input || tc.arguments;
-    const meta = this.getToolMeta(tc.name || tc.type, rawInput);
-    const summaryText = tc.summary || meta.summary || '';
+    let rawInput = tc.input || tc.arguments || tc.args || tc.parameters;
+    if (typeof rawInput === 'string' && (rawInput.trim().startsWith('{') || rawInput.trim().startsWith('['))) {
+      try {
+        rawInput = JSON.parse(rawInput);
+      } catch {}
+    }
+    const meta = this.getToolMeta(tc.name || tc.type, rawInput || {});
+    const actionText = tc.action || (rawInput && typeof rawInput === 'object' ? (rawInput.toolAction || rawInput.Instruction) : '') || '';
+    const summaryText = tc.summary || (rawInput && typeof rawInput === 'object' ? (rawInput.toolSummary || rawInput.Description) : '') || meta.summary || '';
     const isRunning = tc.status === 'running';
     const isError = tc.status === 'failed' || tc.status === 'error';
     const statusLabel = isRunning ? '<span class="pulse-dot"></span> виконується...' : isError ? '✕ помилка' : '✓ завершено';
@@ -1558,7 +3015,38 @@ class AgentRemoteApp {
 
     const inputJson = rawInput ? (typeof rawInput === 'string' ? rawInput : JSON.stringify(rawInput, null, 2)) : '';
     const outputText = tc.output || tc.result || '';
-    const hasDetails = Boolean(inputJson || outputText || isRunning);
+
+    let questionsHtml = '';
+    if (rawInput && Array.isArray(rawInput.questions)) {
+      questionsHtml = rawInput.questions
+        .map((q) => {
+          const qText = q.question || '';
+          const options = Array.isArray(q.options) ? q.options : [];
+          const optBtns = options
+            .map(
+              (opt) =>
+                `<button type="button" class="question-option-chip" data-answer="${this.escapeHtml(opt)}" onclick="window.app.fillPromptInput(this.dataset.answer, true);" title="Обрати цей варіант">
+                   <span>👉</span>
+                   <span>${this.escapeHtml(opt)}</span>
+                 </button>`
+            )
+            .join('');
+          return `
+            <div class="question-tool-box">
+              <div class="question-item-title">❓ ${this.escapeHtml(qText)}</div>
+              ${optBtns ? `<div class="question-options-list">${optBtns}</div>` : ''}
+            </div>
+          `;
+        })
+        .join('');
+    }
+
+    const isFileTool = Boolean(rawInput && typeof rawInput === 'object' && (rawInput.TargetFile || rawInput.file || rawInput.path || rawInput.AbsolutePath || rawInput.target));
+    const artifactBtnHtml = isFileTool
+      ? `<button type="button" class="tool-artifact-view-btn" data-tool-call-id="${this.escapeHtml(tc.id)}" title="Переглянути файл/артефакт поруч із чатом">
+           <span>📄 Артефакт</span>
+         </button>`
+      : '';
 
     return `
       <div class="tool-call-card ${statusClass}" id="tool-call-${tc.id}">
@@ -1569,222 +3057,217 @@ class AgentRemoteApp {
               <span>${meta.label}</span>
             </span>
             <span class="tool-call-fn-name">${this.escapeHtml(tc.name || tc.type || 'tool')}</span>
-            ${summaryText ? `<span class="tool-call-summary" title="${this.escapeHtml(summaryText)}">${this.escapeHtml(summaryText)}</span>` : ''}
+            ${actionText ? `<span class="tool-call-summary" title="${this.escapeHtml(actionText)}">${this.escapeHtml(actionText)}</span>` : (summaryText ? `<span class="tool-call-summary" title="${this.escapeHtml(summaryText)}">${this.escapeHtml(summaryText)}</span>` : '')}
           </div>
           <div class="tool-call-header-right">
+            ${artifactBtnHtml}
             <span class="tool-call-status ${statusClass}">
               ${statusLabel}
             </span>
-            ${hasDetails ? `
-              <button type="button" class="tool-call-toggle-btn" title="Розгорнути/Згорнути деталі">
-                <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
-              </button>
-            ` : ''}
+            <button type="button" class="tool-call-toggle-btn" title="Розгорнути/Згорнути деталі">
+              <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
           </div>
         </div>
-        ${hasDetails ? `
-          <div class="tool-call-body">
-            ${inputJson ? `
-              <div class="tool-call-section">
-                <div class="tool-call-section-title">
-                  <span>Параметри виклику (Input):</span>
-                  <button type="button" class="btn-copy-mini" onclick="navigator.clipboard.writeText(this.dataset.copy); window.app.showToast('📋 Параметри скопійовано!');" data-copy="${this.escapeHtml(inputJson)}">копіювати</button>
-                </div>
-                <div class="tool-call-code-block"><pre><code>${this.escapeHtml(inputJson)}</code></pre></div>
+        <div class="tool-call-body">
+          ${questionsHtml}
+          ${(actionText || summaryText) ? `
+            <div class="tool-call-meta-box">
+              ${actionText ? `<div class="tool-call-meta-row"><span class="tool-call-meta-key">🎯 Дія:</span> <span class="tool-call-meta-val">${this.escapeHtml(actionText)}</span></div>` : ''}
+              ${summaryText && summaryText !== actionText ? `<div class="tool-call-meta-row"><span class="tool-call-meta-key">📋 Опис:</span> <span class="tool-call-meta-val">${this.escapeHtml(summaryText)}</span></div>` : ''}
+            </div>
+          ` : ''}
+          ${inputJson ? `
+            <div class="tool-call-section">
+              <div class="tool-call-section-title">
+                <span>Параметри виклику (Input):</span>
+                <button type="button" class="btn-copy-mini" onclick="navigator.clipboard.writeText(this.dataset.copy); window.app.showToast('📋 Параметри скопійовано!');" data-copy="${this.escapeHtml(inputJson)}">копіювати</button>
               </div>
-            ` : ''}
-            ${outputText ? `
-              <div class="tool-call-section" style="margin-top: 8px;">
-                <div class="tool-call-section-title">
-                  <span>Результат виконання (Output):</span>
-                  <button type="button" class="btn-copy-mini" onclick="navigator.clipboard.writeText(this.dataset.copy); window.app.showToast('📋 Результат скопійовано!');" data-copy="${this.escapeHtml(outputText)}">копіювати</button>
-                </div>
-                <div class="tool-call-output-block"><pre><code>${this.escapeHtml(outputText)}</code></pre></div>
+              <div class="tool-call-code-block"><pre><code>${this.escapeHtml(inputJson)}</code></pre></div>
+            </div>
+          ` : ''}
+          ${outputText ? `
+            <div class="tool-call-section" style="margin-top: 8px;">
+              <div class="tool-call-section-title">
+                <span>Результат виконання (Output):</span>
+                <button type="button" class="btn-copy-mini" onclick="navigator.clipboard.writeText(this.dataset.copy); window.app.showToast('📋 Результат скопійовано!');" data-copy="${this.escapeHtml(outputText)}">копіювати</button>
               </div>
-            ` : `
-              <div class="tool-call-output-pending" style="display: ${isRunning ? 'flex' : 'none'};">
-                <span class="thinking-spinner"></span>
-                <span>Очікування результату виконання...</span>
-              </div>
-            `}
-          </div>
-        ` : ''}
+              <div class="tool-call-output-block"><pre><code>${this.escapeHtml(outputText)}</code></pre></div>
+            </div>
+          ` : `
+            <div class="tool-call-output-pending" style="display: ${isRunning ? 'flex' : 'none'};">
+              <span class="thinking-spinner"></span>
+              <span>Очікування результату виконання...</span>
+            </div>
+          `}
+        </div>
       </div>
     `;
   }
 
+  getPaneMessagesContainers(sessionId) {
+    if (!sessionId) return [this.chatMessages].filter(Boolean);
+    const matched = this.panes ? this.panes.filter((p) => p.sessionId === sessionId) : [];
+    if (matched.length === 0) return [this.chatMessages].filter(Boolean);
+    return matched
+      .map((p) => document.querySelector(`[data-pane-id="${p.id}"] .chat-pane-messages`))
+      .filter(Boolean);
+  }
+
   appendAssistantThinking(sessionId, payload) {
-    if (sessionId !== this.activeSessionId) return;
     const delta = typeof payload === 'string' ? payload : payload?.delta;
     const thinking = typeof payload === 'string' ? undefined : payload?.thinking;
-
-    if (this.chatMeta) {
-      this.chatMeta.innerHTML = `<span style="color:#a78bfa; font-weight:600;"><span class="pulse-dot"></span> Агент міркує над завданням...</span>`;
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (session) {
+      const lastMsg = [...(session.messages || [])].reverse().find((m) => m.role === 'assistant');
+      if (lastMsg) {
+        lastMsg.thinkingContent = applyStreamText(lastMsg.thinkingContent || '', { chunk: thinking, delta: typeof payload === 'string' ? payload : delta });
+        lastMsg.isStreaming = true;
+      }
     }
 
-    let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
-    if (!assistantMsgEl) {
-      this.renderChatMessageElement('assistant', '', [], true, '');
-      assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
-    }
+    const containers = this.getPaneMessagesContainers(sessionId);
+    containers.forEach((messagesEl) => {
+      let assistantMsgEl = messagesEl.querySelector('.message.assistant.streaming');
+      if (!assistantMsgEl) {
+        this.renderChatMessageElement('assistant', '', [], true, '', { blocks: [], toolCalls: [] }, messagesEl);
+        assistantMsgEl = messagesEl.querySelector('.message.assistant.streaming');
+      }
+      if (!assistantMsgEl) return;
 
-    const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
-    
-    // Clear initial loading placeholder if thinking starts
-    const initialPlaceholder = wrapper.querySelector('.agent-thinking-wrapper');
-    if (initialPlaceholder) {
-      const bubble = initialPlaceholder.closest('.message-bubble');
-      if (bubble && !bubble.rawMarkdown) bubble.remove();
-    }
+      const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
+      if (!wrapper) return;
+      this.clearStreamingPlaceholder(wrapper);
 
-    let thinkingContainer = wrapper.querySelector('.thinking-container');
-    if (!thinkingContainer) {
-      thinkingContainer = document.createElement('div');
-      thinkingContainer.className = 'thinking-container';
-      wrapper.insertBefore(thinkingContainer, wrapper.firstChild);
-    }
+      let thinkingContainer = wrapper.querySelector('.thinking-container');
+      if (!thinkingContainer) {
+        thinkingContainer = document.createElement('div');
+        thinkingContainer.className = 'thinking-container';
+        wrapper.insertBefore(thinkingContainer, wrapper.firstChild);
+      }
 
-    let thinkingAccordion = thinkingContainer.querySelector('.thinking-accordion');
-    if (!thinkingAccordion) {
-      thinkingContainer.innerHTML = this.formatThinkingHtml('', true);
-      thinkingAccordion = thinkingContainer.querySelector('.thinking-accordion');
-    }
+      let thinkingAccordion = thinkingContainer.querySelector('.thinking-accordion');
+      if (!thinkingAccordion) {
+        thinkingContainer.innerHTML = this.formatThinkingHtml('', true);
+        thinkingAccordion = thinkingContainer.querySelector('.thinking-accordion');
+      }
 
-    const body = thinkingAccordion.querySelector('.thinking-accordion-body');
-    const textEl = thinkingAccordion.querySelector('.thinking-text');
-    if (textEl) {
-      const next = applyStreamText(textEl.textContent || '', { chunk: thinking, delta: typeof payload === 'string' ? payload : delta });
-      if (next !== (textEl.textContent || '')) {
+      const body = thinkingAccordion?.querySelector('.thinking-accordion-body');
+      const textEl = thinkingAccordion?.querySelector('.thinking-text');
+      if (textEl) {
+        const next = applyStreamText(textEl.textContent || '', { chunk: thinking, delta: typeof payload === 'string' ? payload : delta });
         textEl.textContent = next;
         if (body) body.style.display = 'block';
       }
-    }
-
-    this.scrollToBottom();
+      this.smartScrollToBottom(messagesEl);
+    });
   }
 
   appendAssistantChunk(sessionId, payload) {
-    if (sessionId !== this.activeSessionId) return;
     const streamPayload = typeof payload === 'string' ? { delta: payload } : payload;
-
-    if (this.chatMeta) {
-      this.chatMeta.innerHTML = `<span style="color:var(--accent-primary); font-weight:600;"><span class="pulse-dot"></span> Агент друкує відповідь...</span>`;
-    }
-
-    let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
-    if (!assistantMsgEl) {
-      this.renderChatMessageElement('assistant', '', [], true, '');
-      assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
-    }
-
-    const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
-    
-    // Clear initial placeholder if any
-    const initialPlaceholder = wrapper.querySelector('.agent-thinking-wrapper');
-    if (initialPlaceholder) {
-      const bubble = initialPlaceholder.closest('.message-bubble');
-      if (bubble && !bubble.rawMarkdown) {
-        bubble.innerHTML = '';
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (session) {
+      const lastMsg = [...(session.messages || [])].reverse().find((m) => m.role === 'assistant');
+      if (lastMsg) {
+        lastMsg.content = applyStreamText(lastMsg.content || '', streamPayload);
+        lastMsg.isStreaming = true;
       }
     }
 
-    let bubble = wrapper.querySelector('.message-bubble');
-    if (!bubble) {
-      bubble = document.createElement('div');
-      bubble.className = 'message-bubble';
-      wrapper.appendChild(bubble);
-    }
-
-    if (!bubble.rawMarkdown) {
-      bubble.rawMarkdown = '';
-      bubble.innerHTML = ''; // Clear initial placeholder
-    }
-
-    const next = applyStreamText(bubble.rawMarkdown || '', streamPayload);
-    if (next === (bubble.rawMarkdown || '') && !streamPayload?.delta) {
-      this.scrollToBottom();
-      return;
-    }
-    bubble.rawMarkdown = next;
-
-    if (bubble.rawMarkdown) {
-      if (window.marked) {
-        bubble.innerHTML = this.renderMarkdownSafe(bubble.rawMarkdown);
-        bubble.querySelectorAll('pre code').forEach((b) => {
-          if (window.hljs) hljs.highlightElement(b);
-        });
-      } else {
-        bubble.innerText = bubble.rawMarkdown;
+    const containers = this.getPaneMessagesContainers(sessionId);
+    containers.forEach((messagesEl) => {
+      let assistantMsgEl = messagesEl.querySelector('.message.assistant.streaming');
+      if (!assistantMsgEl) {
+        this.renderChatMessageElement('assistant', '', [], true, '', { blocks: [], toolCalls: [] }, messagesEl);
+        assistantMsgEl = messagesEl.querySelector('.message.assistant.streaming');
       }
-    }
+      if (!assistantMsgEl) return;
 
-    this.scrollToBottom();
+      const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
+      if (wrapper) this.clearStreamingPlaceholder(wrapper);
+
+      let bubble = wrapper ? this.getOrCreateActiveTextBubble(wrapper) : null;
+      if (bubble) {
+        if (!bubble.rawMarkdown) {
+          bubble.rawMarkdown = '';
+          bubble.innerHTML = '';
+        }
+        const next = applyStreamText(bubble.rawMarkdown || '', streamPayload);
+        bubble.rawMarkdown = next;
+        if (window.marked) {
+          bubble.innerHTML = this.renderMarkdownSafe(next);
+          bubble.querySelectorAll('pre code').forEach((b) => {
+            if (window.hljs) hljs.highlightElement(b);
+          });
+        } else {
+          bubble.innerText = next;
+        }
+      }
+      this.smartScrollToBottom(messagesEl);
+    });
+  }
+
+  flushStreamingMarkdown() {
+    this._streamRenderQueued = false;
+    const bubble = this._pendingStreamBubble;
+    if (!bubble || !bubble.isConnected) return;
+    const md = bubble.rawMarkdown || '';
+    if (!md) return;
+    if (window.marked) {
+      bubble.innerHTML = this.renderMarkdownSafe(md);
+      bubble.querySelectorAll('pre code').forEach((b) => {
+        if (window.hljs) hljs.highlightElement(b);
+      });
+    } else {
+      bubble.innerText = md;
+    }
+    this.smartScrollToBottom(this.chatMessages);
   }
 
   renderToolCall(sessionId, toolCall) {
-    if (sessionId !== this.activeSessionId) return;
-
     const rawInput = toolCall.input || toolCall.arguments;
     const meta = this.getToolMeta(toolCall.name || toolCall.type, rawInput);
-    const summary = toolCall.summary || meta.summary || toolCall.name || 'дія';
+    const containers = this.getPaneMessagesContainers(sessionId);
 
-    if (this.chatMeta) {
-      this.chatMeta.innerHTML = `<span style="color:#fbbf24; font-weight:600;"><span class="pulse-dot"></span> [${meta.label}] ${this.escapeHtml(summary)}...</span>`;
-    }
+    containers.forEach((messagesEl) => {
+      let assistantMsgEl = messagesEl.querySelector('.message.assistant.streaming');
+      if (!assistantMsgEl) {
+        this.renderChatMessageElement('assistant', '', [], true, '', { blocks: [], toolCalls: [] }, messagesEl);
+        assistantMsgEl = messagesEl.querySelector('.message.assistant.streaming');
+      }
+      if (!assistantMsgEl) return;
 
-    let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
-    if (!assistantMsgEl) {
-      this.renderChatMessageElement('assistant', '', [], true, '');
-      assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
-    }
+      const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
+      if (!wrapper) return;
+      this.clearStreamingPlaceholder(wrapper);
 
-    const wrapper = assistantMsgEl.querySelector('.message-bubble-wrapper');
-    
-    // Clear initial loading placeholder when tools start
-    const initialPlaceholder = wrapper.querySelector('.agent-thinking-wrapper');
-    if (initialPlaceholder) {
-      const bubble = initialPlaceholder.closest('.message-bubble');
-      if (bubble && !bubble.rawMarkdown) bubble.remove();
-    }
-
-    let toolContainer = wrapper.querySelector('.tool-calls-container');
-    if (!toolContainer) {
-      toolContainer = document.createElement('div');
-      toolContainer.className = 'tool-calls-container';
-      const bubble = wrapper.querySelector('.message-bubble');
-      if (bubble) {
-        wrapper.insertBefore(toolContainer, bubble);
+      const existingTc = wrapper.querySelector(`#tool-call-${toolCall.id}`);
+      if (existingTc) {
+        const temp = document.createElement('div');
+        temp.innerHTML = this.formatToolCallHtml(toolCall);
+        if (temp.firstElementChild) {
+          existingTc.replaceWith(temp.firstElementChild);
+          this.currentToolCallElements.set(toolCall.id, wrapper.querySelector(`#tool-call-${toolCall.id}`));
+        }
       } else {
-        wrapper.appendChild(toolContainer);
+        const temp = document.createElement('div');
+        temp.innerHTML = this.formatToolCallHtml(toolCall);
+        const card = temp.firstElementChild;
+        if (card) {
+          wrapper.appendChild(card);
+          this.currentToolCallElements.set(toolCall.id, card);
+        }
       }
-    }
-
-    const existingTc = toolContainer.querySelector(`#tool-call-${toolCall.id}`);
-    if (existingTc) {
-      const temp = document.createElement('div');
-      temp.innerHTML = this.formatToolCallHtml(toolCall);
-      if (temp.firstElementChild) {
-        existingTc.replaceWith(temp.firstElementChild);
-      }
-    } else {
-      const temp = document.createElement('div');
-      temp.innerHTML = this.formatToolCallHtml(toolCall);
-      const card = temp.firstElementChild;
-      if (card) {
-        toolContainer.appendChild(card);
-        this.currentToolCallElements.set(toolCall.id, card);
-      }
-    }
-
-    this.scrollToBottom();
+      this.smartScrollToBottom(messagesEl);
+    });
   }
 
   renderToolResult(sessionId, toolCallId, result, status) {
-    const tcEl = this.currentToolCallElements.get(toolCallId) || document.getElementById(`tool-call-${toolCallId}`);
-    if (tcEl) {
+    const allCards = document.querySelectorAll(`#tool-call-${toolCallId}`);
+    allCards.forEach((tcEl) => {
       const isOk = status === 'completed' || status === 'success' || !status;
       tcEl.className = `tool-call-card ${isOk ? 'completed' : 'error'}`;
-      
+
       const statusBadge = tcEl.querySelector('.tool-call-status');
       if (statusBadge) {
         statusBadge.className = `tool-call-status ${isOk ? 'completed' : 'error'}`;
@@ -1819,7 +3302,7 @@ class AgentRemoteApp {
           outputSection.querySelector('.tool-call-output-block pre code').innerText = result;
         }
       }
-    }
+    });
   }
 
   markAgentActivity() {
@@ -1836,6 +3319,12 @@ class AgentRemoteApp {
       }
       const idleFor = Date.now() - (this.lastAgentActivityAt || 0);
       if (idleFor < this.AGENT_STALL_TIMEOUT_MS) return;
+
+      const wsOpen = this.ws && this.ws.readyState === WebSocket.OPEN;
+      if (!wsOpen) {
+        this.markAgentActivity();
+        return;
+      }
 
       const sessionId = this.activeSessionId;
       if (this.ws && this.ws.readyState === WebSocket.OPEN && sessionId) {
@@ -1863,109 +3352,60 @@ class AgentRemoteApp {
     if (session) {
       session.isStreaming = false;
       session.status = 'idle';
-      if (cursorChatId) session.cursorChatId = cursorChatId;
-      if (this.chatMeta) {
-        this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
+      if (cursorChatId && options.success !== false) session.cursorChatId = cursorChatId;
+      if (options.success === false && isUsageLimitError(options.error)) session.cursorChatId = undefined;
+    }
+
+    if (!options.silent) {
+      if (options.aborted) {
+        this.showToast('🛑 Запит до агента зупинено');
+      } else if (options.success === false) {
+        this.showToast(`⚠️ ${options.error || 'Агент завершився з помилкою'}`, 6000);
+      } else {
+        this.showToast('✨ Агент завершив виконання завдання');
       }
     }
 
-    const hasQueue = Boolean(session && session.promptQueue && session.promptQueue.length > 0);
+    // Update all panes displaying this session
+    const containers = this.getPaneMessagesContainers(sessionId);
+    containers.forEach((messagesEl) => {
+      const streamingMsg = messagesEl.querySelector('.message.assistant.streaming');
+      if (streamingMsg) {
+        streamingMsg.classList.remove('streaming');
+        const liveThinkingBadge = streamingMsg.querySelector('.thinking-live-badge');
+        if (liveThinkingBadge) liveThinkingBadge.remove();
 
-    this.isStreaming = Boolean(hasQueue && !options.aborted);
-    if (this.isStreaming) {
-      this.markAgentActivity();
-    } else {
-      this.stopAgentStallWatchdog();
-    }
-    this.stopAgentBtn.style.display = this.isStreaming ? 'inline-flex' : 'none';
-    this.sendBtn.disabled = false;
-    if (!this.isStreaming) {
-      if (this.sendShortcutHint) this.sendShortcutHint.innerText = '⌘ + Enter / Enter';
-      this.sendBtn.title = 'Надіслати';
-      if (!options.silent) {
-        if (options.aborted) {
-          this.showToast('🛑 Запит до агента зупинено');
-        } else if (options.success === false) {
-          this.showToast(`⚠️ ${options.error || 'Агент завершився з помилкою'}`, 6000);
-        } else {
-          this.showToast('✨ Агент завершив виконання завдання');
+        const thinkingAccordion = streamingMsg.querySelector('.thinking-accordion');
+        if (thinkingAccordion) {
+          thinkingAccordion.classList.remove('streaming');
+          const body = thinkingAccordion.querySelector('.thinking-accordion-body');
+          if (body && body.textContent.trim() !== '') {
+            thinkingAccordion.classList.remove('open');
+          }
         }
       }
-    }
+    });
 
-    const streamingMsg = this.chatMessages.querySelector('.message.assistant.streaming');
-    if (streamingMsg) {
-      streamingMsg.classList.remove('streaming');
-      
-      const liveThinkingBadge = streamingMsg.querySelector('.thinking-live-badge');
-      if (liveThinkingBadge) liveThinkingBadge.remove();
-
-      // Collapse thinking if there's content
-      const thinkingAccordion = streamingMsg.querySelector('.thinking-accordion');
-      if (thinkingAccordion) {
-        thinkingAccordion.classList.remove('streaming');
-        const body = thinkingAccordion.querySelector('.thinking-accordion-body');
-        if (body && body.textContent.trim() !== '') {
-          thinkingAccordion.classList.remove('open'); // Auto collapse when done
-        }
-      }
-
-      // Mark any still-running tool calls as completed silently
-      const runningTools = streamingMsg.querySelectorAll('.tool-call-card:not(.completed):not(.error)');
-      runningTools.forEach(tcEl => {
-        tcEl.classList.add('completed');
-        const statusBadge = tcEl.querySelector('.tool-call-status');
-        if (statusBadge) {
-          statusBadge.classList.add('completed');
-          statusBadge.innerText = '✓ завершено';
-        }
-        const pendingIndicator = tcEl.querySelector('.tool-call-output-pending');
-        if (pendingIndicator) pendingIndicator.style.display = 'none';
-      });
-
-      const bubble = streamingMsg.querySelector('.message-bubble');
-      if (bubble && options.success === false && options.error) {
-        bubble.rawMarkdown = String(options.error);
-        bubble.innerHTML = this.renderMarkdownSafe(String(options.error));
-      } else if (bubble && !bubble.rawMarkdown && bubble.querySelector('.agent-thinking-wrapper')) {
-        const fallback =
-          options.success === false
-            ? `⚠️ ${options.error || 'Агент завершився з помилкою'}`
-            : '✅ Завдання успішно виконано агентом.';
-        bubble.rawMarkdown = fallback;
-        bubble.innerHTML = this.renderMarkdownSafe(fallback);
-      }
-    }
-
-    this.renderQueue();
+    this.renderPanes();
+    this.renderSessions();
 
     if (this.voiceMode?.enabled) {
-      const lastBubble = this.chatMessages.querySelector('.message.assistant:last-of-type .message-bubble');
+      const lastBubble = this.chatMessages?.querySelector('.message.assistant:last-of-type .message-bubble');
       const spokenText = (lastBubble && (lastBubble.rawMarkdown || lastBubble.innerText)) || options.error || '';
-      const hasToolCalls = Boolean(this.chatMessages.querySelector('.message.assistant:last-of-type .tool-call-card'));
+      const hasToolCalls = Boolean(this.chatMessages?.querySelector('.message.assistant:last-of-type .tool-call-card'));
       this.voiceMode.onAgentComplete(session, { ...options, spokenText, hasToolCalls });
     }
   }
 
   handleAgentError(sessionId, error) {
-    this.isStreaming = false;
-    this.stopAgentStallWatchdog();
-    this.stopAgentBtn.style.display = 'none';
-    this.sendBtn.disabled = false;
-
-    const streamingMsg = this.chatMessages.querySelector('.message.assistant.streaming');
-    if (streamingMsg) streamingMsg.classList.remove('streaming');
-
-    if (this.chatMeta) {
-      this.chatMeta.innerHTML = `<span style="color:var(--accent-error); font-weight:600;">⚠️ Помилка виконання агента</span>`;
+    const session = this.sessions.find((s) => s.id === sessionId);
+    if (session) {
+      session.isStreaming = false;
+      session.status = 'idle';
     }
-
-    this.renderChatMessageElement('assistant', `⚠️ **Помилка агента:** ${error}`);
     this.showToast(`❌ Помилка: ${error}`, 5000);
-    this.scrollToBottom();
-    if (this.voiceMode?.enabled) {
-      this.voiceMode.onAgentComplete(this.sessions.find((s) => s.id === sessionId), { aborted: true });
-    }
+    this.renderPanes();
+    this.renderSessions();
   }
 
   async ensureActiveSession(engine = 'antigravity') {
@@ -1992,10 +3432,10 @@ class AgentRemoteApp {
         deviceId,
         title: isAgy ? 'Новий чат Antigravity' : 'Новий чат Cursor',
         description: isAgy
-          ? 'Сесія Google Antigravity (Gemini 3.7 Flash High)'
+          ? 'Сесія Google Antigravity'
           : 'Сесія Cursor AI Agent',
         engine,
-        model: isAgy ? 'gemini-3.7-flash' : 'auto',
+        model: isAgy ? 'gemini-3.7-flash' : 'composer-2.5',
         mode: 'yolo',
         thinkingEffort: isAgy ? 'high' : 'medium',
         workspacePath: workspace,
@@ -2008,141 +3448,124 @@ class AgentRemoteApp {
     }
 
     const data = await res.json();
+    data.session._loaded = true;
     this.sessions.unshift(data.session);
+    this.renderProjects();
     this.renderSessions();
     this.selectSession(data.session.id);
-    if (deviceId && deviceId !== this.activeDeviceId) {
-      this.selectDevice(deviceId);
-    }
     return data.session;
   }
 
-  async sendPrompt() {
-    // 1. Debounce protection against rapid double-clicks or multiple Enter triggers
-    const now = Date.now();
-    if (this._lastPromptSubmitTime && now - this._lastPromptSubmitTime < 500) {
+  async sendPrompt(paneId = null) {
+    const pane = (paneId && this.panes.find((p) => p.id === paneId)) || this.activePane || this.panes[0];
+    if (!pane) return false;
+
+    const paneEl = document.querySelector(`[data-pane-id="${pane.id}"]`);
+    const promptInput = paneEl ? paneEl.querySelector('.pane-prompt-input') : this.promptInput;
+    const text = promptInput ? promptInput.value.trim() : '';
+    if (!text) return false;
+
+    if (this.voiceMode?.enabled && this.voiceMode.consumeStopCommand(text)) {
+      if (promptInput) {
+        promptInput.value = '';
+        promptInput.style.height = 'auto';
+      }
       return false;
     }
 
-    const text = this.promptInput.value.trim();
-    if (!text) return false;
-
-    // No chat selected → create Antigravity session by default
-    if (!this.activeSessionId) {
-      this._lastPromptSubmitTime = now;
+    // No session in this pane -> create Antigravity session
+    if (!pane.sessionId) {
       try {
         this.showToast('✨ Створюю чат Antigravity…');
-        await this.ensureActiveSession('antigravity');
+        const newSess = await this.ensureActiveSession('antigravity');
+        pane.sessionId = newSess.id;
+        this.activeSessionId = newSess.id;
       } catch (err) {
-        this.showToast(`❌ ${err.message || 'Не вдалося створити чат'}`, 4500);
+        this.showToast(`❌ ${err.message || 'Помилка'}`, 4500);
         return false;
       }
     }
 
-    this._lastPromptSubmitTime = now;
-    this.promptInput.value = '';
-    this.promptInput.style.height = 'auto';
+    const session = this.sessions.find((s) => s.id === pane.sessionId);
+    if (!session) return false;
 
-    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+    if (promptInput) {
+      promptInput.value = '';
+      promptInput.style.height = 'auto';
+    }
 
-    // 2. If agent is currently executing/streaming, add prompt to QUEUE!
-    if (this.isStreaming) {
-      if (session) {
-        session.promptQueue = session.promptQueue || [];
-        // Prevent accidental duplicate enqueue of the same prompt in a row
-        if (session.promptQueue.length > 0 && session.promptQueue[session.promptQueue.length - 1] === text) {
-          console.warn('[Chat] Suppressed identical duplicate prompt in queue');
-          return false;
-        }
-        session.promptQueue.push(text);
+    const isRunning = Boolean(session.isStreaming || session.status === 'running');
+    if (isRunning) {
+      session.promptQueue = session.promptQueue || [];
+      if (session.promptQueue.length > 0 && session.promptQueue[session.promptQueue.length - 1] === text) {
+        return false;
       }
-      this.renderQueue();
-
+      session.promptQueue.push(text);
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(
-          JSON.stringify({
-            type: 'agent:queue_prompt',
-            payload: {
-              sessionId: this.activeSessionId,
-              prompt: text,
-            },
-          })
-        );
+        this.ws.send(JSON.stringify({
+          type: 'agent:queue_prompt',
+          payload: { sessionId: session.id, prompt: text }
+        }));
       }
-
-      this.showToast(`🕒 Повідомлення додано в чергу (#${(session && session.promptQueue && session.promptQueue.length) || 1})`);
+      this.showToast(`🕒 Додано в чергу (#${session.promptQueue.length})`);
+      this.renderPanes();
       return true;
     }
 
-    this.renderChatMessageElement('user', text);
+    // Add user message to session
+    const userMsg = {
+      id: 'msg-' + Date.now(),
+      role: 'user',
+      content: text,
+      timestamp: Date.now()
+    };
+    if (!session.messages) session.messages = [];
+    session.messages.push(userMsg);
 
-    this.isStreaming = true;
-    this.startAgentStallWatchdog();
-    this.stopAgentBtn.style.display = 'inline-flex';
-    this.sendBtn.disabled = false;
-    if (this.sendShortcutHint) this.sendShortcutHint.innerText = 'Enter — додати в чергу';
-    this.sendBtn.title = 'Додати повідомлення у чергу';
-    this.voiceMode?.onAgentStart?.();
+    // Add assistant streaming placeholder
+    const assistantMsg = {
+      id: 'msg-' + (Date.now() + 1),
+      role: 'assistant',
+      content: '',
+      isStreaming: true,
+      timestamp: Date.now()
+    };
+    session.messages.push(assistantMsg);
+    session.isStreaming = true;
+    session.status = 'running';
 
-    // Immediately render assistant streaming placeholder with animated wave/spinner
-    let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');
-    if (!assistantMsgEl) {
-      assistantMsgEl = document.createElement('div');
-      assistantMsgEl.className = 'message assistant streaming';
-      assistantMsgEl.innerHTML = `
-        <div class="message-avatar" style="background:var(--accent-primary); color:#fff; font-weight:700; font-size:10px;">AI</div>
-        <div class="message-bubble-wrapper" style="flex:1; min-width:0;">
-          <div class="message-bubble">
-            <div class="agent-thinking-wrapper" style="display:flex; align-items:center; gap:8px; padding:4px 0; color:var(--text-secondary); font-size:12.5px;">
-              <span class="thinking-spinner"></span>
-              <span>Агент підключається та міркує...</span>
-            </div>
-          </div>
-        </div>
-      `;
-      this.chatMessages.appendChild(assistantMsgEl);
-    }
+    const modelSelect = paneEl ? paneEl.querySelector('.pane-model-select') : null;
+    const effortSelect = paneEl ? paneEl.querySelector('.pane-effort-select') : null;
+    const promptEngine = session.engine === 'antigravity' ? 'antigravity' : 'cursor';
+    let effectiveModel = modelSelect?.value || session.model || this.defaultModelFor(promptEngine);
+    let effectiveEffort = effortSelect?.value || session.thinkingEffort || (promptEngine === 'antigravity' ? 'high' : 'medium');
 
-    if (this.chatMeta) {
-      this.chatMeta.innerHTML = `<span style="color:var(--accent-primary); font-weight:600;"><span class="pulse-dot"></span> Агент думає та аналізує...</span>`;
-    }
+    session.model = effectiveModel;
+    session.thinkingEffort = effectiveEffort;
 
-    this.scrollToBottom();
+    this.renderPanes();
+    this.renderSessions();
 
-    const promptEngine = session && session.engine === 'antigravity' ? 'antigravity' : 'cursor';
-    let effectiveModel = (this.chatModelSelect && this.chatModelSelect.value) || 
-                         (this.modelSelect && this.modelSelect.value) || 
-                         (session && session.model) || this.defaultModelFor(promptEngine);
-    let effectiveEffort = (this.thinkingEffortSelect && this.thinkingEffortSelect.value) ||
-                          (session && session.thinkingEffort) || 'medium';
-
-    // Fresh AGY session defaults if selects still say auto
-    if (session && session.engine === 'antigravity') {
-      if (!effectiveModel || effectiveModel === 'auto') {
-        effectiveModel = session.model || this.defaultModelFor('antigravity');
-      }
-      if (!effectiveEffort) {
-        effectiveEffort = session.thinkingEffort || 'high';
-      }
-    }
-
-    if (session) {
-      session.model = effectiveModel;
-      session.thinkingEffort = effectiveEffort;
-    }
+    const lastAssistant = Array.isArray(session.messages)
+      ? [...session.messages].reverse().find((m) => m.role === 'assistant' && m.content)
+      : null;
+    const resumeId = isUsageLimitError(lastAssistant && lastAssistant.content)
+      ? undefined
+      : session.cursorChatId;
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(
         JSON.stringify({
           type: 'agent:prompt',
           payload: {
-            sessionId: this.activeSessionId,
+            sessionId: session.id,
             deviceId: (this.getActiveDevice() && this.getActiveDevice().id) || this.activeDeviceId,
+            engine: promptEngine,
             prompt: text,
             model: effectiveModel,
-            mode: (session && session.mode) || this.modeSelect.value || 'yolo',
-            workspacePath: (session && session.workspacePath) || this.workspaceInput.value,
-            cursorChatId: session ? session.cursorChatId : undefined,
+            mode: session.mode || 'yolo',
+            workspacePath: session.workspacePath || this.workspaceInput?.value || '',
+            cursorChatId: resumeId,
             thinkingEffort: effectiveEffort,
           },
         })
@@ -2150,28 +3573,88 @@ class AgentRemoteApp {
       return true;
     }
 
-    this.showToast('Немає зʼєднання з хабом', 4000);
-    this.isStreaming = false;
-    this.stopAgentStallWatchdog();
-    this.stopAgentBtn.style.display = 'none';
+    this.showToast('Немає зʼєднання з сервером', 4000);
+    session.isStreaming = false;
+    session.status = 'idle';
+    this.renderPanes();
     return false;
   }
 
-  stopAgent() {
-    if (!this.activeSessionId || !this.isStreaming) return;
-    const session = this.sessions.find((s) => s.id === this.activeSessionId);
+  stopAgent(sessionId = null) {
+    const targetSessionId = sessionId || this.activeSessionId;
+    if (!targetSessionId) return;
+    const session = this.sessions.find((s) => s.id === targetSessionId);
     if (session) {
       session.isStreaming = false;
       session.status = 'idle';
     }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'agent:abort', payload: { sessionId: this.activeSessionId } }));
+      this.ws.send(JSON.stringify({ type: 'agent:abort', payload: { sessionId: targetSessionId } }));
     }
-    this.handleAgentComplete(this.activeSessionId, undefined, { aborted: true });
+    this.handleAgentComplete(targetSessionId, undefined, { aborted: true });
   }
 
-  scrollToBottom() {
-    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+  fillPromptInput(text, autoSubmit = false) {
+    const activePane = this.panes.find((p) => p.id === this.activePaneId) || this.panes[0];
+    const paneEl = activePane ? document.querySelector(`[data-pane-id="${activePane.id}"]`) : null;
+    const promptInput = paneEl ? paneEl.querySelector('.pane-prompt-input') : this.promptInput;
+    if (promptInput) {
+      promptInput.value = text;
+      promptInput.focus();
+      if (autoSubmit && activePane) {
+        this.sendPrompt(activePane.id);
+      }
+    }
+  }
+
+  attachScrollListener(messagesEl) {
+    if (!messagesEl || messagesEl._hasScrollListener) return;
+    messagesEl._hasScrollListener = true;
+    messagesEl.addEventListener('scroll', () => {
+      const distance = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+      const btn = messagesEl.parentElement?.querySelector('.scroll-to-bottom-btn');
+      if (distance <= 60) {
+        messagesEl._userScrolledUp = false;
+        if (btn) btn.classList.remove('visible');
+      } else if (distance > 100) {
+        messagesEl._userScrolledUp = true;
+        if (btn) btn.classList.add('visible');
+      }
+    }, { passive: true });
+  }
+
+  isUserAtBottom(messagesEl, threshold = 90) {
+    if (!messagesEl) return true;
+    const distance = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+    return distance <= threshold;
+  }
+
+  smartScrollToBottom(messagesEl, force = false, threshold = 90) {
+    if (!messagesEl) return;
+    this.attachScrollListener(messagesEl);
+
+    if (force) {
+      messagesEl._userScrolledUp = false;
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      const btn = messagesEl.parentElement?.querySelector('.scroll-to-bottom-btn');
+      if (btn) btn.classList.remove('visible');
+      return;
+    }
+
+    if (!messagesEl._userScrolledUp && this.isUserAtBottom(messagesEl, threshold)) {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      const btn = messagesEl.parentElement?.querySelector('.scroll-to-bottom-btn');
+      if (btn) btn.classList.remove('visible');
+    } else if (messagesEl._userScrolledUp) {
+      const btn = messagesEl.parentElement?.querySelector('.scroll-to-bottom-btn');
+      if (btn) btn.classList.add('visible');
+    }
+  }
+
+  scrollToBottom(container = this.chatMessages, force = true) {
+    if (container) {
+      this.smartScrollToBottom(container, force);
+    }
   }
 
   openNewChatModal(preferredEngine = 'cursor') {
@@ -2198,13 +3681,27 @@ class AgentRemoteApp {
       }
     }
 
-    const defaultWs = (dev && dev.defaultWorkspace) || this.workspaceInput.value || '';
+    const defaultWs = (dev && dev.defaultWorkspace) || this.workspaceInput?.value || '';
     if (this.modalWorkspaceInput) {
       this.modalWorkspaceInput.value = defaultWs;
     }
 
     if (this.modalSessionTitle) this.modalSessionTitle.value = '';
     if (this.modalSessionDesc) this.modalSessionDesc.value = '';
+
+    this.populateModalProjectSelect();
+    if (this.activeProjectId && this.activeProjectId !== 'all' && this.activeProjectId !== 'unassigned') {
+      const activeProj = this.projects.find((p) => p.id === this.activeProjectId);
+      if (activeProj) {
+        if (this.modalProjectSelect) this.modalProjectSelect.value = activeProj.id;
+        if (activeProj.workspacePath && this.modalWorkspaceInput) {
+          this.modalWorkspaceInput.value = activeProj.workspacePath;
+        }
+        if (activeProj.defaultEngine) {
+          this.setModalEngine(activeProj.defaultEngine);
+        }
+      }
+    }
 
     this.newChatModal.style.display = 'flex';
   }
@@ -2237,6 +3734,9 @@ class AgentRemoteApp {
   getDeviceModels(engine) {
     const dev = this.getActiveDevice();
     const all = (dev && dev.availableModels) || [];
+    if (engine === 'cursor') {
+      return all.filter((m) => m.engine === 'cursor' && !isGeminiModelId(m.id));
+    }
     return all.filter((m) => m.engine === engine);
   }
 
@@ -2252,8 +3752,17 @@ class AgentRemoteApp {
   }
 
   modelSupportsEffort(engine, modelId) {
+    if (engine !== 'antigravity') return false;
     const model = this.getDeviceModels(engine).find((m) => m.id === modelId);
-    return Boolean(model && model.supportsEffort);
+    if (model && typeof model.supportsEffort === 'boolean') {
+      return model.supportsEffort;
+    }
+    if (!modelId || modelId === 'auto' || modelId === 'default') return true;
+    const clean = String(modelId).toLowerCase();
+    if (/-(low|medium|high|xhigh|max|minimal)$/i.test(clean)) return false;
+    if (/claude|thinking/i.test(clean)) return false;
+    if (/^(gemini|gpt-oss)/i.test(clean)) return true;
+    return false;
   }
 
   refreshCustomSelect(selectEl) {
@@ -2289,10 +3798,11 @@ class AgentRemoteApp {
     const isAgy = this.currentSelectedEngine === 'antigravity';
     const workspace = (this.modalWorkspaceInput && this.modalWorkspaceInput.value.trim()) || (chosenDevice && chosenDevice.defaultWorkspace) || '';
     const title = (this.modalSessionTitle && this.modalSessionTitle.value.trim()) || (isAgy ? 'Новий чат Antigravity' : 'Новий чат Cursor');
-    const desc = (this.modalSessionDesc && this.modalSessionDesc.value.trim()) || (isAgy ? 'Сесія Google Antigravity (Gemini 3.7 Flash High)' : 'Сесія Cursor AI Agent');
+    const desc = (this.modalSessionDesc && this.modalSessionDesc.value.trim()) || (isAgy ? 'Сесія Google Antigravity' : 'Сесія Cursor AI Agent');
     const model = (this.modalModelSelect && this.modalModelSelect.value) || this.defaultModelFor(isAgy ? 'antigravity' : 'cursor');
     const mode = (this.modalModeSelect && this.modalModeSelect.value) || 'yolo';
-    const thinkingEffort = isAgy ? 'high' : 'medium';
+    const thinkingEffort = isAgy ? (this.modelSupportsEffort('antigravity', model) ? 'high' : 'off') : 'medium';
+    const projectId = (this.modalProjectSelect && this.modalProjectSelect.value) || (this.activeProjectId !== 'all' && this.activeProjectId !== 'unassigned' ? this.activeProjectId : undefined);
 
     const newSession = {
       deviceId: chosenDeviceId,
@@ -2303,6 +3813,7 @@ class AgentRemoteApp {
       mode,
       thinkingEffort,
       workspacePath: workspace,
+      projectId: projectId || undefined,
     };
 
     this.submitNewChatBtn.disabled = true;
@@ -2320,6 +3831,7 @@ class AgentRemoteApp {
 
       if (res.ok) {
         const data = await res.json();
+        data.session._loaded = true;
         this.sessions.unshift(data.session);
         this.renderSessions();
         this.selectSession(data.session.id);
@@ -2517,6 +4029,7 @@ class AgentRemoteApp {
 
       const data = await res.json();
       if (res.ok && data.session) {
+        data.session._loaded = true;
         const existingIdx = this.sessions.findIndex((s) => s.id === data.session.id);
         if (existingIdx >= 0) {
           this.sessions[existingIdx] = data.session;
@@ -3167,8 +4680,298 @@ class AgentRemoteApp {
 
   renderMarkdownSafe(markdown) {
     if (!markdown) return '';
-    if (!window.marked) return this.escapeHtml(markdown).replace(/\n/g, '<br>');
-    return this.sanitizeMarkdownHtml(marked.parse(markdown));
+    
+    // Transform GitHub alerts: > [!NOTE], > [!TIP], > [!IMPORTANT], > [!WARNING], > [!CAUTION]
+    let preprocessed = markdown
+      .replace(/^>\s*\[!NOTE\][ \t]*\n((?:^>.*\n?)*)/gim, (m, body) => {
+        const cleanBody = body.replace(/^>\s?/gm, '').trim();
+        return `<div class="markdown-alert markdown-alert-note"><strong>ℹ️ Примітка</strong>\n\n${cleanBody}</div>\n`;
+      })
+      .replace(/^>\s*\[!TIP\][ \t]*\n((?:^>.*\n?)*)/gim, (m, body) => {
+        const cleanBody = body.replace(/^>\s?/gm, '').trim();
+        return `<div class="markdown-alert markdown-alert-tip"><strong>💡 Підказка</strong>\n\n${cleanBody}</div>\n`;
+      })
+      .replace(/^>\s*\[!IMPORTANT\][ \t]*\n((?:^>.*\n?)*)/gim, (m, body) => {
+        const cleanBody = body.replace(/^>\s?/gm, '').trim();
+        return `<div class="markdown-alert markdown-alert-important"><strong>❗ Важливо</strong>\n\n${cleanBody}</div>\n`;
+      })
+      .replace(/^>\s*\[!WARNING\][ \t]*\n((?:^>.*\n?)*)/gim, (m, body) => {
+        const cleanBody = body.replace(/^>\s?/gm, '').trim();
+        return `<div class="markdown-alert markdown-alert-warning"><strong>⚠️ Попередження</strong>\n\n${cleanBody}</div>\n`;
+      })
+      .replace(/^>\s*\[!CAUTION\][ \t]*\n((?:^>.*\n?)*)/gim, (m, body) => {
+        const cleanBody = body.replace(/^>\s?/gm, '').trim();
+        return `<div class="markdown-alert markdown-alert-caution"><strong>🛑 Застереження</strong>\n\n${cleanBody}</div>\n`;
+      });
+
+    if (!window.marked) return this.escapeHtml(preprocessed).replace(/\n/g, '<br>');
+    return this.sanitizeMarkdownHtml(marked.parse(preprocessed));
+  }
+
+  // ================= ARTIFACT VIEWER METHODS =================
+  async openArtifact(artifact) {
+    if (!artifact) return;
+    if (!this.chatArtifactViewer) return;
+
+    this.currentActiveArtifact = artifact;
+    const filePath = artifact.path || artifact.filePath || artifact.title || 'artifact.md';
+    const fileName = artifact.title || filePath.split(/[/\\]/).pop() || 'artifact.md';
+
+    this.chatArtifactViewer.style.display = 'flex';
+    if (this.artifactViewerTitle) this.artifactViewerTitle.innerText = fileName;
+    if (this.artifactViewerPath) {
+      this.artifactViewerPath.innerText = filePath;
+      this.artifactViewerPath.title = filePath;
+    }
+    if (this.artifactViewerIcon) {
+      this.artifactViewerIcon.innerHTML = this.getFileIcon(fileName);
+    }
+
+    // Set default mode
+    const ext = fileName.split('.').pop().toLowerCase();
+    const isMd = ['md', 'markdown', 'txt'].includes(ext);
+    this.setArtifactViewerMode(isMd ? 'rendered' : 'raw');
+
+    if (artifact.content !== undefined && artifact.content !== null) {
+      this.displayArtifactContent(artifact.content, filePath);
+      return;
+    }
+
+    // Show loading state
+    if (this.artifactRenderedContent) {
+      this.artifactRenderedContent.innerHTML = `
+        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; color:var(--text-muted); gap:12px;">
+          <span class="thinking-spinner" style="width:24px; height:24px; border-width:2.5px;"></span>
+          <span>Завантаження вмісту артефакту...</span>
+        </div>
+      `;
+    }
+
+    try {
+      // 1. Try fetching from server content endpoint
+      const res = await fetch(`/api/files/content?path=${encodeURIComponent(filePath)}`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        artifact.content = data.content;
+        this.displayArtifactContent(data.content, filePath);
+        return;
+      }
+    } catch (err) {
+      console.warn('[Artifact] HTTP fetch failed, fallback to WS:', err);
+    }
+
+    // 2. Fallback to WS fs:read_file
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this._pendingArtifactReqId = Math.random().toString(36).substring(2, 8);
+      this.ws.send(
+        JSON.stringify({
+          type: 'fs:read_file',
+          payload: {
+            reqId: this._pendingArtifactReqId,
+            filePath,
+            workspacePath: this.getWorkspaceRoot(),
+            deviceId: this.activeDeviceId,
+          },
+        })
+      );
+    }
+  }
+
+  displayArtifactContent(content, filePath = '') {
+    this.currentArtifactRawContent = content || '';
+    const ext = filePath.split('.').pop().toLowerCase();
+    const isMd = ['md', 'markdown', 'txt'].includes(ext) || (!filePath.includes('.') && content.startsWith('#'));
+
+    // 1. Render Markdown View
+    if (this.artifactRenderedContent) {
+      if (isMd && window.marked) {
+        this.artifactRenderedContent.innerHTML = this.renderMarkdownSafe(content);
+        this.artifactRenderedContent.querySelectorAll('pre code').forEach((b) => {
+          if (window.hljs) hljs.highlightElement(b);
+        });
+      } else {
+        const escaped = this.escapeHtml(content);
+        this.artifactRenderedContent.innerHTML = `<pre style="margin:0; font-family:var(--font-mono, monospace); font-size:12.5px;"><code>${escaped}</code></pre>`;
+      }
+    }
+
+    // 2. Render Raw Code View
+    if (this.artifactRawCode) {
+      this.artifactRawCode.innerText = content || '';
+      if (window.hljs) {
+        hljs.highlightElement(this.artifactRawCode);
+      }
+    }
+  }
+
+  setArtifactViewerMode(mode) {
+    this.currentArtifactMode = mode;
+    if (this.artifactViewModeToggle) {
+      this.artifactViewModeToggle.querySelectorAll('.artifact-mode-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+      });
+    }
+
+    if (this.artifactRenderedContent && this.artifactRawContent) {
+      if (mode === 'rendered') {
+        this.artifactRenderedContent.style.display = 'block';
+        this.artifactRawContent.style.display = 'none';
+      } else {
+        this.artifactRenderedContent.style.display = 'none';
+        this.artifactRawContent.style.display = 'block';
+      }
+    }
+  }
+
+  closeArtifactViewer() {
+    if (this.chatArtifactViewer) {
+      this.chatArtifactViewer.style.display = 'none';
+    }
+    this.currentActiveArtifact = null;
+  }
+
+  copyCurrentArtifactContent() {
+    if (!this.currentArtifactRawContent) {
+      this.showToast('Вміст артефакту порожній');
+      return;
+    }
+    navigator.clipboard.writeText(this.currentArtifactRawContent);
+    this.showToast('📋 Вміст артефакту скопійовано!');
+  }
+
+  downloadCurrentArtifactFile() {
+    if (!this.currentArtifactRawContent) return;
+    const fileName = this.artifactViewerTitle?.innerText || 'artifact.txt';
+    const blob = new Blob([this.currentArtifactRawContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    this.showToast(`💾 Файл «${fileName}» завантажено`);
+  }
+
+  openArtifactFromToolCall(toolCallId) {
+    if (!toolCallId) return;
+    for (const s of this.sessions) {
+      if (!s.messages) continue;
+      for (const m of s.messages) {
+        const tc = (m.toolCalls || []).find((t) => t.id === toolCallId);
+        if (tc) {
+          const raw = tc.input || tc.arguments || {};
+          const filePath = raw.TargetFile || raw.AbsolutePath || raw.file || raw.path || raw.target || 'artifact.txt';
+          const fileName = filePath.split(/[/\\]/).pop() || filePath;
+          const code = raw.CodeContent || raw.ReplacementContent || tc.output || tc.result || '';
+          this.openArtifact({
+            title: fileName,
+            path: filePath,
+            content: code,
+          });
+          return;
+        }
+      }
+    }
+    this.showToast('Не вдалося знайти вміст артефакту');
+  }
+
+  extractSessionArtifacts(sessionId = null) {
+    const targetSessionId = sessionId || this.activeSessionId;
+    const session = this.sessions.find((s) => s.id === targetSessionId);
+    if (!session || !session.messages) return [];
+
+    const artifactsMap = new Map();
+
+    session.messages.forEach((msg) => {
+      // 1. Tool calls
+      (msg.toolCalls || []).forEach((tc) => {
+        const raw = tc.input || tc.arguments || {};
+        const filePath = raw.TargetFile || raw.AbsolutePath || raw.file || raw.path;
+        if (filePath && !artifactsMap.has(filePath)) {
+          const fileName = filePath.split(/[/\\]/).pop() || filePath;
+          const code = raw.CodeContent || raw.ReplacementContent || tc.output || '';
+          artifactsMap.set(filePath, {
+            id: tc.id,
+            title: fileName,
+            path: filePath,
+            content: code || undefined,
+            timestamp: msg.timestamp || Date.now(),
+          });
+        }
+      });
+
+      // 2. Markdown links in assistant messages
+      if (msg.role === 'assistant' && msg.content) {
+        const linkRegex = /\[([^\]]+)\]\(([^)]+\.(?:md|markdown|json|ts|js|py|html|css|txt|yaml|yml|sh|svg)(?:#[^)]*)?)\)/gi;
+        let match;
+        while ((match = linkRegex.exec(msg.content)) !== null) {
+          const title = match[1];
+          let href = match[2];
+          if (href.startsWith('file://')) href = href.replace(/^file:\/\/\/?/, '');
+          if (!artifactsMap.has(href) && !href.startsWith('http://') && !href.startsWith('https://')) {
+            artifactsMap.set(href, {
+              id: 'link-' + Math.random().toString(36).slice(2, 7),
+              title: title || href.split(/[/\\]/).pop() || 'Артефакт',
+              path: href,
+              timestamp: msg.timestamp || Date.now(),
+            });
+          }
+        }
+      }
+    });
+
+    const list = Array.from(artifactsMap.values());
+    if (this.sessionArtifactsCount) {
+      if (list.length > 0) {
+        this.sessionArtifactsCount.innerText = list.length;
+        this.sessionArtifactsCount.style.display = 'inline-block';
+      } else {
+        this.sessionArtifactsCount.style.display = 'none';
+      }
+    }
+    return list;
+  }
+
+  openSessionArtifactsModal() {
+    const artifacts = this.extractSessionArtifacts(this.activeSessionId);
+    if (!this.sessionArtifactsModal || !this.sessionArtifactsList) return;
+
+    if (artifacts.length === 0) {
+      this.sessionArtifactsList.innerHTML = `
+        <div style="text-align:center; padding:30px 10px; color:var(--text-muted);">
+          <div style="font-size:32px; margin-bottom:8px;">📄</div>
+          <div style="font-size:13px; font-weight:600; color:var(--text-secondary);">Немає артефактів</div>
+          <p style="font-size:11.5px; margin-top:4px;">У цій сесії ще не згенеровано файлів або планів.</p>
+        </div>
+      `;
+    } else {
+      this.sessionArtifactsList.innerHTML = '';
+      artifacts.forEach((art) => {
+        const item = document.createElement('div');
+        item.className = 'session-artifact-item';
+        item.innerHTML = `
+          <div class="session-artifact-item-left">
+            <span style="font-size:16px;">${this.getFileIcon(art.title)}</span>
+            <div>
+              <div class="session-artifact-item-title">${this.escapeHtml(art.title)}</div>
+              <div class="session-artifact-item-path">${this.escapeHtml(art.path)}</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-xs" style="font-size:11px; padding:3px 8px; flex-shrink:0;">Відкрити</button>
+        `;
+        item.addEventListener('click', () => {
+          this.sessionArtifactsModal.style.display = 'none';
+          this.openArtifact(art);
+        });
+        this.sessionArtifactsList.appendChild(item);
+      });
+    }
+
+    this.sessionArtifactsModal.style.display = 'flex';
   }
 
   getWorkspaceRoot() {

@@ -1,11 +1,14 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { randomUUID } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { db } from '../db';
 import { verifyPassword, createToken, requireAuth } from '../auth';
 import { deviceManager } from '../deviceManager';
 import { sessionManager } from '../sessionManager';
 import { config } from '../config';
 import { ChatSanitizer } from '../../shared/chatSanitizer';
+import { ChatSession } from '../../shared/types';
 import { voiceRoutes } from './voice';
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -51,7 +54,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
       httpOnly: true,
       secure: config.isProduction,
       sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60, // 30 days
+      maxAge: 7 * 24 * 60 * 60, // 7 days
     });
 
     return { token, username: user.username };
@@ -99,10 +102,18 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     return { success: true };
   });
 
-  // Sessions
+  // Sessions (Lightweight summary: metadata & messageCount only)
   fastify.get('/sessions', { preHandler: [requireAuth] }, async (req) => {
-    const { deviceId } = req.query as { deviceId?: string };
-    return { sessions: sessionManager.getSessions(deviceId) };
+    const { deviceId, projectId } = req.query as { deviceId?: string; projectId?: string };
+    let summaries = sessionManager.getSessionSummaries(deviceId);
+    if (projectId !== undefined) {
+      if (projectId === 'unassigned' || projectId === 'none') {
+        summaries = summaries.filter((s) => !s.projectId);
+      } else {
+        summaries = summaries.filter((s) => s.projectId === projectId);
+      }
+    }
+    return { sessions: summaries };
   });
 
   fastify.post('/sessions', { preHandler: [requireAuth] }, async (req) => {
@@ -111,6 +122,8 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
       deviceId: body.deviceId || deviceManager.getActiveDeviceId() || 'default',
       title: body.title,
       description: body.description,
+      projectId: body.projectId,
+      isPinned: body.isPinned,
       engine: body.engine,
       workspacePath: body.workspacePath,
       model: body.model,
@@ -136,11 +149,14 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     const session = sessionManager.updateSession(id, {
       title: body.title,
       description: body.description,
+      projectId: body.projectId,
+      isPinned: body.isPinned,
       engine: body.engine,
       workspacePath: body.workspacePath,
       model: body.model,
       mode: body.mode,
       cursorChatId: body.cursorChatId,
+      thinkingEffort: body.thinkingEffort,
     });
     if (!session) {
       return reply.status(404).send({ error: 'Session not found' });
@@ -148,10 +164,115 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     return { success: true, session };
   });
 
+  fastify.post('/sessions/:id/pin', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as any;
+    let session: ChatSession | null | undefined = sessionManager.getSession(id);
+    if (!session) {
+      return reply.status(404).send({ error: 'Session not found' });
+    }
+    if (body && typeof body.isPinned === 'boolean') {
+      session = sessionManager.updateSession(id, { isPinned: body.isPinned });
+    } else {
+      session = sessionManager.togglePin(id);
+    }
+    return { success: true, isPinned: Boolean(session?.isPinned), session };
+  });
+
+  // Session Prompt Queue Management
+  fastify.post('/sessions/:id/queue', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { prompt } = req.body as { prompt: string };
+    if (!prompt || !prompt.trim()) {
+      return reply.status(400).send({ error: 'Prompt is required' });
+    }
+    const queue = sessionManager.enqueuePrompt(id, prompt.trim());
+    return { success: true, queue };
+  });
+
+  fastify.patch('/sessions/:id/queue/:index', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id, index } = req.params as { id: string; index: string };
+    const { prompt } = req.body as { prompt: string };
+    const idx = parseInt(index, 10);
+    if (isNaN(idx) || !prompt || !prompt.trim()) {
+      return reply.status(400).send({ error: 'Valid index and prompt are required' });
+    }
+    const queue = sessionManager.updateQueuedPrompt(id, idx, prompt.trim());
+    return { success: true, queue };
+  });
+
+  fastify.delete('/sessions/:id/queue/:index', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id, index } = req.params as { id: string; index: string };
+    const idx = parseInt(index, 10);
+    if (isNaN(idx)) {
+      return reply.status(400).send({ error: 'Valid index is required' });
+    }
+    const queue = sessionManager.removeQueuedPrompt(id, idx);
+    return { success: true, queue };
+  });
+
+  fastify.delete('/sessions/:id/queue', { preHandler: [requireAuth] }, async (req) => {
+    const { id } = req.params as { id: string };
+    sessionManager.clearQueue(id);
+    return { success: true, queue: [] };
+  });
+
   // Delete Session
   fastify.delete('/sessions/:id', { preHandler: [requireAuth] }, async (req) => {
     const { id } = req.params as { id: string };
     sessionManager.deleteSession(id);
+    return { success: true };
+  });
+
+  // Projects CRUD
+  fastify.get('/projects', { preHandler: [requireAuth] }, async () => {
+    return { projects: sessionManager.getProjects() };
+  });
+
+  fastify.post('/projects', { preHandler: [requireAuth] }, async (req, reply) => {
+    const body = req.body as any;
+    if (!body || !body.name || !body.name.trim()) {
+      return reply.status(400).send({ error: 'Project name is required' });
+    }
+    const project = sessionManager.createProject({
+      name: body.name.trim(),
+      description: body.description,
+      icon: body.icon,
+      color: body.color,
+      workspacePath: body.workspacePath,
+      defaultEngine: body.defaultEngine,
+      defaultModel: body.defaultModel,
+      isPinned: body.isPinned,
+    });
+    return { project };
+  });
+
+  fastify.get('/projects/:id', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const project = sessionManager.getProject(id);
+    if (!project) {
+      return reply.status(404).send({ error: 'Project not found' });
+    }
+    const sessions = sessionManager.getSessionSummaries().filter((s) => s.projectId === id);
+    return { project, sessions };
+  });
+
+  fastify.patch('/projects/:id', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as any;
+    const project = sessionManager.updateProject(id, body);
+    if (!project) {
+      return reply.status(404).send({ error: 'Project not found' });
+    }
+    return { success: true, project };
+  });
+
+  fastify.delete('/projects/:id', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const deleted = sessionManager.deleteProject(id);
+    if (!deleted) {
+      return reply.status(404).send({ error: 'Project not found' });
+    }
     return { success: true };
   });
 
@@ -305,6 +426,43 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     }
     const sanitized = ChatSanitizer.sanitizeAny(rawContent);
     return { success: true, result: sanitized };
+  });
+
+  // Direct File/Artifact Content Reader
+  fastify.get('/files/content', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { path: rawPath } = req.query as { path?: string };
+    if (!rawPath) {
+      return reply.status(400).send({ error: 'path query parameter is required' });
+    }
+
+    let filePath = rawPath.trim();
+    if (filePath.startsWith('file:///')) {
+      filePath = filePath.replace(/^file:\/\/\/?/, '');
+      if (process.platform === 'win32' && filePath.match(/^[a-zA-Z]:/)) {
+        filePath = filePath.replace(/\//g, '\\');
+      }
+    }
+
+    try {
+      if (fs.existsSync(filePath)) {
+        const stats = fs.statSync(filePath);
+        if (stats.isFile()) {
+          const content = fs.readFileSync(filePath, 'utf-8');
+          return {
+            success: true,
+            filePath,
+            fileName: path.basename(filePath),
+            content,
+            size: stats.size,
+            mtime: stats.mtimeMs,
+          };
+        }
+      }
+    } catch (err: any) {
+      return reply.status(500).send({ error: `Failed to read file: ${err.message}` });
+    }
+
+    return reply.status(404).send({ error: 'File not found on server' });
   });
 
   fastify.get('/health', async () => {

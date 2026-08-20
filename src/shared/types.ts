@@ -58,11 +58,27 @@ export interface DeviceInfo {
   };
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+  workspacePath?: string;
+  defaultEngine?: 'cursor' | 'antigravity';
+  defaultModel?: string;
+  isPinned?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ChatSession {
   id: string;
   deviceId: string;
   title: string;
   description?: string;
+  projectId?: string;
+  isPinned?: boolean;
   engine?: 'cursor' | 'antigravity';
   createdAt: number;
   updatedAt: number;
@@ -73,6 +89,29 @@ export interface ChatSession {
   model: string;
   mode: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
   messages: ChatMessage[];
+  isStreaming?: boolean;
+  status?: 'idle' | 'running' | 'completed' | 'error';
+  thinkingEffort?: 'low' | 'medium' | 'high' | 'off';
+  promptQueue?: string[];
+}
+
+export interface ChatSessionSummary {
+  id: string;
+  deviceId: string;
+  title: string;
+  description?: string;
+  projectId?: string;
+  isPinned?: boolean;
+  engine?: 'cursor' | 'antigravity';
+  createdAt: number;
+  updatedAt: number;
+  cursorChatId?: string;
+  sourceSessionId?: string;
+  sourceFilePath?: string;
+  workspacePath: string;
+  model: string;
+  mode: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
+  messageCount: number;
   isStreaming?: boolean;
   status?: 'idle' | 'running' | 'completed' | 'error';
   thinkingEffort?: 'low' | 'medium' | 'high' | 'off';
@@ -92,6 +131,10 @@ export interface ToolCallItem {
   durationMs?: number;
 }
 
+export type MessageBlock =
+  | { type: 'text'; content: string }
+  | { type: 'tool'; toolCallId: string };
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -100,6 +143,7 @@ export interface ChatMessage {
   timestamp: number;
   model?: string;
   toolCalls?: ToolCallItem[];
+  blocks?: MessageBlock[];
   isStreaming?: boolean;
 }
 
@@ -128,6 +172,8 @@ export interface AgentRunOptions {
 export type WorkerToHubMessage =
   | { type: 'worker:register'; payload: DeviceInfo }
   | { type: 'worker:heartbeat'; payload: { deviceId: string; memoryUsage?: any; cpuUsage?: number } }
+  | { type: 'worker:limits'; payload: { deviceId: string; limits?: any; cursorAuthStatus?: any } }
+  | { type: 'worker:running_sessions'; payload: { deviceId: string; sessionIds: string[] } }
   | { type: 'agent:auth_url'; payload: { deviceId: string; url: string } }
   | { type: 'agent:auth_success'; payload: { deviceId: string } }
   | { type: 'agent:chunk'; payload: { sessionId: string; chunk: string; delta?: string } }
@@ -185,9 +231,16 @@ export type ClientToHubMessage =
   | { type: 'agent:prompt'; payload: AgentRunOptions }
   | { type: 'agent:abort'; payload: { sessionId: string } }
   | { type: 'agent:queue_prompt'; payload: { sessionId: string; prompt: string } }
+  | { type: 'agent:update_queued_prompt'; payload: { sessionId: string; index: number; newPrompt: string } }
+  | { type: 'agent:edit_queued_prompt'; payload: { sessionId: string; index: number; newPrompt: string } }
   | { type: 'agent:remove_queued_prompt'; payload: { sessionId: string; index: number } }
   | { type: 'agent:clear_queue'; payload: { sessionId: string } }
   | { type: 'sessions:force_sync'; payload: { sessionId: string } }
+  | { type: 'session:pin'; payload: { sessionId: string; isPinned: boolean } }
+  | { type: 'session:move_project'; payload: { sessionId: string; projectId?: string } }
+  | { type: 'project:create'; payload: Partial<Project> }
+  | { type: 'project:update'; payload: { id: string; updates: Partial<Project> } }
+  | { type: 'project:delete'; payload: { id: string } }
   | { type: 'terminal:exec'; payload: { commandId: string; deviceId: string; command: string; cwd?: string } }
   | { type: 'fs:tree'; payload: { deviceId: string; path?: string } }
   | { type: 'fs:read'; payload: { deviceId: string; path: string } }
@@ -196,13 +249,16 @@ export type ClientToHubMessage =
   | { type: 'transcripts:read_local'; payload: { reqId: string; filePath: string; deviceId?: string } };
 
 export type HubToClientMessage =
-  | { type: 'state:init'; payload: { devices: DeviceInfo[]; activeDeviceId?: string; sessions: ChatSession[]; activeSessionId?: string } }
+  | { type: 'state:init'; payload: { devices: DeviceInfo[]; activeDeviceId?: string; sessions: ChatSession[]; activeSessionId?: string; projects?: Project[] } }
+  | { type: 'hub:status'; payload: { uptime: number; ramMb: number; activeSessions: number; onlineDevices: number } }
   | { type: 'device:updated'; payload: DeviceInfo }
   | { type: 'device:status'; payload: { deviceId: string; status: 'online' | 'offline' } }
   | { type: 'agent:auth_url'; payload: { deviceId: string; url: string } }
   | { type: 'agent:auth_success'; payload: { deviceId: string } }
   | { type: 'session:updated'; payload: ChatSession }
   | { type: 'session:deleted'; payload: { sessionId: string } }
+  | { type: 'project:updated'; payload: Project }
+  | { type: 'project:deleted'; payload: { projectId: string } }
   | { type: 'agent:chunk'; payload: { sessionId: string; chunk: string; delta?: string } }
   | { type: 'agent:thinking'; payload: { sessionId: string; thinking: string; delta?: string } }
   | { type: 'agent:tool_call'; payload: { sessionId: string; toolCall: ToolCallItem } }

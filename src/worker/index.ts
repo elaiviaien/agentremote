@@ -48,13 +48,14 @@ class HubLink {
   private attempts = 0;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private pingTimer: NodeJS.Timeout | null = null;
-  private sessionCloseTimer: NodeJS.Timeout | null = null;
   private intentionalStop = false;
+  private outboundQueue: WorkerToHubMessage[] = [];
+  private static readonly MAX_QUEUE = 400;
 
   constructor(
     public readonly hubUrl: string,
     private readonly onMessage: (msg: HubToWorkerMessage, send: SendFn) => void,
-    private readonly onCloseSessions: (send: SendFn) => void,
+    private readonly onReconnected: (send: SendFn) => void,
     private readonly buildDeviceInfo: () => DeviceInfo
   ) {}
 
@@ -67,7 +68,6 @@ class HubLink {
     this.intentionalStop = true;
     this.reconnecting = true;
     this.stopHeartbeat();
-    this.clearSessionCloseTimer();
     try {
       this.ws?.close();
     } catch {
@@ -79,8 +79,27 @@ class HubLink {
   public send: SendFn = (msg) => {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
+      return;
+    }
+    if (msg.type === 'worker:heartbeat' || msg.type === 'worker:register') return;
+    this.outboundQueue.push(msg);
+    if (this.outboundQueue.length > HubLink.MAX_QUEUE) {
+      this.outboundQueue.shift();
     }
   };
+
+  private flushOutboundQueue() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const queued = this.outboundQueue;
+    this.outboundQueue = [];
+    for (const msg of queued) {
+      try {
+        this.ws.send(JSON.stringify(msg));
+      } catch {
+        this.outboundQueue.push(msg);
+      }
+    }
+  }
 
   private connect() {
     if (this.intentionalStop) return;
@@ -112,8 +131,9 @@ class HubLink {
         console.log(`[Worker] Connected to ${this.hubUrl}`);
         this.reconnecting = false;
         this.attempts = 0;
-        this.clearSessionCloseTimer();
         this.send({ type: 'worker:register', payload: this.buildDeviceInfo() });
+        this.flushOutboundQueue();
+        this.onReconnected(this.send);
         this.startHeartbeat();
       });
       socket.on('message', (data: WebSocket.Data) => {
@@ -133,8 +153,6 @@ class HubLink {
         console.warn(`[Worker] Disconnected from ${this.hubUrl} (code: ${code}, reason: ${reason || 'none'})`);
         this.stopHeartbeat();
         this.ws = null;
-        // Don't abort sessions on brief blips — wait for reconnect grace period
-        this.scheduleSessionFailIfStillDown();
         if (!this.intentionalStop) this.scheduleReconnect();
       });
       socket.on('error', (err) => {
@@ -146,20 +164,45 @@ class HubLink {
     }
   }
 
+  private limitsTimer: NodeJS.Timeout | null = null;
+
   private startHeartbeat() {
     this.stopHeartbeat();
-    // App-level heartbeat for DeviceManager lastPing
+    // App-level heartbeat for DeviceManager lastPing & live RAM stats
     this.heartbeatTimer = setInterval(() => {
       const totalMem = Math.round(os.totalmem() / 1024 / 1024);
       const freeMem = Math.round(os.freemem() / 1024 / 1024);
+      const cpuLoad = os.loadavg ? Math.round(os.loadavg()[0] * 10) / 10 : undefined;
       this.send({
         type: 'worker:heartbeat',
         payload: {
           deviceId: DEVICE_ID,
           memoryUsage: { total: totalMem, free: freeMem, used: totalMem - freeMem },
+          cpuUsage: cpuLoad,
         },
       });
-    }, 8000);
+    }, 4000);
+
+    // Periodic live limits update (Cursor tier/auth, Antigravity turns/storage)
+    this.limitsTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        try {
+          const tools = detectCursorTools();
+          const limits = getAgentLimitsInfo(tools);
+          const cursorAuth = checkCursorAuthStatus(tools);
+          this.send({
+            type: 'worker:limits',
+            payload: {
+              deviceId: DEVICE_ID,
+              limits,
+              cursorAuthStatus: cursorAuth,
+            },
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 20000);
 
     // Protocol-level ping keeps Railway/load-balancer idle timeouts from killing the socket
     this.pingTimer = setInterval(() => {
@@ -178,26 +221,14 @@ class HubLink {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    if (this.limitsTimer) {
+      clearInterval(this.limitsTimer);
+      this.limitsTimer = null;
+    }
     if (this.pingTimer) {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
     }
-  }
-
-  private clearSessionCloseTimer() {
-    if (this.sessionCloseTimer) {
-      clearTimeout(this.sessionCloseTimer);
-      this.sessionCloseTimer = null;
-    }
-  }
-
-  private scheduleSessionFailIfStillDown() {
-    this.clearSessionCloseTimer();
-    this.sessionCloseTimer = setTimeout(() => {
-      this.sessionCloseTimer = null;
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
-      this.onCloseSessions(this.send);
-    }, 20000);
   }
 
   private scheduleReconnect() {
@@ -250,7 +281,7 @@ class WorkerDaemon {
     console.log(`💻 Device: ${DEVICE_NAME} (${DEVICE_ID})`);
     console.log(`📂 Default Workspace: ${DEFAULT_WORKSPACE}`);
     console.log(`🔎 Cursor Agent CLI: ${this.tools.cursorAgentCmd || 'NOT FOUND'}`);
-    console.log(`🔎 Antigravity: ${this.tools.antigravityAvailable ? 'Detected' : 'Not detected'}`);
+    console.log(`🔎 Antigravity CLI: ${this.tools.antigravityCliCmd || 'NOT FOUND'}`);
     console.log(`☁️ Hub URLs: ${hubs.join(', ')}`);
     console.log(`======================================================\n`);
   }
@@ -261,7 +292,7 @@ class WorkerDaemon {
       const link = new HubLink(
         url,
         (msg, send) => this.handleHubMessage(msg, send),
-        (send) => this.finishSessionsForSender(send, 'Hub connection lost'),
+        (send) => this.announceRunningSessions(send),
         () => this.buildDeviceInfo()
       );
       this.links.push(link);
@@ -310,15 +341,14 @@ class WorkerDaemon {
     };
   }
 
-  private finishSessionsForSender(send: SendFn, reason: string) {
-    const owned = [...this.sessionSenders.entries()].filter(([, s]) => s === send).map(([id]) => id);
-    for (const sessionId of owned) {
-      send({
-        type: 'agent:complete',
-        payload: { sessionId, fullContent: '', success: false, aborted: true, error: reason },
-      });
-      this.agentRunner.abort(sessionId);
-      this.sessionSenders.delete(sessionId);
+  private announceRunningSessions(send: SendFn) {
+    const sessionIds = this.agentRunner.getActiveSessionIds();
+    send({
+      type: 'worker:running_sessions',
+      payload: { deviceId: DEVICE_ID, sessionIds },
+    });
+    if (sessionIds.length > 0) {
+      console.log(`[Worker] Hub reconnected — ${sessionIds.length} task(s) still running`);
     }
   }
 

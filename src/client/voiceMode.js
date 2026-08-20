@@ -3,11 +3,26 @@
  * Records only while speaking. VAD must run even before UI "enabled" is painted.
  */
 (function () {
-  const SILENCE_MS = 900;
+  const SILENCE_MS = 480;
   const MIN_SPEECH_MS = 280;
   const SPEECH_START_FRAMES = 2;
   const VU_BARS = 18;
   const BASE_RMS = 0.008;
+
+  function isVoiceStopCommand(text) {
+    const t = String(text || '')
+      .normalize('NFC')
+      .toLowerCase()
+      .replace(/ё/g, 'е')
+      .replace(/[^a-zа-яіїєґ0-9\s]/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^(будь ласка|please)\s+/, '')
+      .replace(/\s+(будь ласка|please)$/, '');
+    if (!t) return false;
+    if (t === 'стоп стоп' || t === 'stop stop') return true;
+    return /^(стоп|stop|зупинись|зупинися|зупинити|вимкни|вимкнути|виключи|доволі|досить)(\s+(голос|войс|voice|мікрофон|парарейд|pararaid|режим))?$/.test(t);
+  }
 
   class VoiceModeController {
     constructor(app) {
@@ -115,9 +130,41 @@
       await this.setEnabled(!this.enabled);
     }
 
+    unlockPlayback() {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      try {
+        if (!this.audioCtx || this.audioCtx.state === 'closed') {
+          this.audioCtx = new Ctx();
+        }
+        this.audioCtx.resume();
+        const buf = this.audioCtx.createBuffer(1, 1, this.audioCtx.sampleRate || 44100);
+        const src = this.audioCtx.createBufferSource();
+        src.buffer = buf;
+        src.connect(this.audioCtx.destination);
+        src.start(0);
+        this._audioUnlocked = true;
+      } catch (err) {
+        console.warn('[ParaRaid] audio unlock failed', err);
+      }
+    }
+
+    async ensureAudioCtx() {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) throw new Error('Web Audio не підтримується');
+      if (!this.audioCtx || this.audioCtx.state === 'closed') {
+        this.audioCtx = new Ctx();
+      }
+      if (this.audioCtx.state === 'suspended') {
+        await this.audioCtx.resume();
+      }
+      return this.audioCtx;
+    }
+
     async setEnabled(on) {
       if (on === this.enabled) return;
       if (on) {
+        this.unlockPlayback();
         if (!this.app.activeSessionId) {
           try {
             this.setHud('Сесія…', 'thinking', 'Створюю чат для голосового звʼязку');
@@ -152,6 +199,7 @@
         }
       } else {
         this.enabled = false;
+        this.busy = false;
         this.btnEl?.classList.remove('active');
         this.btnEl?.setAttribute('aria-pressed', 'false');
         if (this.hudEl) this.hudEl.hidden = true;
@@ -162,6 +210,14 @@
         document.removeEventListener('visibilitychange', this._onVisibility);
         this.app.showToast?.('ParaRaid вимкнено');
       }
+    }
+
+    consumeStopCommand(text) {
+      if (!isVoiceStopCommand(text)) return false;
+      this.busy = false;
+      this.setEnabled(false);
+      if (this.app.isStreaming) this.app.stopAgent();
+      return true;
     }
 
     async acquireWakeLock() {
@@ -199,12 +255,9 @@
           autoGainControl: true,
         },
       });
-      this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      if (this.audioCtx.state === 'suspended') {
-        await this.audioCtx.resume();
-      }
-      const source = this.audioCtx.createMediaStreamSource(this.stream);
-      this.analyser = this.audioCtx.createAnalyser();
+      const ctx = await this.ensureAudioCtx();
+      const source = ctx.createMediaStreamSource(this.stream);
+      this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 2048;
       this.analyser.smoothingTimeConstant = 0.35;
       source.connect(this.analyser);
@@ -383,7 +436,7 @@
           return;
         }
 
-        this.setHud('Розпізнаю', 'thinking', `Аудіо ${(blob.size / 1024).toFixed(1)} KB → Gemini STT`);
+        this.setHud('Розпізнаю', 'thinking', `Аудіо ${(blob.size / 1024).toFixed(1)} KB → ElevenLabs Scribe`);
         const base64 = await this.blobToBase64(blob);
         const mimeType = (blob.type || 'audio/webm').split(';')[0];
         const res = await fetch('/api/voice/transcribe', {
@@ -406,6 +459,10 @@
           this.setHud('Слухаю', 'listening', 'Порожня транскрипція — скажіть чіткіше');
           this.busy = false;
           this.resumeListening();
+          return;
+        }
+
+        if (this.consumeStopCommand(text)) {
           return;
         }
 
@@ -508,27 +565,30 @@
         return;
       }
 
-      this.setHud('Озвучую', 'speaking', 'ElevenLabs озвучує відповідь…');
-      try {
-        const res = await fetch('/api/voice/speak', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.app.token}`,
-          },
-          body: JSON.stringify({ text, hasToolCalls }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || `Speak failed ${res.status}`);
-        }
-        const buf = await res.arrayBuffer();
-        await this.playAudioBuffer(buf);
-      } catch (err) {
-        console.error('[ParaRaid] speak failed', err);
-        this.app.showToast?.('Не вдалося озвучити відповідь', 4000);
-        this.setHud('Слухаю', 'listening', `TTS: ${String(err.message || err).slice(0, 80)}`);
-      } finally {
+        this.setHud('Озвучую', 'speaking', 'ElevenLabs озвучує відповідь…');
+        try {
+          const res = await fetch('/api/voice/speak', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${this.app.token}`,
+            },
+            body: JSON.stringify({ text: text.slice(0, 4000), hasToolCalls }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `Speak failed ${res.status}`);
+          }
+          const buf = await res.arrayBuffer();
+          if (!buf || buf.byteLength < 64) {
+            throw new Error('Порожній аудіофайл від сервера');
+          }
+          await this.playAudioBuffer(buf);
+        } catch (err) {
+          console.error('[ParaRaid] speak failed', err);
+          this.app.showToast?.(`Не вдалося озвучити: ${String(err.message || err).slice(0, 120)}`, 5000);
+          this.setHud('Слухаю', 'listening', `TTS: ${String(err.message || err).slice(0, 80)}`);
+        } finally {
         this.busy = false;
         if (this.enabled) this.resumeListening();
       }
@@ -541,25 +601,96 @@
       return (last.rawMarkdown || last.innerText || '').trim();
     }
 
-    playAudioBuffer(arrayBuffer) {
-      return new Promise((resolve) => {
-        this.stopPlayback();
-        const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        this.currentAudio = audio;
-        const done = () => {
-          URL.revokeObjectURL(url);
-          if (this.currentAudio === audio) this.currentAudio = null;
-          resolve();
+    decodeAudioData(ctx, arrayBuffer) {
+      const copy = arrayBuffer.slice(0);
+      return new Promise((resolve, reject) => {
+        let settled = false;
+        const ok = (buf) => {
+          if (settled) return;
+          settled = true;
+          resolve(buf);
         };
-        audio.onended = done;
-        audio.onerror = done;
-        audio.play().catch(done);
+        const fail = (err) => {
+          if (settled) return;
+          settled = true;
+          reject(err || new Error('decodeAudioData failed'));
+        };
+        try {
+          const ret = ctx.decodeAudioData(copy, ok, fail);
+          if (ret && typeof ret.then === 'function') ret.then(ok, fail);
+        } catch (err) {
+          fail(err);
+        }
+      });
+    }
+
+    arrayBufferToBase64(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      return btoa(binary);
+    }
+
+    async playAudioBuffer(arrayBuffer) {
+      this.stopPlayback();
+      const ctx = await this.ensureAudioCtx();
+      try {
+        const decoded = await this.decodeAudioData(ctx, arrayBuffer);
+        await new Promise((resolve, reject) => {
+          const src = ctx.createBufferSource();
+          src.buffer = decoded;
+          src.connect(ctx.destination);
+          this._ttsSource = src;
+          src.onended = () => {
+            if (this._ttsSource === src) this._ttsSource = null;
+            resolve();
+          };
+          try {
+            src.start(0);
+          } catch (err) {
+            reject(err);
+          }
+        });
+        return;
+      } catch (err) {
+        console.warn('[ParaRaid] Web Audio TTS failed, HTMLAudio fallback', err);
+      }
+
+      const url = `data:audio/mpeg;base64,${this.arrayBufferToBase64(arrayBuffer)}`;
+      await new Promise((resolve, reject) => {
+        const audio = new Audio();
+        audio.playsInline = true;
+        audio.setAttribute('playsinline', 'true');
+        audio.setAttribute('webkit-playsinline', 'true');
+        audio.preload = 'auto';
+        audio.src = url;
+        this.currentAudio = audio;
+        const done = (error) => {
+          if (this.currentAudio === audio) this.currentAudio = null;
+          if (error) reject(error);
+          else resolve();
+        };
+        audio.onended = () => done();
+        audio.onerror = () => done(new Error('Відтворення MP3 не вдалося'));
+        const playAttempt = audio.play();
+        if (playAttempt && typeof playAttempt.then === 'function') {
+          playAttempt.catch((e) => done(new Error(e?.message || 'Браузер заблокував звук')));
+        }
       });
     }
 
     stopPlayback() {
+      if (this._ttsSource) {
+        try {
+          this._ttsSource.stop();
+        } catch {
+          /* ignore */
+        }
+        this._ttsSource = null;
+      }
       if (this.currentAudio) {
         try {
           this.currentAudio.pause();

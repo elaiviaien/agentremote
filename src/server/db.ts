@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { DeviceInfo, ChatSession } from '../shared/types';
+import { DeviceInfo, ChatSession, Project } from '../shared/types';
+import { truncateToolCallItem } from '../shared/chatSanitizer';
 import { config } from './config';
 
 interface UserRecord {
@@ -13,6 +14,7 @@ interface DatabaseSchema {
   users: Record<string, UserRecord>;
   devices: Record<string, DeviceInfo>;
   sessions: Record<string, ChatSession>;
+  projects: Record<string, Project>;
 }
 
 class JsonDb {
@@ -21,6 +23,7 @@ class JsonDb {
     users: {},
     devices: {},
     sessions: {},
+    projects: {},
   };
   private saveTimeout: NodeJS.Timeout | null = null;
 
@@ -36,16 +39,42 @@ class JsonDb {
     this.load();
   }
 
+  private sanitizeSession(session: ChatSession): ChatSession {
+    if (!session || !Array.isArray(session.messages)) return session;
+    for (const msg of session.messages) {
+      if (Array.isArray(msg.toolCalls)) {
+        msg.toolCalls = msg.toolCalls.map((tc) => truncateToolCallItem(tc));
+      }
+    }
+    return session;
+  }
+
   private load() {
     try {
       if (fs.existsSync(this.dbPath)) {
         const raw = fs.readFileSync(this.dbPath, 'utf-8');
         const parsed = JSON.parse(raw);
+        const sessions: Record<string, ChatSession> = parsed.sessions || {};
+        const projects: Record<string, Project> = parsed.projects || {};
+        
+        // Sanitize existing sessions to prevent db bloat
+        let hasChanges = false;
+        for (const [id, session] of Object.entries(sessions)) {
+          sessions[id] = this.sanitizeSession(session);
+          hasChanges = true;
+        }
+
         this.data = {
           users: parsed.users || {},
           devices: parsed.devices || {},
-          sessions: parsed.sessions || {},
+          sessions,
+          projects,
         };
+
+        if (hasChanges) {
+          // Flush clean compact version
+          this.flush();
+        }
       }
     } catch (err) {
       console.warn('Failed to parse existing db.json, starting fresh:', err);
@@ -56,19 +85,29 @@ class JsonDb {
     if (this.saveTimeout) return;
     this.saveTimeout = setTimeout(() => {
       this.saveTimeout = null;
-      try {
-        fs.writeFileSync(this.dbPath, JSON.stringify(this.data, null, 2), 'utf-8');
-      } catch (err) {
-        console.error('Error saving db.json:', err);
-      }
+      this.flush();
     }, 500);
   }
 
   public flush() {
     try {
-      fs.writeFileSync(this.dbPath, JSON.stringify(this.data, null, 2), 'utf-8');
+      const jsonStr = JSON.stringify(this.data, null, 2);
+      const tmpPath = `${this.dbPath}.tmp`;
+      fs.writeFileSync(tmpPath, jsonStr, 'utf-8');
+      try {
+        if (process.platform === 'win32' && fs.existsSync(this.dbPath)) {
+          fs.copyFileSync(tmpPath, this.dbPath);
+          try { fs.unlinkSync(tmpPath); } catch {}
+        } else {
+          fs.renameSync(tmpPath, this.dbPath);
+        }
+      } catch {
+        // Fallback for file lock or cross-volume rename
+        fs.copyFileSync(tmpPath, this.dbPath);
+        try { fs.unlinkSync(tmpPath); } catch {}
+      }
     } catch (err) {
-      console.error('Error flushing db.json:', err);
+      console.error('Error saving db.json:', err);
     }
   }
 
@@ -108,10 +147,15 @@ class JsonDb {
   // Session methods
   public getSessions(deviceId?: string): ChatSession[] {
     const list = Object.values(this.data.sessions);
-    if (deviceId) {
-      return list.filter((s) => s.deviceId === deviceId);
-    }
-    return list.sort((a, b) => b.updatedAt - a.updatedAt);
+    const filtered = deviceId ? list.filter((s) => s.deviceId === deviceId) : list;
+    return filtered.sort((a, b) => {
+      const aPinned = Boolean(a.isPinned);
+      const bPinned = Boolean(b.isPinned);
+      if (aPinned !== bPinned) {
+        return aPinned ? -1 : 1;
+      }
+      return b.updatedAt - a.updatedAt;
+    });
   }
 
   public getSession(id: string): ChatSession | undefined {
@@ -119,12 +163,46 @@ class JsonDb {
   }
 
   public saveSession(session: ChatSession) {
-    this.data.sessions[session.id] = session;
+    this.data.sessions[session.id] = this.sanitizeSession(session);
     this.scheduleSave();
   }
 
   public deleteSession(id: string) {
     delete this.data.sessions[id];
+    this.scheduleSave();
+  }
+
+  // Project methods
+  public getProjects(): Project[] {
+    const list = Object.values(this.data.projects);
+    return list.sort((a, b) => {
+      const aPinned = Boolean(a.isPinned);
+      const bPinned = Boolean(b.isPinned);
+      if (aPinned !== bPinned) {
+        return aPinned ? -1 : 1;
+      }
+      return b.updatedAt - a.updatedAt;
+    });
+  }
+
+  public getProject(id: string): Project | undefined {
+    return this.data.projects[id];
+  }
+
+  public saveProject(project: Project) {
+    this.data.projects[project.id] = project;
+    this.scheduleSave();
+  }
+
+  public deleteProject(id: string) {
+    delete this.data.projects[id];
+    // Unassign deleted project from all sessions so they aren't lost
+    for (const session of Object.values(this.data.sessions)) {
+      if (session.projectId === id) {
+        session.projectId = undefined;
+        this.saveSession(session);
+      }
+    }
     this.scheduleSave();
   }
 }

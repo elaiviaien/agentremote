@@ -43,6 +43,11 @@ async function main() {
   await app.register(fastifyStatic, {
     root: clientDir,
     prefix: '/',
+    setHeaders(res, filePath) {
+      if (/\.(html|js)$/i.test(String(filePath))) {
+        res.setHeader('Cache-Control', 'no-store');
+      }
+    },
   });
 
   // Register REST API

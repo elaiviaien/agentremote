@@ -1,12 +1,30 @@
 import { WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
 import { ClientToHubMessage, HubToClientMessage } from '../../shared/types';
+import { isGeminiModelId, isUsageLimitError } from '../../shared/modelRouting';
 import { verifyToken } from '../auth';
 import { deviceManager } from '../deviceManager';
 import { sessionManager } from '../sessionManager';
 
 export class ClientWsManager {
   private connectedClients = new Set<WebSocket>();
+  private hubStatusTimer: NodeJS.Timeout | null = null;
+
+  constructor() {
+    this.hubStatusTimer = setInterval(() => {
+      if (this.connectedClients.size === 0) return;
+      const mem = process.memoryUsage();
+      this.broadcast({
+        type: 'hub:status',
+        payload: {
+          uptime: Math.round(process.uptime()),
+          ramMb: Math.round(mem.rss / (1024 * 1024)),
+          activeSessions: sessionManager.getSessions().length,
+          onlineDevices: deviceManager.getOnlineDevicesCount(),
+        },
+      });
+    }, 5000);
+  }
 
   public handleConnection(socket: WebSocket) {
     this.connectedClients.add(socket);
@@ -29,6 +47,7 @@ export class ClientWsManager {
     const devices = deviceManager.getDevices();
     const activeDeviceId = deviceManager.getActiveDeviceId() || (devices[0] ? devices[0].id : undefined);
     const sessions = sessionManager.getSessions();
+    const projects = sessionManager.getProjects();
 
     this.send(socket, {
       type: 'state:init',
@@ -37,6 +56,7 @@ export class ClientWsManager {
         activeDeviceId,
         sessions,
         activeSessionId: sessions[0] ? sessions[0].id : undefined,
+        projects,
       },
     });
   }
@@ -66,7 +86,7 @@ export class ClientWsManager {
 
       case 'agent:run' as any:
       case 'agent:prompt': {
-        const { sessionId, deviceId, prompt, model, mode, workspacePath, cursorChatId, continueLastSession, thinkingEffort } = (msg as any).payload;
+        const { sessionId, deviceId, prompt, model, mode, workspacePath, cursorChatId, continueLastSession, thinkingEffort, engine: payloadEngine } = (msg as any).payload;
         
         let session = sessionManager.getSession(sessionId);
         if (!session) {
@@ -77,7 +97,17 @@ export class ClientWsManager {
             mode,
             cursorChatId,
             thinkingEffort,
+            engine: payloadEngine || (isGeminiModelId(model) ? 'antigravity' : 'cursor'),
           });
+        }
+
+        const inferredEngine =
+          payloadEngine ||
+          session.engine ||
+          (isGeminiModelId(model || session.model) ? 'antigravity' : 'cursor');
+        const originalEngine = session.engine;
+        if (session.engine !== inferredEngine) {
+          session.engine = inferredEngine;
         }
 
         // Update session's active model / thinkingEffort if passed
@@ -87,7 +117,11 @@ export class ClientWsManager {
         if (thinkingEffort && session.thinkingEffort !== thinkingEffort) {
           session.thinkingEffort = thinkingEffort;
         }
-        sessionManager.updateSession(session.id, { model: session.model, thinkingEffort: session.thinkingEffort });
+        sessionManager.updateSession(session.id, {
+          engine: session.engine,
+          model: session.model,
+          thinkingEffort: session.thinkingEffort,
+        });
 
         // If session is ALREADY streaming or running, automatically enqueue to prevent duplicate runs
         if (session.isStreaming || session.status === 'running') {
@@ -107,6 +141,7 @@ export class ClientWsManager {
         sessionManager.updateSession(session.id, {
           isStreaming: true,
           status: 'running',
+          engine: session.engine,
           model: model || session.model,
           mode: mode || session.mode,
           thinkingEffort: thinkingEffort || session.thinkingEffort,
@@ -122,6 +157,7 @@ export class ClientWsManager {
         sessionManager.addMessage(session.id, {
           role: 'assistant',
           content: '',
+          blocks: [],
           isStreaming: true,
           model: model || session.model,
         });
@@ -142,18 +178,30 @@ export class ClientWsManager {
           return;
         }
 
+        const lastAssistant = [...session.messages].reverse().find((m) => m.role === 'assistant' && m.content);
+        let resumeId = cursorChatId || session.cursorChatId;
+        if (
+          isUsageLimitError(lastAssistant?.content) ||
+          (inferredEngine === 'antigravity' && originalEngine !== 'antigravity')
+        ) {
+          resumeId = undefined;
+        }
+        if (isUsageLimitError(lastAssistant?.content)) {
+          sessionManager.updateSession(session.id, { cursorChatId: '' });
+        }
+
         const sent = deviceManager.sendToWorker(targetDeviceId, {
           type: 'agent:start',
           payload: {
             sessionId: session.id,
             deviceId: targetDeviceId,
-            engine: session.engine || 'cursor',
+            engine: inferredEngine,
             prompt,
             model: model || session.model,
             mode: mode || session.mode,
             workspacePath: workspacePath || session.workspacePath,
-            cursorChatId: cursorChatId || session.cursorChatId,
-            continueLastSession,
+            cursorChatId: resumeId,
+            continueLastSession: resumeId ? continueLastSession : false,
             thinkingEffort: thinkingEffort || session.thinkingEffort || 'medium',
           },
         });
@@ -215,6 +263,23 @@ export class ClientWsManager {
         const { sessionId, index } = (msg as any).payload;
         if (sessionId !== undefined && index !== undefined) {
           sessionManager.removeQueuedPrompt(sessionId, index);
+          const session = sessionManager.getSession(sessionId);
+          if (session) {
+            this.broadcast({
+              type: 'session:updated',
+              payload: session,
+            });
+          }
+        }
+        break;
+      }
+
+      case 'agent:update_queued_prompt':
+      case 'agent:edit_queued_prompt': {
+        const { sessionId, index, newPrompt, prompt } = (msg as any).payload;
+        const text = newPrompt || prompt;
+        if (sessionId !== undefined && index !== undefined && text) {
+          sessionManager.updateQueuedPrompt(sessionId, index, text);
           const session = sessionManager.getSession(sessionId);
           if (session) {
             this.broadcast({
@@ -379,6 +444,68 @@ export class ClientWsManager {
             type: 'transcripts:read_local',
             payload: { reqId: (msg as any).payload.reqId, filePath: (msg as any).payload.filePath },
           });
+        }
+        break;
+      }
+
+      case 'session:pin': {
+        const { sessionId, isPinned } = (msg as any).payload;
+        const updated = sessionManager.updateSession(sessionId, { isPinned });
+        if (updated) {
+          this.broadcast({
+            type: 'session:updated',
+            payload: updated,
+          });
+        }
+        break;
+      }
+
+      case 'session:move_project': {
+        const { sessionId, projectId } = (msg as any).payload;
+        const updated = sessionManager.setSessionProject(sessionId, projectId);
+        if (updated) {
+          this.broadcast({
+            type: 'session:updated',
+            payload: updated,
+          });
+        }
+        break;
+      }
+
+      case 'project:create': {
+        const payload = (msg as any).payload || {};
+        const project = sessionManager.createProject(payload);
+        this.broadcast({
+          type: 'project:updated',
+          payload: project,
+        });
+        break;
+      }
+
+      case 'project:update': {
+        const { id, updates } = (msg as any).payload || {};
+        if (id) {
+          const project = sessionManager.updateProject(id, updates);
+          if (project) {
+            this.broadcast({
+              type: 'project:updated',
+              payload: project,
+            });
+          }
+        }
+        break;
+      }
+
+      case 'project:delete': {
+        const { id } = (msg as any).payload || {};
+        if (id) {
+          const deleted = sessionManager.deleteProject(id);
+          if (deleted) {
+            this.broadcast({
+              type: 'project:deleted',
+              payload: { projectId: id },
+            });
+          }
         }
         break;
       }
