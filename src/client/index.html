@@ -348,6 +348,10 @@
             <div class="input-box-wrapper">
               <textarea id="prompt-input" placeholder="Завдання для агента... (Enter — надіслати)" rows="2"></textarea>
               <div class="input-actions-bar">
+                <span id="voice-mode-status" class="voice-mode-status" style="display:none;" aria-live="polite"></span>
+                <button type="button" id="voice-mode-btn" class="voice-mode-btn" title="Голосовий режим (hands-free)" aria-pressed="false">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                </button>
                 <span class="shortcut-hint" id="send-shortcut-hint">⌘ + Enter / Enter</span>
                 <button id="send-btn" class="send-btn" title="Надіслати або додати в чергу">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
@@ -757,6 +761,7 @@ npm run worker</pre>
     </div>
   </div>
 
+  <script src="/voiceMode.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

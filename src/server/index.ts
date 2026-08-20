@@ -15,6 +15,7 @@ const app = fastify({
     level: config.isProduction ? 'info' : 'debug',
   },
   disableRequestLogging: config.isProduction,
+  bodyLimit: 12 * 1024 * 1024,
 });
 
 async function main() {

@@ -66,8 +66,14 @@ HUB_URL=https://your-railway-app.up.railway.app
 WORKER_TOKEN=agentremote-worker-secret-key-2026
 DEVICE_NAME=My-Work-PC
 DEFAULT_WORKSPACE=C:\Users\YourUser\Projects
+
+# Голосовий режим (опційно, лише на hub)
+GEMINI_API_KEY=your_gemini_key
+ELEVENLABS_API_KEY=your_elevenlabs_key
+ELEVENLABS_VOICE_ID=EXAVITQu4vr4xnSDxMaL
 ```
 
+Натисніть іконку мікрофона біля поля вводу, щоб увімкнути hands-free voice mode (авто-відправка після паузи в мові + озвучка відповіді).
 3. Запустіть воркер:
 ```bash
 npm run worker

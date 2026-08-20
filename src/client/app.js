@@ -47,7 +47,14 @@ class AgentRemoteApp {
     this.initCustomSelects();
     this.initTheme();
     this.initFilesResizer();
+    this.initVoiceMode();
     this.checkAuth();
+  }
+
+  initVoiceMode() {
+    if (typeof window.VoiceModeController !== 'function') return;
+    this.voiceMode = new window.VoiceModeController(this);
+    this.voiceMode.init();
   }
 
   initElements() {
@@ -611,6 +618,7 @@ class AgentRemoteApp {
         this.showApp();
         this.connectWebSocket();
         await this.loadInitialData();
+        this.voiceMode?.refreshAvailability?.();
       } else {
         this.showLogin();
       }
@@ -640,6 +648,7 @@ class AgentRemoteApp {
         this.showApp();
         this.connectWebSocket();
         await this.loadInitialData();
+        this.voiceMode?.refreshAvailability?.();
       } else {
         this.loginError.innerText = data.error || 'Невірний логін або пароль';
       }
@@ -652,6 +661,7 @@ class AgentRemoteApp {
   }
 
   logout() {
+    this.voiceMode?.setEnabled?.(false);
     this.token = '';
     localStorage.removeItem('agentremote_token');
     sessionStorage.removeItem('agentremote_token');
@@ -1858,6 +1868,10 @@ class AgentRemoteApp {
     }
 
     this.renderQueue();
+
+    if (this.voiceMode?.enabled) {
+      this.voiceMode.onAgentComplete(session, options);
+    }
   }
 
   handleAgentError(sessionId, error) {
@@ -1876,6 +1890,9 @@ class AgentRemoteApp {
     this.renderChatMessageElement('assistant', `⚠️ **Помилка агента:** ${error}`);
     this.showToast(`❌ Помилка: ${error}`, 5000);
     this.scrollToBottom();
+    if (this.voiceMode?.enabled) {
+      this.voiceMode.onAgentComplete(this.sessions.find((s) => s.id === sessionId), { aborted: true });
+    }
   }
 
   sendPrompt() {
@@ -1931,6 +1948,7 @@ class AgentRemoteApp {
     this.sendBtn.disabled = false;
     if (this.sendShortcutHint) this.sendShortcutHint.innerText = 'Enter — додати в чергу';
     this.sendBtn.title = 'Додати повідомлення у чергу';
+    this.voiceMode?.onAgentStart?.();
 
     // Immediately render assistant streaming placeholder with animated wave/spinner
     let assistantMsgEl = this.chatMessages.querySelector('.message.assistant.streaming');

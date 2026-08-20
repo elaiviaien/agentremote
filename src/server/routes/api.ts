@@ -6,8 +6,10 @@ import { deviceManager } from '../deviceManager';
 import { sessionManager } from '../sessionManager';
 import { config } from '../config';
 import { ChatSanitizer } from '../../shared/chatSanitizer';
+import { voiceRoutes } from './voice';
 
 export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
+  await fastify.register(voiceRoutes);
   // Public Login
   fastify.post('/auth/login', async (req, reply) => {
     const { username, password } = req.body as any;

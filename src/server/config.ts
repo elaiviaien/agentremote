@@ -12,4 +12,8 @@ export const config = {
   masterWorkerKey: process.env.MASTER_WORKER_KEY || 'agentremote-worker-secret-key-2026',
   dataDir: path.resolve(process.cwd(), 'data'),
   isProduction: process.env.NODE_ENV === 'production',
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
+  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY || '',
+  // Multilingual voice; override via ELEVENLABS_VOICE_ID
+  elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL',
 };
