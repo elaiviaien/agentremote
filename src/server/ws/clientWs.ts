@@ -133,7 +133,10 @@ export class ClientWsManager {
         });
 
         // Dispatch agent:start to worker
-        const targetDeviceId = deviceId || session.deviceId || deviceManager.getActiveDeviceId();
+        const targetDeviceId =
+          (deviceId && deviceManager.getDevice(deviceId)?.status === 'online' ? deviceId : undefined) ||
+          (session.deviceId && deviceManager.getDevice(session.deviceId)?.status === 'online' ? session.deviceId : undefined) ||
+          deviceManager.getActiveDeviceId();
         if (!targetDeviceId) {
           this.send(socket, { type: 'error', message: 'No target device available' });
           return;

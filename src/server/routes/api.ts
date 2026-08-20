@@ -205,7 +205,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
       description: sessionDesc,
       engine: effectiveEngine,
       workspacePath: workspacePath || '',
-      model: model || (effectiveEngine === 'antigravity' ? 'gemini-3.7-flash' : 'claude-4.5-sonnet'),
+      model: model || (effectiveEngine === 'antigravity' ? 'gemini-3.7-flash' : 'auto'),
       mode: mode || 'yolo',
       cursorChatId: effectiveEngine === 'cursor' ? extractedChatId : undefined,
       sourceSessionId: extractedChatId || undefined,

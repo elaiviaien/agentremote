@@ -18,7 +18,7 @@ class DeviceManager {
     setInterval(() => {
       const now = Date.now();
       for (const [id, worker] of this.activeWorkers.entries()) {
-        if (now - worker.lastPing > 45000) {
+        if (now - worker.lastPing > 90000) {
           console.log(`[DeviceManager] Worker ${id} timed out. Disconnecting.`);
           worker.socket.terminate();
           this.activeWorkers.delete(id);
@@ -112,13 +112,33 @@ class DeviceManager {
   }
 
   public sendToWorker(deviceId: string, message: HubToWorkerMessage): boolean {
-    const worker = this.activeWorkers.get(deviceId);
-    if (!worker || worker.socket.readyState !== WebSocket.OPEN) {
-      console.warn(`[DeviceManager] Cannot send to worker ${deviceId}: not connected`);
-      return false;
+    const trySend = (id: string | undefined | null): boolean => {
+      if (!id) return false;
+      const worker = this.activeWorkers.get(id);
+      if (!worker) return false;
+      const sock: any = worker.socket;
+      const target = typeof sock?.send === 'function' ? sock : sock?.socket;
+      const state = target?.readyState;
+      const open = state === WebSocket.OPEN || state === 1;
+      if (!target || !open) {
+        console.warn(`[DeviceManager] Worker ${id} socket not open (readyState=${state})`);
+        return false;
+      }
+      target.send(JSON.stringify(message));
+      return true;
+    };
+
+    if (trySend(deviceId)) return true;
+
+    for (const id of this.activeWorkers.keys()) {
+      if (id !== deviceId && trySend(id)) {
+        console.warn(`[DeviceManager] Worker ${deviceId} unreachable; sent via ${id}`);
+        return true;
+      }
     }
-    worker.socket.send(JSON.stringify(message));
-    return true;
+
+    console.warn(`[DeviceManager] Cannot send to worker ${deviceId}: not connected`);
+    return false;
   }
 
   public broadcastToWorkers(message: HubToWorkerMessage) {

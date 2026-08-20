@@ -132,6 +132,7 @@ export class AgentRunner {
       args.push('--continue');
     }
 
+    let resolvedModelLabel = 'auto (CLI default, no --model)';
     if (model && model !== 'auto' && model !== 'default') {
       let finalModel = model;
       if (thinkingEffort && (model.includes('gemini') || model.includes('claude') || model.includes('thinking'))) {
@@ -140,7 +141,9 @@ export class AgentRunner {
         }
       }
       args.push('--model', finalModel);
+      resolvedModelLabel = finalModel;
     }
+    console.log(`[AgentRunner] Model: ${resolvedModelLabel}`);
 
     if (mode === 'plan') {
       args.push('--mode', 'plan');
@@ -178,6 +181,7 @@ export class AgentRunner {
 
     const processEntry = { proc, isAborted: false };
     this.activeProcesses.set(sessionId, processEntry);
+    console.log(`[AgentRunner] Child PID ${proc.pid} for session ${sessionId}`);
 
     proc.stdout?.on('data', (data: Buffer) => {
       if (processEntry.isAborted) return;
@@ -263,7 +267,7 @@ export class AgentRunner {
                 typeof resContent === 'string' ? resContent : JSON.stringify(resContent, null, 2),
                 resObj.error ? 'failed' : 'completed'
               );
-              return;
+              continue;
             }
 
             const rawInput = targetObj.input || targetObj.arguments || targetObj.parameters || targetObj.args || parsed.input || parsed.arguments || {};
@@ -297,17 +301,18 @@ export class AgentRunner {
             };
             callbacks.onToolCall(toolCall);
           }
-          // 4. Tool result & Final result
-          else if (parsed.type === 'tool_result' || parsed.type === 'call_result' || parsed.result || parsed.type === 'tool_output' || parsed.type === 'step_result') {
-            if (parsed.type === 'result' && parsed.subtype === 'success') {
-              if (parsed.result) {
-                accumulatedText = parsed.result;
-                callbacks.onChunk(accumulatedText, '');
-              }
-              // Immediately trigger completion since the agent is officially done!
-              callbacks.onComplete(accumulatedText, detectedChatId, true);
-              this.abort(sessionId); // Clean up the process to avoid dangling handles
-            } else {
+          // 4. Official end-of-turn from cursor-agent
+          else if (parsed.type === 'result') {
+            if (parsed.result && typeof parsed.result === 'string') {
+              accumulatedText = parsed.result;
+              callbacks.onChunk(accumulatedText, '');
+            }
+            callbacks.onComplete(accumulatedText, detectedChatId, parsed.subtype !== 'error', parsed.is_error ? String(parsed.result || 'error') : undefined);
+            this.abort(sessionId);
+            continue;
+          }
+          // 5. Tool result
+          else if (parsed.type === 'tool_result' || parsed.type === 'call_result' || parsed.type === 'tool_output' || parsed.type === 'step_result') {
               const resContent = parsed.result !== undefined ? parsed.result : parsed.output !== undefined ? parsed.output : parsed.content;
               const resId = parsed.id || parsed.tool_call_id || parsed.call_id || (parsed.tool_result && parsed.tool_result.id) || '';
               callbacks.onToolResult(
@@ -315,7 +320,6 @@ export class AgentRunner {
                 typeof resContent === 'string' ? resContent : JSON.stringify(resContent, null, 2),
                 parsed.is_error ? 'failed' : 'completed'
               );
-            }
           }
         } catch {
           // Plain text fallback
@@ -371,6 +375,16 @@ export class AgentRunner {
       callbacks.onError(err.message);
       callbacks.onComplete(err.message, cursorChatId, false, err.message);
     });
+  }
+
+  public abortAll() {
+    for (const sessionId of [...this.activeProcesses.keys()]) {
+      this.abort(sessionId);
+    }
+  }
+
+  public getActiveSessionIds(): string[] {
+    return [...this.activeProcesses.keys()];
   }
 
   public abort(sessionId: string) {

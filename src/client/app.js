@@ -23,7 +23,7 @@ class AgentRemoteApp {
     this.isStreaming = false;
     this.lastAgentActivityAt = 0;
     this.agentStallTimer = null;
-    this.AGENT_STALL_TIMEOUT_MS = 120000;
+    this.AGENT_STALL_TIMEOUT_MS = 45000;
     this.currentToolCallElements = new Map();
     this.loadedTranscripts = [];
     this.thinkingMode = 'auto'; // 'auto' | 'on' | 'off'
@@ -856,6 +856,10 @@ class AgentRemoteApp {
         const dev = this.devices.find((d) => d.id === deviceId);
         if (dev) {
           dev.status = status;
+          if (status !== 'online' && this.activeDeviceId === deviceId) {
+            const online = this.devices.find((d) => d.status === 'online');
+            if (online) this.activeDeviceId = online.id;
+          }
           this.renderDevices();
         }
         break;
@@ -924,7 +928,9 @@ class AgentRemoteApp {
       if (res.ok) {
         const data = await res.json();
         this.devices = data.devices || [];
-        this.activeDeviceId = data.activeDeviceId || (this.devices[0] ? this.devices[0].id : null);
+        const online = this.devices.find((d) => d.status === 'online');
+        const selected = this.devices.find((d) => d.id === data.activeDeviceId && d.status === 'online');
+        this.activeDeviceId = (selected && selected.id) || (online && online.id) || data.activeDeviceId || (this.devices[0] ? this.devices[0].id : null);
         this.renderDevices();
       }
     } catch (err) {
@@ -1046,7 +1052,9 @@ class AgentRemoteApp {
   }
 
   getActiveDevice() {
-    return this.devices.find((d) => d.id === this.activeDeviceId) || this.devices[0];
+    const selected = this.devices.find((d) => d.id === this.activeDeviceId);
+    if (selected && selected.status === 'online') return selected;
+    return this.devices.find((d) => d.status === 'online') || selected || this.devices[0];
   }
 
   selectDevice(deviceId) {
@@ -1752,7 +1760,7 @@ class AgentRemoteApp {
   }
 
   startAgentStallWatchdog() {
-    this.markAgentActivity();
+    if (!this.agentStallTimer) this.markAgentActivity();
     if (this.agentStallTimer) return;
     this.agentStallTimer = setInterval(() => {
       if (!this.isStreaming) {
@@ -1762,9 +1770,10 @@ class AgentRemoteApp {
       const idleFor = Date.now() - (this.lastAgentActivityAt || 0);
       if (idleFor < this.AGENT_STALL_TIMEOUT_MS) return;
 
-      // No chunk, tool event or completion for too long: the worker or hub most
-      // likely died mid-run, so unlock the composer instead of freezing the UI.
       const sessionId = this.activeSessionId;
+      if (this.ws && this.ws.readyState === WebSocket.OPEN && sessionId) {
+        this.ws.send(JSON.stringify({ type: 'agent:abort', payload: { sessionId } }));
+      }
       const session = this.sessions.find((s) => s.id === sessionId);
       if (session) {
         session.isStreaming = false;
@@ -1965,7 +1974,7 @@ class AgentRemoteApp {
           type: 'agent:prompt',
           payload: {
             sessionId: this.activeSessionId,
-            deviceId: this.activeDeviceId,
+            deviceId: (this.getActiveDevice() && this.getActiveDevice().id) || this.activeDeviceId,
             prompt: text,
             model: effectiveModel,
             mode: (session && session.mode) || this.modeSelect.value || 'yolo',
@@ -2822,6 +2831,11 @@ class AgentRemoteApp {
     this.navTabs.forEach((t) => t.classList.toggle('active', t.dataset.tab === tabName));
     this.tabContents.forEach((c) => c.classList.toggle('active', c.id === `tab-${tabName}`));
 
+    if (this.appSidebar && this.appSidebar.classList.contains('open')) {
+      this.appSidebar.classList.remove('open');
+      if (this.sidebarBackdrop) this.sidebarBackdrop.classList.remove('show');
+    }
+
     if (tabName === 'files') {
       this.loadFilesTree();
     }
@@ -2831,19 +2845,6 @@ class AgentRemoteApp {
     const toast = document.createElement('div');
     toast.className = 'toast-notification';
     toast.innerText = msg;
-    toast.style.position = 'fixed';
-    toast.style.bottom = '24px';
-    toast.style.right = '24px';
-    toast.style.background = '#0f172a';
-    toast.style.color = '#ffffff';
-    toast.style.padding = '10px 18px';
-    toast.style.borderRadius = '9px';
-    toast.style.fontSize = '12.5px';
-    toast.style.fontWeight = '600';
-    toast.style.zIndex = '99999';
-    toast.style.boxShadow = '0 4px 16px rgba(0,0,0,0.3)';
-    toast.style.border = '1px solid rgba(255,255,255,0.1)';
-
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3200);
   }
@@ -3042,10 +3043,16 @@ class CustomSelect {
 
     const rect = this.wrapper.getBoundingClientRect();
     const spaceBelow = window.innerHeight - rect.bottom;
-    if (spaceBelow < 280 && rect.top > 280) {
+    if (spaceBelow < 240 && rect.top > 160) {
       this.wrapper.classList.add('open-upwards');
     } else {
       this.wrapper.classList.remove('open-upwards');
+    }
+
+    if (rect.left + 220 > window.innerWidth && rect.right > 200) {
+      this.wrapper.classList.add('align-right');
+    } else {
+      this.wrapper.classList.remove('align-right');
     }
 
     this.wrapper.classList.add('open');

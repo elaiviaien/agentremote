@@ -32,7 +32,8 @@ module.exports = {
       exec_mode: 'fork',
       autorestart: true,
       watch: false,
-      max_memory_restart: '250M',
+      max_memory_restart: '400M',
+      kill_timeout: 8000,
       min_uptime: '5s',
       max_restarts: 50,
       restart_delay: 2000,
@@ -43,6 +44,8 @@ module.exports = {
       merge_logs: true,
       env: {
         NODE_ENV: 'production',
+        HUB_URL: 'http://127.0.0.1:3000',
+        REMOTE_HUB_URL: 'https://agentremote-production.up.railway.app',
       },
     },
   ],
