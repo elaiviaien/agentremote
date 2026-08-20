@@ -11,6 +11,11 @@ export interface StreamCallbacks {
   onError: (error: string) => void;
 }
 
+function quoteForShell(value: string): string {
+  if (!/[\s"^&|<>()]/.test(value)) return value;
+  return '"' + value.split('"').join('""') + '"';
+}
+
 export class AgentRunner {
   private activeProcesses = new Map<string, { proc: ChildProcess; isAborted: boolean }>();
 
@@ -92,26 +97,12 @@ export class AgentRunner {
     });
   }
 
-  public run(options: AgentRunOptions, callbacks: StreamCallbacks) {
-    const { sessionId, prompt, model, mode, workspacePath, cursorChatId, continueLastSession, thinkingEffort } = options;
-
-    if (this.activeProcesses.has(sessionId)) {
-      this.abort(sessionId);
-    }
-
-    const useDirectNode = Boolean(this.tools.nodeExe && this.tools.agentIndexJs);
-    const binary = useDirectNode ? this.tools.nodeExe! : this.tools.cursorAgentCmd;
-
-    if (!binary) {
-      callbacks.onError('Cursor Agent CLI not found on this machine.');
-      callbacks.onComplete('⚠️ Cursor Agent CLI is not detected on this machine.', undefined, false);
-      return;
-    }
-
-    const args: string[] = [];
-    if (useDirectNode) {
-      args.push(this.tools.agentIndexJs!);
-    }
+  /**
+   * Cursor encodes reasoning effort in the model id itself (`-high`, `-xhigh`),
+   * so never append `[effort=...]` here: cursor-agent rejects the whole id.
+   */
+  private buildCursorArgs(args: string[], options: AgentRunOptions) {
+    const { prompt, model, mode, workspacePath, cursorChatId, continueLastSession } = options;
 
     args.push(
       '--print',
@@ -132,18 +123,12 @@ export class AgentRunner {
       args.push('--continue');
     }
 
-    let resolvedModelLabel = 'auto (CLI default, no --model)';
     if (model && model !== 'auto' && model !== 'default') {
-      let finalModel = model;
-      if (thinkingEffort && (model.includes('gemini') || model.includes('claude') || model.includes('thinking'))) {
-        if (!finalModel.includes('[')) {
-          finalModel = `${finalModel}[effort=${thinkingEffort}]`;
-        }
-      }
-      args.push('--model', finalModel);
-      resolvedModelLabel = finalModel;
+      args.push('--model', model);
+      console.log(`[AgentRunner] Cursor model: ${model}`);
+    } else {
+      console.log('[AgentRunner] Cursor model: auto (CLI default, no --model)');
     }
-    console.log(`[AgentRunner] Model: ${resolvedModelLabel}`);
 
     if (mode === 'plan') {
       args.push('--mode', 'plan');
@@ -160,9 +145,77 @@ export class AgentRunner {
     }
 
     args.push(prompt);
+  }
+
+  /**
+   * Antigravity runs on its own CLI and its own Google account quota — it never
+   * goes through cursor-agent. Effort is an Antigravity-only knob.
+   */
+  private buildAntigravityArgs(args: string[], options: AgentRunOptions) {
+    const { prompt, model, mode, cursorChatId, thinkingEffort } = options;
+
+    args.push('--output-format', 'stream-json', '--skip-trust');
+
+    if (model && model !== 'auto' && model !== 'default') {
+      const finalModel =
+        thinkingEffort && thinkingEffort !== 'off' && !model.includes('[')
+          ? `${model}[effort=${thinkingEffort}]`
+          : model;
+      args.push('--model', finalModel);
+      console.log(`[AgentRunner] Antigravity model: ${finalModel}`);
+    }
+
+    if (mode === 'plan') {
+      args.push('--approval-mode', 'plan');
+    } else if (mode === 'ask') {
+      args.push('--approval-mode', 'default');
+    } else {
+      args.push('--approval-mode', 'yolo');
+    }
+
+    if (cursorChatId) {
+      args.push('--resume', cursorChatId);
+    }
+
+    args.push('--prompt', prompt);
+  }
+
+  public run(options: AgentRunOptions, callbacks: StreamCallbacks) {
+    const { sessionId, engine, prompt, model, mode, workspacePath, cursorChatId, continueLastSession, thinkingEffort } = options;
+
+    if (this.activeProcesses.has(sessionId)) {
+      this.abort(sessionId);
+    }
+
+    const isAntigravity = engine === 'antigravity';
+
+    const useDirectNode = !isAntigravity && Boolean(this.tools.nodeExe && this.tools.agentIndexJs);
+    const binary = isAntigravity
+      ? this.tools.antigravityCliCmd
+      : (useDirectNode ? this.tools.nodeExe! : this.tools.cursorAgentCmd);
+
+    if (!binary) {
+      const missing = isAntigravity
+        ? 'Antigravity CLI не знайдено на цій машині. Встанови Antigravity CLI або вкажи шлях у змінній ANTIGRAVITY_CLI_CMD.'
+        : 'Cursor Agent CLI не знайдено на цій машині.';
+      callbacks.onError(missing);
+      callbacks.onComplete('⚠️ ' + missing, undefined, false, missing);
+      return;
+    }
+
+    const args: string[] = [];
+    if (useDirectNode) {
+      args.push(this.tools.agentIndexJs!);
+    }
+
+    if (isAntigravity) {
+      this.buildAntigravityArgs(args, options);
+    } else {
+      this.buildCursorArgs(args, options);
+    }
 
     const cwd = workspacePath || process.cwd();
-    console.log(`[AgentRunner] Spawning (direct: ${useDirectNode}): ${binary} ${args.join(' ')} (cwd: ${cwd})`);
+    console.log(`[AgentRunner] Spawning ${isAntigravity ? 'antigravity' : 'cursor'} agent: ${binary} ${args.join(' ')} (cwd: ${cwd})`);
 
     let fullOutput = '';
     let accumulatedText = '';
@@ -170,9 +223,14 @@ export class AgentRunner {
     let buffer = '';
     let detectedChatId: string | undefined = cursorChatId;
 
-    const proc = spawn(binary, args, {
+    // Node refuses to spawn .cmd/.bat wrappers without a shell on Windows (EINVAL),
+    // and under a shell we have to quote the arguments ourselves.
+    const needsShell = process.platform === 'win32' && /[.](cmd|bat)$/i.test(binary);
+    const spawnArgs = needsShell ? args.map((a) => quoteForShell(a)) : args;
+
+    const proc = spawn(needsShell ? quoteForShell(binary) : binary, spawnArgs, {
       cwd,
-      shell: false,
+      shell: needsShell,
       env: {
         ...process.env,
         NO_OPEN_BROWSER: '1',
@@ -303,11 +361,21 @@ export class AgentRunner {
           }
           // 4. Official end-of-turn from cursor-agent
           else if (parsed.type === 'result') {
-            if (parsed.result && typeof parsed.result === 'string') {
+            const isErr = Boolean(parsed.is_error) || parsed.subtype === 'error';
+            if (!isErr && parsed.result && typeof parsed.result === 'string') {
               accumulatedText = parsed.result;
               callbacks.onChunk(accumulatedText, '');
             }
-            callbacks.onComplete(accumulatedText, detectedChatId, parsed.subtype !== 'error', parsed.is_error ? String(parsed.result || 'error') : undefined);
+            if (isErr) {
+              const errorMsg = this.extractHumanError(
+                typeof parsed.result === 'string' ? parsed.result : fullOutput,
+                accumulatedText,
+                1
+              );
+              callbacks.onComplete(errorMsg, detectedChatId, false, errorMsg);
+            } else {
+              callbacks.onComplete(accumulatedText, detectedChatId, true);
+            }
             this.abort(sessionId);
             continue;
           }
@@ -322,9 +390,11 @@ export class AgentRunner {
               );
           }
         } catch {
-          // Plain text fallback
-          accumulatedText += trimmed + '\n';
-          callbacks.onChunk(accumulatedText, trimmed + '\n');
+          // Ignore raw JSONL / noise — never dump stream-json into the chat
+          if (!trimmed.startsWith('{')) {
+            accumulatedText += trimmed + '\n';
+            callbacks.onChunk(accumulatedText, trimmed + '\n');
+          }
         }
       }
     });
@@ -334,7 +404,7 @@ export class AgentRunner {
       const errText = data.toString();
       fullOutput += errText;
       console.error(`[AgentRunner] stderr: ${errText}`);
-      callbacks.onChunk(accumulatedText + '\n' + errText, errText);
+      // Do not stream raw stderr/JSON into the chat UI
     });
 
     proc.on('close', (code) => {
@@ -347,23 +417,18 @@ export class AgentRunner {
         return;
       }
 
-      // Flush remainder of buffer
-      if (buffer.trim()) {
+      // Flush remainder of buffer only if it looks like assistant text (not JSONL)
+      if (buffer.trim() && !buffer.trim().startsWith('{')) {
         accumulatedText += buffer;
         callbacks.onChunk(accumulatedText, buffer);
       }
 
       if (code === 0) {
-        callbacks.onComplete(accumulatedText || fullOutput, detectedChatId, true);
+        const content = this.pickHumanContent(accumulatedText, fullOutput);
+        callbacks.onComplete(content, detectedChatId, true);
       } else {
-        let errorMsg = `Process exited with code ${code}`;
-        if (fullOutput.includes('Authentication required')) {
-          errorMsg = '⚠️ Cursor CLI потребує авторизації. Будь ласка, виконайте `cursor-agent login` у терміналі або встановіть змінну `CURSOR_API_KEY`.';
-          if (!accumulatedText.includes(errorMsg)) {
-            accumulatedText = errorMsg + '\n\n' + accumulatedText;
-          }
-        }
-        callbacks.onComplete(accumulatedText || fullOutput || errorMsg, detectedChatId, false, errorMsg);
+        const errorMsg = this.extractHumanError(fullOutput, accumulatedText, code);
+        callbacks.onComplete(errorMsg, detectedChatId, false, errorMsg);
       }
     });
 
@@ -403,5 +468,121 @@ export class AgentRunner {
       }
       this.activeProcesses.delete(sessionId);
     }
+  }
+
+  /** Prefer assistant text; never fall back to raw stream-json dumps. */
+  private pickHumanContent(accumulatedText: string, fullOutput: string): string {
+    const trimmed = (accumulatedText || '').trim();
+    if (trimmed && !this.looksLikeStreamJson(trimmed)) {
+      return trimmed;
+    }
+    const fromOutput = this.extractPlainTextFromOutput(fullOutput);
+    return fromOutput || trimmed || '';
+  }
+
+  private looksLikeStreamJson(text: string): boolean {
+    const t = text.trim();
+    return t.startsWith('{') && /"type"\s*:/.test(t);
+  }
+
+  private extractPlainTextFromOutput(output: string): string {
+    if (!output) return '';
+    const lines = output.split(/\r?\n/);
+    const texts: string[] = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed?.type === 'assistant' && typeof parsed?.message?.content === 'string') {
+            texts.push(parsed.message.content);
+          } else if (parsed?.type === 'result' && typeof parsed?.result === 'string') {
+            texts.push(parsed.result);
+          } else if (typeof parsed?.error === 'string') {
+            texts.push(parsed.error);
+          } else if (typeof parsed?.message === 'string' && parsed.type !== 'system' && parsed.type !== 'user') {
+            texts.push(parsed.message);
+          }
+        } catch {
+          // ignore non-JSON
+        }
+      } else if (!trimmed.startsWith('{')) {
+        texts.push(trimmed);
+      }
+    }
+    return texts.join('\n').trim();
+  }
+
+  private extractHumanError(fullOutput: string, accumulatedText: string, code: number | null): string {
+    const blob = `${fullOutput}\n${accumulatedText}`;
+
+    if (/Authentication required|not logged in|cursor-agent login/i.test(blob)) {
+      return '⚠️ Cursor CLI потребує авторизації. Виконайте `cursor-agent login` у терміналі або встановіть `CURSOR_API_KEY`.';
+    }
+
+    const actionRequired = blob.match(/ActionRequiredError:\s*([^\n{]+)/i);
+    if (actionRequired?.[1]) {
+      return `⚠️ ${actionRequired[1].trim()}`;
+    }
+
+    if (/usage limit|spend limit|rate limit|quota/i.test(blob)) {
+      const m = blob.match(/(You've hit your usage limit[^.]*\.[^.]*\.)/i)
+        || blob.match(/(usage limit[^.]*\.)/i);
+      if (m?.[1]) return `⚠️ ${m[1].trim()}`;
+      return '⚠️ Вичерпано ліміт використання Cursor. Змініть модель або збільште Spend Limit.';
+    }
+
+    // Prefer result/error fields from stream-json
+    const lines = blob.split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('{')) continue;
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed?.type === 'result' && parsed?.is_error) {
+          const msg = parsed.result || parsed.error || parsed.message;
+          if (typeof msg === 'string' && msg.trim() && !this.looksLikeStreamJson(msg)) {
+            return `⚠️ ${msg.trim()}`;
+          }
+        }
+        if (typeof parsed?.error === 'string' && parsed.error.trim()) {
+          return `⚠️ ${parsed.error.trim()}`;
+        }
+      } catch {
+        // continue
+      }
+    }
+
+    // CLIs print a lot of noise (startup warnings, extension loader chatter);
+    // an explicit error line is always a better answer than the first line.
+    const noise = /^(warning:|\[extensionmanager\]|tools\.\d+:|\s*at\s)/i;
+    const meaningful = lines
+      .map((l) => l.trim())
+      .filter((l) => l && !noise.test(l) && !l.startsWith('{'));
+
+    const errorLine = meaningful.find((l) =>
+      /(error|not logged in|ineligible|unauthorized|forbidden|quota|limit|failed)/i.test(l)
+    );
+    if (errorLine) {
+      return `⚠️ ${errorLine.slice(0, 500)}`;
+    }
+
+    const plain = this.extractPlainTextFromOutput(fullOutput);
+    if (plain && !this.looksLikeStreamJson(plain)) {
+      const cleaned = plain
+        .split(/\r?\n/)
+        .filter((l) => l.trim() && !noise.test(l.trim()))
+        .join('\n')
+        .trim();
+      if (cleaned) return `⚠️ ${cleaned.slice(0, 800)}`;
+    }
+
+    const acc = (accumulatedText || '').trim();
+    if (acc && !this.looksLikeStreamJson(acc)) {
+      return `⚠️ ${acc.slice(0, 800)}`;
+    }
+
+    return `⚠️ Агент завершився з помилкою (код ${code ?? '?'}). Перевірте логи воркера або ліміти Cursor.`;
   }
 }

@@ -47,6 +47,8 @@ export interface DeviceInfo {
   };
   limitsInfo?: AgentLimitsInfo;
   antigravityAvailable?: boolean;
+  antigravityCliPath?: string;
+  availableModels?: AvailableModel[];
   lastSeen: number;
   cpuUsage?: number;
   memoryUsage?: {
@@ -101,9 +103,17 @@ export interface ChatMessage {
   isStreaming?: boolean;
 }
 
+export interface AvailableModel {
+  id: string;
+  label: string;
+  engine: 'cursor' | 'antigravity';
+  supportsEffort?: boolean;
+}
+
 export interface AgentRunOptions {
   sessionId: string;
   deviceId: string;
+  engine?: 'cursor' | 'antigravity';
   prompt: string;
   model?: string;
   mode?: 'agent' | 'plan' | 'ask' | 'yolo' | 'auto' | 'auto-review';
@@ -158,9 +168,9 @@ export type HubToWorkerMessage =
   | { type: 'agent:trigger_auth'; payload: { deviceId: string } }
   | { type: 'terminal:run'; payload: { commandId: string; command: string; cwd?: string } }
   | { type: 'terminal:kill'; payload: { commandId: string } }
-  | { type: 'fs:get_tree'; payload: { reqId: string; path?: string; maxDepth?: number } }
-  | { type: 'fs:read_file'; payload: { reqId: string; path: string } }
-  | { type: 'fs:write_file'; payload: { reqId: string; path: string; content: string } }
+  | { type: 'fs:get_tree'; payload: { reqId: string; path?: string; maxDepth?: number; workspacePath?: string } }
+  | { type: 'fs:read_file'; payload: { reqId: string; path: string; workspacePath?: string } }
+  | { type: 'fs:write_file'; payload: { reqId: string; path: string; content: string; workspacePath?: string } }
   | { type: 'transcripts:list_local'; payload: { reqId: string } }
   | { type: 'transcripts:read_local'; payload: { reqId: string; filePath: string } }
   | { type: 'sessions:scan'; payload: { deviceId: string } }

@@ -230,10 +230,17 @@ class AgentRemoteApp {
       });
     }
 
+    const closeSidebarBtn = document.getElementById('close-sidebar-btn');
+    if (closeSidebarBtn) {
+      closeSidebarBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeMobileSidebar();
+      });
+    }
+
     if (this.sidebarBackdrop) {
       this.sidebarBackdrop.addEventListener('click', () => {
-        this.appSidebar.classList.remove('open');
-        this.sidebarBackdrop.classList.remove('show');
+        this.closeMobileSidebar();
       });
     }
 
@@ -343,6 +350,7 @@ class AgentRemoteApp {
             this.chatMeta.innerText = `ID: ${session.id.slice(0, 8)}... | ${session.model || 'auto'} | ${(session.mode || 'yolo').toUpperCase()}`;
           }
           this.renderSessions();
+          this.syncEffortVisibility(session.engine === 'antigravity' ? 'antigravity' : 'cursor', newModel);
           fetch(`/api/sessions/${session.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}` },
@@ -819,7 +827,7 @@ class AgentRemoteApp {
       }
 
       case 'agent:complete': {
-        const { sessionId, cursorChatId, aborted } = msg.payload;
+        const { sessionId, cursorChatId, aborted, success, error } = msg.payload;
         const s = this.sessions.find((x) => x.id === sessionId);
         const alreadyIdle = s && !s.isStreaming && s.status !== 'running';
         if (s) {
@@ -829,7 +837,12 @@ class AgentRemoteApp {
           this.renderSessions();
         }
         if (sessionId === this.activeSessionId) {
-          this.handleAgentComplete(sessionId, cursorChatId, { aborted, silent: Boolean(aborted && alreadyIdle) });
+          this.handleAgentComplete(sessionId, cursorChatId, {
+            aborted,
+            success: success !== false,
+            error,
+            silent: Boolean(aborted && alreadyIdle),
+          });
         }
         break;
       }
@@ -998,14 +1011,29 @@ class AgentRemoteApp {
       const isOnline = activeDev && activeDev.status === 'online';
       this.deviceStatusDot.className = `device-status-indicator ${isOnline ? 'online' : 'offline'}`;
 
+      const shortName = activeDev ? (activeDev.name || 'PC').slice(0, 14) : '—';
+      const isNarrow = window.innerWidth <= 480;
       const isCursorLoggedIn = Boolean(activeDev && activeDev.cursorAuthStatus && activeDev.cursorAuthStatus.loggedIn);
-      if (isCursorLoggedIn) {
+      if (isNarrow) {
+        this.activeDeviceIndicator.innerText = `${shortName}${isOnline ? '' : ' ○'}`;
+        this.activeDeviceIndicator.title = activeDev
+          ? `${activeDev.name} (${isOnline ? 'ONLINE' : 'OFFLINE'})`
+          : 'Не обрано';
+      } else if (isCursorLoggedIn) {
         this.loginCursorBtn.style.display = 'none';
         const emailLabel = activeDev.cursorAuthStatus.email ? ` • ${activeDev.cursorAuthStatus.email}` : ' • 🔑 Вхід виконано';
         this.activeDeviceIndicator.innerText = `Пристрій: ${activeDev.name} (${isOnline ? 'ONLINE' : 'OFFLINE'})${emailLabel}`;
       } else {
         this.loginCursorBtn.style.display = 'inline-flex';
         this.activeDeviceIndicator.innerText = `Пристрій: ${activeDev ? activeDev.name : 'Не обрано'} (${isOnline ? 'ONLINE' : 'OFFLINE'})`;
+      }
+
+      if (!isNarrow) {
+        // keep login button visibility from branches above
+      } else if (isCursorLoggedIn) {
+        this.loginCursorBtn.style.display = 'none';
+      } else {
+        this.loginCursorBtn.style.display = 'inline-flex';
       }
 
       if (activeDev && activeDev.defaultWorkspace && !this.workspaceInput.value) {
@@ -1043,22 +1071,29 @@ class AgentRemoteApp {
       .map(
         (dev) => `
       <div class="device-card">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <strong style="font-size:13.5px; color:var(--text-primary);">💻 ${dev.name}</strong>
-          <span class="device-status-indicator ${dev.status === 'online' ? 'online' : 'offline'}"></span>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <strong style="font-size:13.5px; color:var(--text-primary);">💻 ${this.escapeHtml(dev.name)}</strong>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="device-status-indicator ${dev.status === 'online' ? 'online' : 'offline'}"></span>
+            <button type="button" class="btn btn-secondary btn-sm device-delete-btn" data-device-id="${this.escapeHtml(dev.id)}" title="Видалити зі списку">Видалити</button>
+          </div>
         </div>
         <div style="font-size:12px; color:var(--text-secondary); line-height:1.65; margin-top:8px;">
-          <div><strong>ID:</strong> <code>${dev.id}</code></div>
-          <div><strong>OS:</strong> ${dev.os || 'Windows/Linux/macOS'}</div>
+          <div><strong>ID:</strong> <code>${this.escapeHtml(dev.id)}</code></div>
+          <div><strong>OS:</strong> ${this.escapeHtml(dev.os || 'Windows/Linux/macOS')}</div>
           <div><strong>Cursor CLI:</strong> ${dev.cursorCliPath ? '✓ Виявлено' : '✕ Не знайдено'}</div>
           <div><strong>Antigravity:</strong> ${dev.antigravityAvailable ? '✓ Доступно' : '✕ Не знайдено'}</div>
           ${dev.memoryUsage ? `<div><strong>RAM:</strong> ${dev.memoryUsage.used} MB / ${dev.memoryUsage.total} MB</div>` : ''}
-          <div><strong>Робоча папка:</strong> <code>${dev.defaultWorkspace || '-'}</code></div>
+          <div><strong>Робоча папка:</strong> <code>${this.escapeHtml(dev.defaultWorkspace || '-')}</code></div>
         </div>
       </div>
     `
       )
       .join('');
+
+    this.devicesFullList.querySelectorAll('.device-delete-btn').forEach((btn) => {
+      btn.addEventListener('click', () => this.deleteDevice(btn.dataset.deviceId));
+    });
   }
 
   getActiveDevice() {
@@ -1248,20 +1283,28 @@ class AgentRemoteApp {
     }
 
     if (session.engine === 'antigravity') {
-      if (!session.model || session.model === 'auto') session.model = 'gemini-3.7-flash';
+      if (!session.model || session.model === 'auto') session.model = this.defaultModelFor('antigravity');
       if (!session.thinkingEffort) session.thinkingEffort = 'high';
     }
 
-    if (session.model) {
-      if (this.modelSelect) this.modelSelect.value = session.model;
-      if (this.chatModelSelect) this.chatModelSelect.value = session.model;
-    }
+    const sessionEngine = session.engine === 'antigravity' ? 'antigravity' : 'cursor';
+    const activeModel = session.model && session.model !== 'auto' ? session.model : this.defaultModelFor(sessionEngine);
+
+    [this.modelSelect, this.chatModelSelect].forEach((sel) => {
+      if (!sel) return;
+      sel.innerHTML = this.buildModelOptionsHtml(sessionEngine, activeModel);
+      sel.value = activeModel;
+      this.refreshCustomSelect(sel);
+    });
+    session.model = activeModel;
+
     if (session.mode && this.modeSelect) {
       this.modeSelect.value = session.mode;
     }
     if (this.thinkingEffortSelect) {
-      this.thinkingEffortSelect.value = session.thinkingEffort || (session.engine === 'antigravity' ? 'high' : 'medium');
+      this.thinkingEffortSelect.value = session.thinkingEffort || (sessionEngine === 'antigravity' ? 'high' : 'medium');
     }
+    this.syncEffortVisibility(sessionEngine, activeModel);
 
     this.renderQueue();
 
@@ -1393,7 +1436,7 @@ class AgentRemoteApp {
 
     let parsedContent = '';
     if (isAssistant && window.marked && content) {
-      parsedContent = marked.parse(content);
+      parsedContent = this.renderMarkdownSafe(content);
     } else if (content) {
       parsedContent = this.escapeHtml(content).replace(/\n/g, '<br>');
     } else if (isStreaming && !thinkingContent && (!toolCalls || toolCalls.length === 0)) {
@@ -1666,7 +1709,7 @@ class AgentRemoteApp {
 
     if (bubble.rawMarkdown) {
       if (window.marked) {
-        bubble.innerHTML = marked.parse(bubble.rawMarkdown);
+        bubble.innerHTML = this.renderMarkdownSafe(bubble.rawMarkdown);
         bubble.querySelectorAll('pre code').forEach((b) => {
           if (window.hljs) hljs.highlightElement(b);
         });
@@ -1840,7 +1883,13 @@ class AgentRemoteApp {
       if (this.sendShortcutHint) this.sendShortcutHint.innerText = '⌘ + Enter / Enter';
       this.sendBtn.title = 'Надіслати';
       if (!options.silent) {
-        this.showToast(options.aborted ? '🛑 Запит до агента зупинено' : '✨ Агент завершив виконання завдання');
+        if (options.aborted) {
+          this.showToast('🛑 Запит до агента зупинено');
+        } else if (options.success === false) {
+          this.showToast(`⚠️ ${options.error || 'Агент завершився з помилкою'}`, 6000);
+        } else {
+          this.showToast('✨ Агент завершив виконання завдання');
+        }
       }
     }
 
@@ -1875,16 +1924,26 @@ class AgentRemoteApp {
       });
 
       const bubble = streamingMsg.querySelector('.message-bubble');
-      // If bubble is still showing thinking indicator and no text came, show fallback message
-      if (bubble && !bubble.rawMarkdown && bubble.querySelector('.agent-thinking-wrapper')) {
-        bubble.innerHTML = window.marked ? marked.parse('✅ Завдання успішно виконано агентом.') : '✅ Завдання успішно виконано агентом.';
+      if (bubble && options.success === false && options.error) {
+        bubble.rawMarkdown = String(options.error);
+        bubble.innerHTML = this.renderMarkdownSafe(String(options.error));
+      } else if (bubble && !bubble.rawMarkdown && bubble.querySelector('.agent-thinking-wrapper')) {
+        const fallback =
+          options.success === false
+            ? `⚠️ ${options.error || 'Агент завершився з помилкою'}`
+            : '✅ Завдання успішно виконано агентом.';
+        bubble.rawMarkdown = fallback;
+        bubble.innerHTML = this.renderMarkdownSafe(fallback);
       }
     }
 
     this.renderQueue();
 
     if (this.voiceMode?.enabled) {
-      this.voiceMode.onAgentComplete(session, options);
+      const lastBubble = this.chatMessages.querySelector('.message.assistant:last-of-type .message-bubble');
+      const spokenText = (lastBubble && (lastBubble.rawMarkdown || lastBubble.innerText)) || options.error || '';
+      const hasToolCalls = Boolean(this.chatMessages.querySelector('.message.assistant:last-of-type .tool-call-card'));
+      this.voiceMode.onAgentComplete(session, { ...options, spokenText, hasToolCalls });
     }
   }
 
@@ -1909,7 +1968,56 @@ class AgentRemoteApp {
     }
   }
 
-  sendPrompt() {
+  async ensureActiveSession(engine = 'antigravity') {
+    if (this.activeSessionId) {
+      const existing = this.sessions.find((s) => s.id === this.activeSessionId);
+      if (existing) return existing;
+    }
+
+    const device = this.getActiveDevice();
+    const deviceId = (device && device.id) || this.activeDeviceId || 'default';
+    const workspace =
+      (this.workspaceInput && this.workspaceInput.value.trim()) ||
+      (device && device.defaultWorkspace) ||
+      '';
+    const isAgy = engine === 'antigravity';
+
+    const res = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.token}`,
+      },
+      body: JSON.stringify({
+        deviceId,
+        title: isAgy ? 'Новий чат Antigravity' : 'Новий чат Cursor',
+        description: isAgy
+          ? 'Сесія Google Antigravity (Gemini 3.7 Flash High)'
+          : 'Сесія Cursor AI Agent',
+        engine,
+        model: isAgy ? 'gemini-3.7-flash' : 'auto',
+        mode: 'yolo',
+        thinkingEffort: isAgy ? 'high' : 'medium',
+        workspacePath: workspace,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Не вдалося створити чат');
+    }
+
+    const data = await res.json();
+    this.sessions.unshift(data.session);
+    this.renderSessions();
+    this.selectSession(data.session.id);
+    if (deviceId && deviceId !== this.activeDeviceId) {
+      this.selectDevice(deviceId);
+    }
+    return data.session;
+  }
+
+  async sendPrompt() {
     // 1. Debounce protection against rapid double-clicks or multiple Enter triggers
     const now = Date.now();
     if (this._lastPromptSubmitTime && now - this._lastPromptSubmitTime < 500) {
@@ -1918,9 +2026,17 @@ class AgentRemoteApp {
 
     const text = this.promptInput.value.trim();
     if (!text) return false;
+
+    // No chat selected → create Antigravity session by default
     if (!this.activeSessionId) {
-      this.showToast('Спочатку відкрийте або створіть чат', 4500);
-      return false;
+      this._lastPromptSubmitTime = now;
+      try {
+        this.showToast('✨ Створюю чат Antigravity…');
+        await this.ensureActiveSession('antigravity');
+      } catch (err) {
+        this.showToast(`❌ ${err.message || 'Не вдалося створити чат'}`, 4500);
+        return false;
+      }
     }
 
     this._lastPromptSubmitTime = now;
@@ -1993,11 +2109,22 @@ class AgentRemoteApp {
 
     this.scrollToBottom();
 
+    const promptEngine = session && session.engine === 'antigravity' ? 'antigravity' : 'cursor';
     let effectiveModel = (this.chatModelSelect && this.chatModelSelect.value) || 
                          (this.modelSelect && this.modelSelect.value) || 
-                         (session && session.model) || 'auto';
+                         (session && session.model) || this.defaultModelFor(promptEngine);
     let effectiveEffort = (this.thinkingEffortSelect && this.thinkingEffortSelect.value) ||
                           (session && session.thinkingEffort) || 'medium';
+
+    // Fresh AGY session defaults if selects still say auto
+    if (session && session.engine === 'antigravity') {
+      if (!effectiveModel || effectiveModel === 'auto') {
+        effectiveModel = session.model || this.defaultModelFor('antigravity');
+      }
+      if (!effectiveEffort) {
+        effectiveEffort = session.thinkingEffort || 'high';
+      }
+    }
 
     if (session) {
       session.model = effectiveModel;
@@ -2101,30 +2228,59 @@ class AgentRemoteApp {
     }
 
     if (this.modalModelSelect) {
-      if (isAgy) {
-        this.modalModelSelect.innerHTML = `
-          <option value="gemini-3.7-flash" selected>Gemini 3.7 Flash High (За замовчуванням)</option>
-          <option value="gemini-3.7-flash-thinking">Gemini 3.7 Flash Thinking (Міркування)</option>
-          <option value="gemini-3.1-pro">Gemini 3.1 Pro (Складний кодинг &amp; 1M)</option>
-          <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-          <option value="gemini-2.5-flash-thinking">Gemini 2.5 Flash Thinking</option>
-          <option value="claude-3.7-sonnet">Claude 3.7 Sonnet (via Antigravity)</option>
-          <option value="auto">Auto</option>
-        `;
-      } else {
-        this.modalModelSelect.innerHTML = `
-          <option value="auto" selected>Auto (Cursor обирає найкращу модель)</option>
-          <option value="claude-3.7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
-          <option value="claude-4.5-sonnet">Claude Sonnet 4.5 (Рекомендована)</option>
-          <option value="claude-4.5-sonnet-thinking">Claude Sonnet 4.5 Thinking</option>
-          <option value="claude-4-sonnet">Claude Sonnet 4</option>
-          <option value="gpt-5.1">GPT-5.1 Flagship</option>
-          <option value="gpt-5-mini">GPT-5 Mini (Fast)</option>
-          <option value="claude-4.5-opus-high">Claude Opus 4.5</option>
-          <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
-        `;
-      }
+      const engine = isAgy ? 'antigravity' : 'cursor';
+      this.modalModelSelect.innerHTML = this.buildModelOptionsHtml(engine, this.defaultModelFor(engine));
+      this.refreshCustomSelect(this.modalModelSelect);
     }
+  }
+
+  getDeviceModels(engine) {
+    const dev = this.getActiveDevice();
+    const all = (dev && dev.availableModels) || [];
+    return all.filter((m) => m.engine === engine);
+  }
+
+  defaultModelFor(engine) {
+    const models = this.getDeviceModels(engine);
+    if (engine === 'antigravity') {
+      const preferred = models.find((m) => m.id === 'gemini-3-pro') || models[0];
+      return preferred ? preferred.id : 'gemini-3-pro';
+    }
+    const composer = models.find((m) => m.id === 'composer-2.5');
+    if (composer) return composer.id;
+    return models.length ? models[0].id : 'composer-2.5';
+  }
+
+  modelSupportsEffort(engine, modelId) {
+    const model = this.getDeviceModels(engine).find((m) => m.id === modelId);
+    return Boolean(model && model.supportsEffort);
+  }
+
+  refreshCustomSelect(selectEl) {
+    const instance = selectEl && selectEl._customSelectInstance;
+    if (!instance || instance.nativeMode || !instance.menu) return;
+    instance.renderOptions();
+  }
+
+  buildModelOptionsHtml(engine, selectedId) {
+    const models = this.getDeviceModels(engine);
+    if (!models.length) {
+      return '<option value="auto" selected>Auto (список моделей ще не завантажено)</option>';
+    }
+    const chosen = selectedId || this.defaultModelFor(engine);
+    return models
+      .map((m) => {
+        const sel = m.id === chosen ? ' selected' : '';
+        return `<option value="${this.escapeHtml(m.id)}"${sel}>${this.escapeHtml(m.label)}</option>`;
+      })
+      .join('');
+  }
+
+  syncEffortVisibility(engine, modelId) {
+    const wrapper = document.getElementById('thinking-effort-wrapper');
+    if (!wrapper) return;
+    const supported = this.modelSupportsEffort(engine, modelId);
+    wrapper.style.display = supported ? '' : 'none';
   }
 
   async submitNewChatModal() {
@@ -2134,7 +2290,7 @@ class AgentRemoteApp {
     const workspace = (this.modalWorkspaceInput && this.modalWorkspaceInput.value.trim()) || (chosenDevice && chosenDevice.defaultWorkspace) || '';
     const title = (this.modalSessionTitle && this.modalSessionTitle.value.trim()) || (isAgy ? 'Новий чат Antigravity' : 'Новий чат Cursor');
     const desc = (this.modalSessionDesc && this.modalSessionDesc.value.trim()) || (isAgy ? 'Сесія Google Antigravity (Gemini 3.7 Flash High)' : 'Сесія Cursor AI Agent');
-    const model = (this.modalModelSelect && this.modalModelSelect.value) || (isAgy ? 'gemini-3.7-flash' : 'auto');
+    const model = (this.modalModelSelect && this.modalModelSelect.value) || this.defaultModelFor(isAgy ? 'antigravity' : 'cursor');
     const mode = (this.modalModeSelect && this.modalModeSelect.value) || 'yolo';
     const thinkingEffort = isAgy ? 'high' : 'medium';
 
@@ -2405,7 +2561,12 @@ class AgentRemoteApp {
       this.ws.send(
         JSON.stringify({
           type: 'fs:list',
-          payload: { reqId: this.pendingFsReqId, dirPath: ws, deviceId: this.activeDeviceId },
+          payload: {
+            reqId: this.pendingFsReqId,
+            dirPath: ws,
+            workspacePath: this.getWorkspaceRoot() || ws,
+            deviceId: this.activeDeviceId,
+          },
         })
       );
 
@@ -2547,7 +2708,12 @@ class AgentRemoteApp {
       this.ws.send(
         JSON.stringify({
           type: 'fs:read_file',
-          payload: { reqId: this.pendingFileReqId, filePath, deviceId: this.activeDeviceId },
+          payload: {
+            reqId: this.pendingFileReqId,
+            filePath,
+            workspacePath: this.getWorkspaceRoot() || this.activeOpenedDirectory,
+            deviceId: this.activeDeviceId,
+          },
         })
       );
     }
@@ -2565,7 +2731,13 @@ class AgentRemoteApp {
     }
 
     this.activeOpenedContent = content;
-    this.previewFileSize.innerText = `• ${this.formatFileSize(size)}`;
+    const effectiveSize =
+      typeof size === 'number' && size > 0
+        ? size
+        : typeof content === 'string'
+          ? new TextEncoder().encode(content).length
+          : 0;
+    this.previewFileSize.innerText = `• ${this.formatFileSize(effectiveSize)}`;
 
     const ext = filePath.split('.').pop().toLowerCase();
     const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext);
@@ -2593,7 +2765,9 @@ class AgentRemoteApp {
       if (this.isMarkdownMode) {
         this.codeEditorContainer.style.display = 'none';
         this.mdRenderedContainer.style.display = 'block';
-        this.mdRenderedContainer.innerHTML = window.marked ? marked.parse(content) : content;
+        this.mdRenderedContainer.innerHTML = window.marked
+          ? this.renderMarkdownSafe(content)
+          : this.escapeHtml(content);
         return;
       }
     } else {
@@ -2656,24 +2830,35 @@ class AgentRemoteApp {
     let accum = '';
 
     this.fsBreadcrumbs.innerHTML = '';
+    this.fsBreadcrumbs.classList.add('breadcrumbs-rtl-safe');
+    const inner = document.createElement('div');
+    inner.className = 'breadcrumbs-inner';
+
     parts.forEach((p, idx) => {
-      accum += (accum ? '/' : '') + p;
-      const targetPath = accum;
+      // Keep Windows drive letter style (C:) then path segments
+      if (/^[A-Za-z]:$/.test(p)) {
+        accum = p + '/';
+      } else {
+        accum += (accum && !accum.endsWith('/') ? '/' : '') + p;
+      }
+      const targetPath = accum.replace(/\/$/, '') || p;
       const span = document.createElement('span');
-      span.className = 'breadcrumb-segment';
+      span.className = 'breadcrumb-segment' + (idx === parts.length - 1 ? ' current' : '');
       span.innerText = p;
+      span.title = targetPath;
       span.addEventListener('click', () => {
         this.loadFilesTree(targetPath);
       });
-      this.fsBreadcrumbs.appendChild(span);
+      inner.appendChild(span);
 
       if (idx < parts.length - 1) {
         const sep = document.createElement('span');
         sep.className = 'breadcrumb-separator';
         sep.innerText = '/';
-        this.fsBreadcrumbs.appendChild(sep);
+        inner.appendChild(sep);
       }
     });
+    this.fsBreadcrumbs.appendChild(inner);
   }
 
   filterFilesTree(query) {
@@ -2686,10 +2871,17 @@ class AgentRemoteApp {
 
   navigateFsUp() {
     if (!this.activeOpenedDirectory) return;
+    const root = (this.getWorkspaceRoot() || '').replace(/[/\\]+$/, '');
     const parent = this.activeOpenedDirectory.replace(/[/\\][^/\\]+$/, '');
-    if (parent && parent !== this.activeOpenedDirectory) {
-      this.loadFilesTree(parent);
+    if (!parent || parent === this.activeOpenedDirectory) return;
+    if (root) {
+      const norm = (p) => p.replace(/\\/g, '/').toLowerCase();
+      if (!norm(parent).startsWith(norm(root))) {
+        this.loadFilesTree(root);
+        return;
+      }
     }
+    this.loadFilesTree(parent);
   }
 
   executeTerminalCommand() {
@@ -2884,12 +3076,12 @@ class AgentRemoteApp {
     }
   }
 
-  showToast(msg) {
+  showToast(msg, durationMs = 3200) {
     const toast = document.createElement('div');
     toast.className = 'toast-notification';
     toast.innerText = msg;
     document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3200);
+    setTimeout(() => toast.remove(), durationMs);
   }
 
   showOAuthModal(url) {
@@ -2958,6 +3150,63 @@ class AgentRemoteApp {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
   }
+
+  sanitizeMarkdownHtml(html) {
+    if (!html) return '';
+    if (window.DOMPurify) {
+      return DOMPurify.sanitize(html, {
+        USE_PROFILES: { html: true },
+        ADD_ATTR: ['target', 'rel'],
+      });
+    }
+    // Fallback: strip tags if purify missing
+    const tmp = document.createElement('div');
+    tmp.textContent = String(html);
+    return tmp.innerHTML;
+  }
+
+  renderMarkdownSafe(markdown) {
+    if (!markdown) return '';
+    if (!window.marked) return this.escapeHtml(markdown).replace(/\n/g, '<br>');
+    return this.sanitizeMarkdownHtml(marked.parse(markdown));
+  }
+
+  getWorkspaceRoot() {
+    return (this.workspaceInput && this.workspaceInput.value.trim()) ||
+      (this.getActiveDevice() && this.getActiveDevice().defaultWorkspace) ||
+      '';
+  }
+
+  closeMobileSidebar() {
+    if (!this.appSidebar) return;
+    this.appSidebar.classList.remove('open');
+    if (this.sidebarBackdrop) this.sidebarBackdrop.classList.remove('show');
+  }
+
+  async deleteDevice(deviceId) {
+    if (!deviceId) return;
+    const ok = confirm(`Видалити пристрій «${deviceId}» зі списку?`);
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/devices/${encodeURIComponent(deviceId)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        this.showToast(`❌ ${data.error || 'Не вдалося видалити'}`, 4000);
+        return;
+      }
+      this.devices = this.devices.filter((d) => d.id !== deviceId);
+      if (this.activeDeviceId === deviceId) {
+        this.activeDeviceId = this.devices[0]?.id || null;
+      }
+      this.renderDevices();
+      this.showToast('🗑️ Пристрій видалено');
+    } catch (err) {
+      this.showToast(`❌ ${err.message || 'Помилка видалення'}`, 4000);
+    }
+  }
 }
 
 class CustomSelect {
@@ -2969,11 +3218,24 @@ class CustomSelect {
     this.isSm = this.select.classList.contains('custom-select-sm') || options.isSm;
     this.isFullWidth = options.fullWidth || this.select.classList.contains('full-width');
     this.alignRight = options.alignRight;
+    this._ignoreDocCloseUntil = 0;
 
     this.init();
   }
 
   init() {
+    // Mobile/touch: native OS picker is reliable; custom menus get clipped / click-through.
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    const narrow = window.matchMedia('(max-width: 768px)').matches;
+    if (coarse || narrow) {
+      this.nativeMode = true;
+      this.select.classList.add('mobile-native-select');
+      if (this.isFullWidth) this.select.classList.add('mobile-native-select-full');
+      this.select.style.display = '';
+      this.select.removeAttribute('hidden');
+      return;
+    }
+
     this.wrapper = document.createElement('div');
     this.wrapper.className = `custom-dropdown-wrapper ${this.isFullWidth ? 'full-width' : ''} ${this.alignRight ? 'align-right' : ''}`;
 
@@ -2997,6 +3259,7 @@ class CustomSelect {
     this.select.parentNode.insertBefore(this.wrapper, this.select.nextSibling);
 
     this.trigger.addEventListener('click', (e) => {
+      e.preventDefault();
       e.stopPropagation();
       this.toggle();
     });
@@ -3063,7 +3326,14 @@ class CustomSelect {
   updateSelectedLabel() {
     const selectedOpt = this.select.options[this.select.selectedIndex];
     if (selectedOpt) {
-      this.label.textContent = selectedOpt.textContent;
+      const full = selectedOpt.textContent || '';
+      const short = full
+        .replace(/^✨\s*/, '')
+        .replace(/^🧠\s*|^🚀\s*|^⚡\s*|^🚫\s*/, '')
+        .replace(/\s*\([^)]*\)\s*$/, '')
+        .trim();
+      this.label.textContent = window.innerWidth <= 480 ? short || full : full;
+      this.label.title = full;
     } else {
       this.label.textContent = 'Оберіть...';
     }
@@ -3074,6 +3344,7 @@ class CustomSelect {
   }
 
   toggle() {
+    if (this.nativeMode) return;
     if (this.wrapper.classList.contains('open')) {
       this.close();
     } else {
@@ -3081,40 +3352,131 @@ class CustomSelect {
     }
   }
 
-  open() {
-    document.querySelectorAll('.custom-dropdown-wrapper.open').forEach((w) => w.classList.remove('open'));
+  positionPortalMenu() {
+    const rect = this.trigger.getBoundingClientRect();
+    const isMobile = window.innerWidth <= 768;
+    const menuHeight = Math.min(isMobile ? 280 : 320, this.menu.scrollHeight || 240);
 
-    const rect = this.wrapper.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    if (spaceBelow < 240 && rect.top > 160) {
-      this.wrapper.classList.add('open-upwards');
-    } else {
+    if (isMobile) {
+      // Bottom sheet: full-width, above composer, always tappable
+      const sheetH = Math.min(menuHeight, Math.floor(window.innerHeight * 0.45));
+      this.menu.style.position = 'fixed';
+      this.menu.style.left = '8px';
+      this.menu.style.right = '8px';
+      this.menu.style.width = 'auto';
+      this.menu.style.minWidth = '0';
+      this.menu.style.maxWidth = 'none';
+      this.menu.style.bottom = '8px';
+      this.menu.style.top = 'auto';
+      this.menu.style.maxHeight = `${sheetH}px`;
+      this.menu.style.zIndex = '100000';
       this.wrapper.classList.remove('open-upwards');
+      return;
     }
 
-    if (rect.left + 220 > window.innerWidth && rect.right > 200) {
-      this.wrapper.classList.add('align-right');
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUp = spaceBelow < menuHeight + 12 && rect.top > menuHeight + 12;
+    const width = Math.max(rect.width, this.isSm ? 180 : 220);
+    let left = rect.left;
+    if (left + width > window.innerWidth - 8) {
+      left = Math.max(8, rect.right - width);
+    }
+    const top = openUp ? Math.max(8, rect.top - menuHeight - 6) : rect.bottom + 6;
+    this.menu.style.position = 'fixed';
+    this.menu.style.left = `${Math.round(left)}px`;
+    this.menu.style.top = `${Math.round(top)}px`;
+    this.menu.style.bottom = 'auto';
+    this.menu.style.right = 'auto';
+    this.menu.style.width = `${Math.round(width)}px`;
+    this.menu.style.minWidth = `${Math.round(width)}px`;
+    this.menu.style.zIndex = '100000';
+    this.wrapper.classList.toggle('open-upwards', openUp);
+  }
+
+  applyOpenVisibility(on) {
+    if (!this.menu) return;
+    if (on) {
+      this.menu.style.setProperty('opacity', '1', 'important');
+      this.menu.style.setProperty('visibility', 'visible', 'important');
+      this.menu.style.setProperty('pointer-events', 'auto', 'important');
+      this.menu.style.setProperty('transform', 'none', 'important');
     } else {
-      this.wrapper.classList.remove('align-right');
+      this.menu.style.removeProperty('opacity');
+      this.menu.style.removeProperty('visibility');
+      this.menu.style.removeProperty('pointer-events');
+      this.menu.style.removeProperty('transform');
     }
+  }
 
+  open() {
+    if (this.nativeMode || !this.wrapper) return;
+
+    document.querySelectorAll('.custom-dropdown-wrapper.open').forEach((w) => {
+      const inst = w._customSelectRef;
+      if (inst && inst !== this) inst.close();
+      else w.classList.remove('open');
+    });
+
+    this.wrapper._customSelectRef = this;
+    document.body.appendChild(this.menu);
+    this.menu.classList.add('portal-open', 'is-open');
     this.wrapper.classList.add('open');
+    this.positionPortalMenu();
+    this.applyOpenVisibility(true);
+    this._ignoreDocCloseUntil = Date.now() + 350;
+
+    this._onReposition = () => {
+      if (this.wrapper.classList.contains('open')) this.positionPortalMenu();
+    };
+    window.addEventListener('resize', this._onReposition);
+    window.addEventListener('scroll', this._onReposition, true);
   }
 
   close() {
+    if (this.nativeMode || !this.wrapper) return;
     this.wrapper.classList.remove('open');
+    this.menu.classList.remove('is-open', 'portal-open');
+    this.applyOpenVisibility(false);
+    if (this._onReposition) {
+      window.removeEventListener('resize', this._onReposition);
+      window.removeEventListener('scroll', this._onReposition, true);
+      this._onReposition = null;
+    }
+    if (this.menu.parentElement === document.body) {
+      this.wrapper.appendChild(this.menu);
+    }
+    this.menu.style.position = '';
+    this.menu.style.left = '';
+    this.menu.style.top = '';
+    this.menu.style.width = '';
+    this.menu.style.minWidth = '';
+    this.menu.style.maxWidth = '';
+    this.menu.style.maxHeight = '';
+    this.menu.style.right = '';
+    this.menu.style.bottom = '';
+    this.menu.style.zIndex = '';
   }
 }
 
 // Global click & escape listeners to dismiss custom dropdowns
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.custom-dropdown-wrapper')) {
-    document.querySelectorAll('.custom-dropdown-wrapper.open').forEach((w) => w.classList.remove('open'));
+  if (e.target.closest('.custom-dropdown-wrapper') || e.target.closest('.custom-dropdown-menu')) {
+    return;
   }
+  document.querySelectorAll('.custom-dropdown-wrapper.open').forEach((w) => {
+    const inst = w._customSelectRef;
+    if (inst && Date.now() < (inst._ignoreDocCloseUntil || 0)) return;
+    if (inst) inst.close();
+    else w.classList.remove('open');
+  });
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    document.querySelectorAll('.custom-dropdown-wrapper.open').forEach((w) => w.classList.remove('open'));
+    document.querySelectorAll('.custom-dropdown-wrapper.open').forEach((w) => {
+      const inst = w._customSelectRef;
+      if (inst) inst.close();
+      else w.classList.remove('open');
+    });
   }
 });
 

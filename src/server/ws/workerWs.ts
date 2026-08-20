@@ -214,6 +214,7 @@ export class WorkerWsManager {
                 payload: {
                   sessionId: session.id,
                   deviceId: targetDeviceId,
+                  engine: session.engine || 'cursor',
                   prompt: nextPrompt,
                   model: session.model,
                   mode: session.mode,

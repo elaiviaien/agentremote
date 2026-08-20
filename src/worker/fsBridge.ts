@@ -2,9 +2,60 @@ import fs from 'fs';
 import path from 'path';
 import { FileEntry } from '../shared/types';
 
+const SENSITIVE_NAMES = new Set([
+  '.env',
+  '.env.local',
+  '.env.production',
+  '.env.development',
+  'credentials.json',
+  'service-account.json',
+]);
+
 export class FsBridge {
-  public static getTree(dirPath?: string, maxDepth = 2): { tree: FileEntry[]; rootPath: string } {
-    const root = dirPath && fs.existsSync(dirPath) ? path.resolve(dirPath) : process.cwd();
+  private static normalize(p: string): string {
+    return path.resolve(p);
+  }
+
+  /** True if `target` is `root` or a path inside `root` (Windows-safe). */
+  public static isInsideRoot(target: string, root: string): boolean {
+    const resolvedTarget = this.normalize(target);
+    const resolvedRoot = this.normalize(root);
+    const rel = path.relative(resolvedRoot, resolvedTarget);
+    if (!rel) return true;
+    if (rel.startsWith('..') || path.isAbsolute(rel)) return false;
+    // Block path tricks like ".." segments already handled by relative(); reject NUL etc.
+    return !resolvedTarget.includes('\0');
+  }
+
+  private static assertAllowed(filePath: string, workspaceRoot: string): string | null {
+    if (!workspaceRoot) {
+      return 'Workspace root is required';
+    }
+    const resolved = this.normalize(filePath);
+    if (!this.isInsideRoot(resolved, workspaceRoot)) {
+      return 'Access denied: path is outside the workspace';
+    }
+    const base = path.basename(resolved).toLowerCase();
+    if (SENSITIVE_NAMES.has(base) || base.startsWith('.env.')) {
+      return 'Access denied: sensitive file';
+    }
+    return null;
+  }
+
+  public static getTree(
+    dirPath: string | undefined,
+    maxDepth = 2,
+    workspaceRoot?: string
+  ): { tree: FileEntry[]; rootPath: string; error?: string } {
+    const rootCandidate =
+      dirPath && fs.existsSync(dirPath) ? this.normalize(dirPath) : this.normalize(dirPath || process.cwd());
+    const allowedRoot = workspaceRoot ? this.normalize(workspaceRoot) : rootCandidate;
+
+    if (workspaceRoot && !this.isInsideRoot(rootCandidate, allowedRoot)) {
+      return { tree: [], rootPath: allowedRoot, error: 'Access denied: path is outside the workspace' };
+    }
+
+    const root = workspaceRoot ? (this.isInsideRoot(rootCandidate, allowedRoot) ? rootCandidate : allowedRoot) : rootCandidate;
 
     function scan(currentPath: string, currentDepth: number): FileEntry[] {
       if (currentDepth > maxDepth) return [];
@@ -13,7 +64,6 @@ export class FsBridge {
         const result: FileEntry[] = [];
 
         for (const item of items) {
-          // Ignore heavy directories
           if (['.git', 'node_modules', '.venv', '__pycache__', 'dist', 'build'].includes(item.name)) {
             continue;
           }
@@ -56,29 +106,53 @@ export class FsBridge {
     };
   }
 
-  public static readFile(filePath: string): { content: string; error?: string } {
+  public static readFile(
+    filePath: string,
+    workspaceRoot?: string
+  ): { content: string; size?: number; error?: string } {
     try {
-      if (!fs.existsSync(filePath)) {
+      const root = workspaceRoot || process.cwd();
+      const denied = this.assertAllowed(filePath, root);
+      if (denied) {
+        return { content: '', error: denied };
+      }
+
+      const resolved = this.normalize(filePath);
+      if (!fs.existsSync(resolved)) {
         return { content: '', error: 'File not found' };
       }
-      const stat = fs.statSync(filePath);
+      const stat = fs.statSync(resolved);
+      if (stat.isDirectory()) {
+        return { content: '', error: 'Path is a directory' };
+      }
       if (stat.size > 2 * 1024 * 1024) {
         return { content: '', error: 'File too large to open (>2MB)' };
       }
-      const content = fs.readFileSync(filePath, 'utf-8');
-      return { content };
+      const content = fs.readFileSync(resolved, 'utf-8');
+      return { content, size: Buffer.byteLength(content, 'utf-8') };
     } catch (err: any) {
       return { content: '', error: err.message || 'Error reading file' };
     }
   }
 
-  public static writeFile(filePath: string, content: string): { success: boolean; error?: string } {
+  public static writeFile(
+    filePath: string,
+    content: string,
+    workspaceRoot?: string
+  ): { success: boolean; error?: string } {
     try {
-      const dir = path.dirname(filePath);
+      const root = workspaceRoot || process.cwd();
+      const denied = this.assertAllowed(filePath, root);
+      if (denied) {
+        return { success: false, error: denied };
+      }
+
+      const resolved = this.normalize(filePath);
+      const dir = path.dirname(resolved);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(filePath, content, 'utf-8');
+      fs.writeFileSync(resolved, content, 'utf-8');
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || 'Error writing file' };

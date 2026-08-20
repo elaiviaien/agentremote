@@ -139,6 +139,27 @@ class DeviceManager {
     this.activeDeviceId = id;
   }
 
+  public removeDevice(id: string): boolean {
+    const existing = db.getDevice(id);
+    if (!existing) return false;
+
+    const worker = this.activeWorkers.get(id);
+    if (worker) {
+      try {
+        worker.socket.close(1000, 'device removed');
+      } catch {
+        /* ignore */
+      }
+      this.activeWorkers.delete(id);
+    }
+
+    db.removeDevice(id);
+    if (this.activeDeviceId === id) {
+      this.activeDeviceId = this.getActiveDeviceId();
+    }
+    return true;
+  }
+
   public sendToWorker(deviceId: string, message: HubToWorkerMessage): boolean {
     const trySend = (id: string | undefined | null): boolean => {
       if (!id) return false;

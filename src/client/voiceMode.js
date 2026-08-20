@@ -1,12 +1,13 @@
 /**
  * ParaRaid — hands-free voice link for LiuLiu.
- * Records only while speaking (not the idle silence before speech).
+ * Records only while speaking. VAD must run even before UI "enabled" is painted.
  */
 (function () {
-  const SILENCE_MS = 1100;
-  const MIN_SPEECH_MS = 350;
-  const RMS_THRESHOLD = 0.01;
+  const SILENCE_MS = 900;
+  const MIN_SPEECH_MS = 280;
   const SPEECH_START_FRAMES = 2;
+  const VU_BARS = 18;
+  const BASE_RMS = 0.008;
 
   class VoiceModeController {
     constructor(app) {
@@ -28,14 +29,33 @@
       this.currentAudio = null;
       this.statusEl = null;
       this.btnEl = null;
+      this.hudEl = null;
+      this.hudStageEl = null;
+      this.hudDetailEl = null;
+      this.vuEl = null;
+      this.vuBars = [];
+      this.noiseFloor = 0.004;
+      this.peakRms = 0;
+      this.useByteDomain = false;
+      this._floatBuf = null;
+      this._byteBuf = null;
       this._onVisibility = () => this.reacquireWakeLock();
     }
 
     init() {
       this.btnEl = document.getElementById('voice-mode-btn');
       this.statusEl = document.getElementById('voice-mode-status');
+      this.hudEl = document.getElementById('pararaid-hud');
+      this.hudStageEl = document.getElementById('pararaid-hud-stage');
+      this.hudDetailEl = document.getElementById('pararaid-hud-detail');
+      this.vuEl = document.getElementById('pararaid-vu');
+      if (this.vuEl && !this.vuEl.children.length) {
+        for (let i = 0; i < VU_BARS; i++) {
+          this.vuEl.appendChild(document.createElement('span'));
+        }
+        this.vuBars = [...this.vuEl.children];
+      }
       if (!this.btnEl) return;
-
       this.btnEl.addEventListener('click', () => this.toggle());
       this.refreshAvailability();
     }
@@ -61,11 +81,34 @@
       }
     }
 
-    setStatus(text, state) {
-      if (!this.statusEl) return;
-      this.statusEl.textContent = text || '';
-      this.statusEl.dataset.state = state || '';
-      this.statusEl.style.display = text ? 'inline-flex' : 'none';
+    setHud(stage, state, detail) {
+      if (this.hudEl) {
+        this.hudEl.hidden = !this.enabled;
+      }
+      if (this.hudStageEl) {
+        this.hudStageEl.textContent = stage || '';
+        this.hudStageEl.dataset.state = state || '';
+      }
+      if (this.hudDetailEl && detail != null) {
+        this.hudDetailEl.textContent = detail;
+      }
+      if (this.statusEl) {
+        this.statusEl.textContent = stage || '';
+        this.statusEl.dataset.state = state === 'speech' ? 'listening' : state || '';
+        this.statusEl.style.display = this.enabled && stage ? 'inline-flex' : 'none';
+      }
+    }
+
+    paintVu(rms) {
+      if (!this.vuBars.length) return;
+      const level = Math.min(1, rms / 0.12);
+      this.vuBars.forEach((bar, i) => {
+        const t = (i + 1) / this.vuBars.length;
+        const on = level >= t * 0.55;
+        const h = on ? Math.max(5, Math.round(4 + level * 24 * (0.4 + t))) : 4;
+        bar.style.height = `${h}px`;
+        bar.classList.toggle('on', on);
+      });
     }
 
     async toggle() {
@@ -76,32 +119,43 @@
       if (on === this.enabled) return;
       if (on) {
         if (!this.app.activeSessionId) {
-          this.app.showToast?.('Спочатку відкрийте або створіть чат', 4500);
-          return;
+          try {
+            this.setHud('Сесія…', 'thinking', 'Створюю чат для голосового звʼязку');
+            this.app.showToast?.('✨ Створюю чат…');
+            await this.app.ensureActiveSession?.('cursor');
+          } catch (err) {
+            this.app.showToast?.(err?.message || 'Спочатку відкрийте або створіть чат', 4500);
+            return;
+          }
         }
         try {
-          await this.startListeningPipeline();
+          // Must be true BEFORE VAD loop — otherwise loopVad() exits immediately.
           this.enabled = true;
           this.btnEl?.classList.add('active');
           this.btnEl?.setAttribute('aria-pressed', 'true');
-          this.setStatus('На звʼязку…', 'listening');
+          if (this.hudEl) this.hudEl.hidden = false;
+          this.setHud('Мікрофон…', 'thinking', 'Запит доступу до мікрофона');
+          await this.startListeningPipeline();
+          this.setHud('Слухаю', 'listening', 'Говоріть — смужки мають стрибати від голосу');
           await this.acquireWakeLock();
           document.addEventListener('visibilitychange', this._onVisibility);
           this.app.showToast?.('ParaRaid увімкнено — говоріть, після паузи піде в чат');
         } catch (err) {
           console.error('[ParaRaid] start failed', err);
-          this.app.showToast?.('Немає доступу до мікрофона', 5000);
-          await this.cleanupMedia();
+          this.app.showToast?.(`Немає доступу до мікрофона: ${err.message || err}`, 5000);
           this.enabled = false;
+          await this.cleanupMedia();
           this.btnEl?.classList.remove('active');
           this.btnEl?.setAttribute('aria-pressed', 'false');
-          this.setStatus('', '');
+          this.setHud('', '', '');
+          if (this.hudEl) this.hudEl.hidden = true;
         }
       } else {
         this.enabled = false;
         this.btnEl?.classList.remove('active');
         this.btnEl?.setAttribute('aria-pressed', 'false');
-        this.setStatus('', '');
+        if (this.hudEl) this.hudEl.hidden = true;
+        this.setHud('', '', '');
         this.stopPlayback();
         await this.cleanupMedia();
         await this.releaseWakeLock();
@@ -152,16 +206,47 @@
       const source = this.audioCtx.createMediaStreamSource(this.stream);
       this.analyser = this.audioCtx.createAnalyser();
       this.analyser.fftSize = 2048;
-      this.analyser.smoothingTimeConstant = 0.3;
+      this.analyser.smoothingTimeConstant = 0.35;
       source.connect(this.analyser);
-      // Do NOT start MediaRecorder yet — only when speech begins
+      this._floatBuf = new Float32Array(this.analyser.fftSize);
+      this._byteBuf = new Uint8Array(this.analyser.fftSize);
+      this.useByteDomain = typeof this.analyser.getFloatTimeDomainData !== 'function';
       this.listening = true;
       this.busy = false;
       this.inSpeech = false;
       this.speechFrameHits = 0;
       this.silenceStartedAt = 0;
       this.speechStartedAt = 0;
+      this.noiseFloor = 0.004;
+      this.peakRms = 0;
       this.loopVad();
+    }
+
+    readRms() {
+      if (!this.analyser) return 0;
+      if (!this.useByteDomain) {
+        try {
+          this.analyser.getFloatTimeDomainData(this._floatBuf);
+          let sum = 0;
+          for (let i = 0; i < this._floatBuf.length; i++) {
+            const v = this._floatBuf[i];
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / this._floatBuf.length);
+          // Safari sometimes returns all zeros for float domain
+          if (rms > 0.00001 || this.peakRms > 0) return rms;
+          this.useByteDomain = true;
+        } catch {
+          this.useByteDomain = true;
+        }
+      }
+      this.analyser.getByteTimeDomainData(this._byteBuf);
+      let sum = 0;
+      for (let i = 0; i < this._byteBuf.length; i++) {
+        const v = (this._byteBuf[i] - 128) / 128;
+        sum += v * v;
+      }
+      return Math.sqrt(sum / this._byteBuf.length);
     }
 
     pickMimeType() {
@@ -193,27 +278,29 @@
       this.mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) this.chunks.push(e.data);
       };
-      this.mediaRecorder.start(200);
+      this.mediaRecorder.start(180);
     }
 
     loopVad() {
-      if (!this.enabled || !this.analyser || !this.listening) return;
-      const data = new Float32Array(this.analyser.fftSize);
-      this.analyser.getFloatTimeDomainData(data);
-      let sum = 0;
-      for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
-      const rms = Math.sqrt(sum / data.length);
-      const now = Date.now();
+      if (!this.listening || !this.analyser) return;
+      const rms = this.readRms();
+      this.peakRms = Math.max(this.peakRms * 0.96, rms);
+      if (!this.inSpeech) {
+        this.noiseFloor = this.noiseFloor * 0.95 + rms * 0.05;
+      }
+      const threshold = Math.max(BASE_RMS, this.noiseFloor * 3.2 + 0.004);
+      this.paintVu(rms);
 
+      const now = Date.now();
       if (!this.busy) {
-        if (rms >= RMS_THRESHOLD) {
+        if (rms >= threshold) {
           this.speechFrameHits++;
           this.silenceStartedAt = 0;
           if (!this.inSpeech && this.speechFrameHits >= SPEECH_START_FRAMES) {
             this.inSpeech = true;
             this.speechStartedAt = now;
             this.startRecorder();
-            this.setStatus('Ефір…', 'listening');
+            this.setHud('Говорите', 'speech', 'Запис… після паузи розпізнаю і надішлю');
           }
         } else {
           this.speechFrameHits = 0;
@@ -227,9 +314,15 @@
                 this.finalizeUtterance();
                 return;
               }
-              // Too short — drop buffer and keep listening
               this.discardRecorder();
-              this.setStatus('На звʼязку…', 'listening');
+              this.setHud('Слухаю', 'listening', 'Занадто коротко — скажіть ще раз');
+            }
+          } else if (this.enabled) {
+            const live = this.peakRms < BASE_RMS * 0.6
+              ? 'Смужки майже не рухаються — перевірте мікрофон / дозвіл Safari'
+              : 'Говоріть — смужки стрибають від голосу';
+            if (this.hudDetailEl && !this.inSpeech) {
+              this.hudDetailEl.textContent = live;
             }
           }
         }
@@ -256,7 +349,7 @@
       this.inSpeech = false;
       this.speechFrameHits = 0;
       this.silenceStartedAt = 0;
-      this.setStatus('На звʼязку…', 'listening');
+      this.setHud('Слухаю', 'listening', 'Говоріть — смужки мають стрибати від голосу');
       this.loopVad();
     }
 
@@ -278,17 +371,19 @@
       if (this.busy || !this.enabled) return;
       this.busy = true;
       this.pauseListening();
-      this.setStatus('Синхрон…', 'thinking');
+      this.setHud('Розпізнаю', 'thinking', 'Відправляю запис на транскрипцію…');
 
       try {
         const blob = await this.stopRecorderToBlob();
         if (!blob || blob.size < 400) {
           this.app.showToast?.('Занадто коротко — повторіть', 2500);
+          this.setHud('Слухаю', 'listening', 'Запис порожній — повторіть голосніше');
           this.busy = false;
           this.resumeListening();
           return;
         }
 
+        this.setHud('Розпізнаю', 'thinking', `Аудіо ${(blob.size / 1024).toFixed(1)} KB → Gemini STT`);
         const base64 = await this.blobToBase64(blob);
         const mimeType = (blob.type || 'audio/webm').split(';')[0];
         const res = await fetch('/api/voice/transcribe', {
@@ -308,6 +403,7 @@
         const text = (data.text || '').trim();
         if (!text) {
           this.app.showToast?.('Не розчув — спробуйте ще раз');
+          this.setHud('Слухаю', 'listening', 'Порожня транскрипція — скажіть чіткіше');
           this.busy = false;
           this.resumeListening();
           return;
@@ -319,21 +415,23 @@
           this.app.promptInput.style.height = `${Math.min(this.app.promptInput.scrollHeight, 160)}px`;
         }
 
-        this.setStatus('Handler…', 'thinking');
-        const sent = this.app.sendPrompt?.();
+        this.setHud('Надсилаю', 'thinking', text.length > 80 ? `${text.slice(0, 80)}…` : text);
+        const sent = await this.app.sendPrompt?.();
         if (sent === false) {
           this.busy = false;
           this.resumeListening();
           return;
         }
-        // If sendPrompt returned undefined (old) but isStreaming became true — OK
         if (sent !== true && !this.app.isStreaming) {
           this.busy = false;
           this.resumeListening();
+          return;
         }
+        this.setHud('Агент', 'thinking', 'Чекаю відповідь агента…');
       } catch (err) {
         console.error('[ParaRaid] utterance failed', err);
         this.app.showToast?.(`Помилка розпізнавання: ${err.message || err}`, 5000);
+        this.setHud('Помилка', 'error', String(err.message || err).slice(0, 140));
         this.busy = false;
         this.resumeListening();
       }
@@ -385,13 +483,24 @@
       }
 
       if (session && session.promptQueue && session.promptQueue.length > 0) {
-        this.setStatus('Handler…', 'thinking');
+        this.setHud('Агент', 'thinking', 'Ще є черга — чекаю…');
         return;
       }
 
       const lastAssistant = [...(session?.messages || [])].reverse().find((m) => m.role === 'assistant');
-      const text = (lastAssistant?.content || '').trim();
-      const hasToolCalls = Boolean(lastAssistant?.toolCalls && lastAssistant.toolCalls.length > 0);
+      const fromDom = this.readLastAssistantText();
+      const text = (options.spokenText || fromDom || lastAssistant?.content || '').trim();
+      const hasToolCalls = Boolean(
+        options.hasToolCalls || (lastAssistant?.toolCalls && lastAssistant.toolCalls.length > 0)
+      );
+
+      if (options.success === false) {
+        this.app.showToast?.(`⚠️ ${options.error || 'Агент завершився з помилкою'}`, 5000);
+        this.setHud('Помилка агента', 'error', String(options.error || 'помилка').slice(0, 140));
+        this.busy = false;
+        this.resumeListening();
+        return;
+      }
 
       if (!text) {
         this.busy = false;
@@ -399,7 +508,7 @@
         return;
       }
 
-      this.setStatus('Передача…', 'speaking');
+      this.setHud('Озвучую', 'speaking', 'ElevenLabs озвучує відповідь…');
       try {
         const res = await fetch('/api/voice/speak', {
           method: 'POST',
@@ -418,10 +527,18 @@
       } catch (err) {
         console.error('[ParaRaid] speak failed', err);
         this.app.showToast?.('Не вдалося озвучити відповідь', 4000);
+        this.setHud('Слухаю', 'listening', `TTS: ${String(err.message || err).slice(0, 80)}`);
       } finally {
         this.busy = false;
         if (this.enabled) this.resumeListening();
       }
+    }
+
+    readLastAssistantText() {
+      const nodes = this.app.chatMessages?.querySelectorAll?.('.message.assistant .message-bubble');
+      if (!nodes || !nodes.length) return '';
+      const last = nodes[nodes.length - 1];
+      return (last.rawMarkdown || last.innerText || '').trim();
     }
 
     playAudioBuffer(arrayBuffer) {
@@ -478,7 +595,7 @@
       this.busy = true;
       this.pauseListening();
       this.discardRecorder();
-      this.setStatus('Handler…', 'thinking');
+      this.setHud('Агент', 'thinking', 'Агент виконує завдання…');
     }
   }
 

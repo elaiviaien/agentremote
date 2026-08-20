@@ -147,6 +147,7 @@ export class ClientWsManager {
           payload: {
             sessionId: session.id,
             deviceId: targetDeviceId,
+            engine: session.engine || 'cursor',
             prompt,
             model: model || session.model,
             mode: mode || session.mode,
@@ -279,6 +280,7 @@ export class ClientWsManager {
       case 'fs:list' as any: {
         const clientReqId = (msg as any).payload?.reqId || Math.random().toString(36).substring(2, 10);
         const searchPath = (msg as any).payload?.dirPath || (msg as any).payload?.path;
+        const workspacePath = (msg as any).payload?.workspacePath || searchPath;
         const targetDev = (msg as any).payload?.deviceId || deviceManager.getActiveDeviceId();
         if (targetDev) {
           deviceManager.registerPendingFsRequest(clientReqId, (result) => {
@@ -296,7 +298,7 @@ export class ClientWsManager {
           });
           deviceManager.sendToWorker(targetDev, {
             type: 'fs:get_tree',
-            payload: { reqId: clientReqId, path: searchPath },
+            payload: { reqId: clientReqId, path: searchPath, workspacePath },
           });
         } else {
           this.send(socket, {
@@ -311,6 +313,7 @@ export class ClientWsManager {
       case 'fs:read_file' as any: {
         const clientReqId = (msg as any).payload?.reqId || Math.random().toString(36).substring(2, 10);
         const filePath = (msg as any).payload?.filePath || (msg as any).payload?.path;
+        const workspacePath = (msg as any).payload?.workspacePath;
         const targetDev = (msg as any).payload?.deviceId || deviceManager.getActiveDeviceId();
         if (targetDev) {
           deviceManager.registerPendingFsRequest(clientReqId, (result) => {
@@ -325,7 +328,7 @@ export class ClientWsManager {
           });
           deviceManager.sendToWorker(targetDev, {
             type: 'fs:read_file',
-            payload: { reqId: clientReqId, path: filePath },
+            payload: { reqId: clientReqId, path: filePath, workspacePath },
           });
         } else {
           this.send(socket, {
@@ -341,6 +344,7 @@ export class ClientWsManager {
         const clientReqId = (msg as any).payload?.reqId || Math.random().toString(36).substring(2, 10);
         const filePath = (msg as any).payload?.filePath || (msg as any).payload?.path;
         const content = (msg as any).payload?.content;
+        const workspacePath = (msg as any).payload?.workspacePath;
         const targetDev = (msg as any).payload?.deviceId || deviceManager.getActiveDeviceId();
         if (targetDev) {
           deviceManager.registerPendingFsRequest(clientReqId, (result) => {
@@ -351,7 +355,7 @@ export class ClientWsManager {
           });
           deviceManager.sendToWorker(targetDev, {
             type: 'fs:write_file',
-            payload: { reqId: clientReqId, path: filePath, content },
+            payload: { reqId: clientReqId, path: filePath, content, workspacePath },
           });
         }
         break;

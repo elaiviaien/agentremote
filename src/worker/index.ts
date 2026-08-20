@@ -2,7 +2,7 @@ import WebSocket from 'ws';
 import os from 'os';
 import dotenv from 'dotenv';
 import { DeviceInfo, HubToWorkerMessage, WorkerToHubMessage } from '../shared/types';
-import { detectCursorTools, checkCursorAuthStatus, getAgentLimitsInfo } from './cursorDetector';
+import { detectCursorTools, checkCursorAuthStatus, getAgentLimitsInfo, listAvailableModels } from './cursorDetector';
 import { AgentRunner } from './agentRunner';
 import { TerminalRunner } from './terminalRunner';
 import { FsBridge } from './fsBridge';
@@ -299,6 +299,8 @@ class WorkerDaemon {
       cursorAuthStatus: checkCursorAuthStatus(this.tools),
       limitsInfo: getAgentLimitsInfo(this.tools),
       antigravityAvailable: this.tools.antigravityAvailable,
+      antigravityCliPath: this.tools.antigravityCliCmd,
+      availableModels: listAvailableModels(this.tools),
       lastSeen: Date.now(),
       memoryUsage: {
         total: totalMem,
@@ -380,22 +382,37 @@ class WorkerDaemon {
       }
 
       case 'fs:get_tree': {
-        const { reqId, path: searchPath, maxDepth } = msg.payload;
-        const res = FsBridge.getTree(searchPath || DEFAULT_WORKSPACE, maxDepth || 2);
-        send({ type: 'fs:tree_result', payload: { reqId, tree: res.tree, rootPath: res.rootPath } });
+        const { reqId, path: searchPath, maxDepth, workspacePath } = msg.payload as any;
+        const wsRoot = workspacePath || DEFAULT_WORKSPACE;
+        const res = FsBridge.getTree(searchPath || wsRoot, maxDepth || 2, wsRoot);
+        send({
+          type: 'fs:tree_result',
+          payload: { reqId, tree: res.tree, rootPath: res.rootPath, error: res.error } as any,
+        });
         break;
       }
 
       case 'fs:read_file': {
-        const { reqId, path: filePath } = msg.payload;
-        const res = FsBridge.readFile(filePath);
-        send({ type: 'fs:file_result', payload: { reqId, path: filePath, content: res.content, error: res.error } as any });
+        const { reqId, path: filePath, workspacePath } = msg.payload as any;
+        const wsRoot = workspacePath || DEFAULT_WORKSPACE;
+        const res = FsBridge.readFile(filePath, wsRoot);
+        send({
+          type: 'fs:file_result',
+          payload: {
+            reqId,
+            path: filePath,
+            content: res.content,
+            size: res.size,
+            error: res.error,
+          } as any,
+        });
         break;
       }
 
       case 'fs:write_file': {
-        const { reqId, path: filePath, content } = msg.payload;
-        const res = FsBridge.writeFile(filePath, content);
+        const { reqId, path: filePath, content, workspacePath } = msg.payload as any;
+        const wsRoot = workspacePath || DEFAULT_WORKSPACE;
+        const res = FsBridge.writeFile(filePath, content, wsRoot);
         send({ type: 'fs:write_result', payload: { reqId, success: res.success, error: res.error } });
         break;
       }

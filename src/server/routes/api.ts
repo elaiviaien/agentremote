@@ -8,10 +8,30 @@ import { config } from '../config';
 import { ChatSanitizer } from '../../shared/chatSanitizer';
 import { voiceRoutes } from './voice';
 
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+
+function checkLoginRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    return true;
+  }
+  entry.count += 1;
+  return entry.count <= LOGIN_MAX_ATTEMPTS;
+}
+
 export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   await fastify.register(voiceRoutes);
   // Public Login
   fastify.post('/auth/login', async (req, reply) => {
+    const ip = req.ip || 'unknown';
+    if (!checkLoginRateLimit(ip)) {
+      return reply.status(429).send({ error: 'Too many login attempts. Try again later.' });
+    }
+
     const { username, password } = req.body as any;
 
     if (!username || !password) {
@@ -68,6 +88,15 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     }
     deviceManager.setActiveDeviceId(id);
     return { success: true, activeDeviceId: id };
+  });
+
+  fastify.delete('/devices/:id', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const removed = deviceManager.removeDevice(id);
+    if (!removed) {
+      return reply.status(404).send({ error: 'Device not found' });
+    }
+    return { success: true };
   });
 
   // Sessions
@@ -207,7 +236,7 @@ export const apiRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =>
       description: sessionDesc,
       engine: effectiveEngine,
       workspacePath: workspacePath || '',
-      model: model || (effectiveEngine === 'antigravity' ? 'gemini-3.7-flash' : 'auto'),
+      model: model || (effectiveEngine === 'antigravity' ? 'gemini-3-pro' : 'composer-2.5'),
       mode: mode || 'yolo',
       cursorChatId: effectiveEngine === 'cursor' ? extractedChatId : undefined,
       sourceSessionId: extractedChatId || undefined,

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { execSync, spawnSync } from 'child_process';
+import { AvailableModel } from '../shared/types';
 
 export interface DiscoveredTools {
   cursorAgentCmd?: string;
@@ -9,6 +10,7 @@ export interface DiscoveredTools {
   nodeExe?: string;
   agentIndexJs?: string;
   antigravityAvailable?: boolean;
+  antigravityCliCmd?: string;
 }
 
 export function detectCursorTools(): DiscoveredTools {
@@ -169,8 +171,103 @@ export function detectCursorTools(): DiscoveredTools {
     } catch {}
   }
 
+  result.antigravityCliCmd = detectAntigravityCli();
+
   return result;
 }
+
+/**
+ * The Antigravity agent runs through its own CLI, never through cursor-agent.
+ * Order: explicit override, an `antigravity` binary on PATH, then the Gemini CLI
+ * that ships with the Antigravity suite.
+ */
+export function detectAntigravityCli(): string | undefined {
+  const isWindows = process.platform === 'win32';
+  const home = os.homedir();
+
+  const override = process.env.ANTIGRAVITY_CLI_CMD;
+  if (override && (fs.existsSync(override) || !override.includes(path.sep))) {
+    return override;
+  }
+
+  const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+  const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+  const candidates = isWindows
+    ? [
+        path.join(home, '.gemini', 'antigravity-cli', 'bin', 'antigravity.exe'),
+        path.join(home, '.gemini', 'antigravity-cli', 'bin', 'antigravity.cmd'),
+        path.join(localAppData, 'Programs', 'antigravity', 'bin', 'antigravity.cmd'),
+        path.join(appData, 'npm', 'antigravity.cmd'),
+        path.join(appData, 'npm', 'gemini.cmd'),
+      ]
+    : [
+        path.join(home, '.gemini', 'antigravity-cli', 'bin', 'antigravity'),
+        '/usr/local/bin/antigravity',
+        '/usr/local/bin/gemini',
+      ];
+
+  for (const cand of candidates) {
+    if (fs.existsSync(cand)) return cand;
+  }
+
+  for (const name of ['antigravity', 'gemini']) {
+    try {
+      const out = execSync(isWindows ? 'where ' + name : 'which ' + name, {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        encoding: 'utf-8',
+      }).trim();
+      if (out) return out.split('\n')[0].trim();
+    } catch {}
+  }
+
+  return undefined;
+}
+
+/**
+ * Real model catalogue, straight from the CLIs. Hardcoded lists go stale with
+ * every CLI release and produce "Cannot use this model" failures.
+ */
+export function listAvailableModels(tools: DiscoveredTools): AvailableModel[] {
+  const models: AvailableModel[] = [];
+
+  const binary = tools.nodeExe || tools.cursorAgentCmd;
+  if (binary) {
+    try {
+      const args = tools.nodeExe && tools.agentIndexJs
+        ? [tools.agentIndexJs, '--list-models']
+        : ['--list-models'];
+      const res = spawnSync(binary, args, { encoding: 'utf8', timeout: 15000, shell: false });
+      const out = (res.stdout || '') + (res.stderr || '');
+      for (const rawLine of out.split('\n')) {
+        const line = rawLine.trim();
+        const match = /^([a-z0-9][a-z0-9._-]*)\s+-\s+(.+)$/i.exec(line);
+        if (!match) continue;
+        models.push({ id: match[1], label: match[2].trim(), engine: 'cursor', supportsEffort: false });
+      }
+    } catch (err) {
+      console.warn('[Detector] Failed to list cursor-agent models:', err);
+    }
+  }
+
+  if (tools.antigravityCliCmd) {
+    for (const m of ANTIGRAVITY_MODELS) {
+      models.push({ ...m });
+    }
+  }
+
+  return models;
+}
+
+/**
+ * Antigravity has no `--list-models`, so its catalogue is declared here. Effort
+ * is an Antigravity-only concept: Cursor encodes it in the model id instead.
+ */
+export const ANTIGRAVITY_MODELS: AvailableModel[] = [
+  { id: 'gemini-3-pro', label: 'Gemini 3 Pro', engine: 'antigravity', supportsEffort: true },
+  { id: 'gemini-3-flash', label: 'Gemini 3 Flash', engine: 'antigravity', supportsEffort: true },
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', engine: 'antigravity', supportsEffort: true },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', engine: 'antigravity', supportsEffort: true },
+];
 
 export function checkCursorAuthStatus(tools: DiscoveredTools): { loggedIn: boolean; email?: string } {
   const binary = tools.nodeExe || tools.cursorAgentCmd;
