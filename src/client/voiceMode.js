@@ -1,6 +1,6 @@
 /**
- * Hands-free voice mode: VAD listen → transcribe → sendPrompt → hybrid TTS.
- * Expects window.app (AgentRemoteApp instance) with token, sendPrompt, showToast.
+ * ParaRaid — hands-free voice link for LiuLiu.
+ * Expects window.app with token, sendPrompt, showToast.
  */
 (function () {
   const SILENCE_MS = 1200;
@@ -50,14 +50,14 @@
         const data = await res.json();
         this.btnEl.disabled = !data.enabled;
         this.btnEl.title = data.enabled
-          ? 'Голосовий режим (hands-free)'
-          : 'Голосовий режим недоступний (немає API ключів на сервері)';
+          ? "ParaRaid — голосовий зв'язок (hands-free)"
+          : 'ParaRaid недоступний (немає API ключів на сервері)';
         if (!data.enabled && this.enabled) {
           await this.setEnabled(false);
         }
       } catch {
         this.btnEl.disabled = true;
-        this.btnEl.title = 'Не вдалося перевірити voice API';
+        this.btnEl.title = 'Не вдалося перевірити ParaRaid API';
       }
     }
 
@@ -79,27 +79,30 @@
           await this.startListeningPipeline();
           this.enabled = true;
           this.btnEl?.classList.add('active');
-          this.setStatus('Слухаю…', 'listening');
+          this.btnEl?.setAttribute('aria-pressed', 'true');
+          this.setStatus('На звʼязку…', 'listening');
           await this.acquireWakeLock();
           document.addEventListener('visibilitychange', this._onVisibility);
-          this.app.showToast?.('🎙 Голосовий режим увімкнено — говоріть, пауза надішле повідомлення');
+          this.app.showToast?.('ParaRaid увімкнено — говоріть, пауза надішле повідомлення');
         } catch (err) {
-          console.error('[VoiceMode] start failed', err);
+          console.error('[ParaRaid] start failed', err);
           this.app.showToast?.('Немає доступу до мікрофона', 5000);
           await this.cleanupMedia();
           this.enabled = false;
           this.btnEl?.classList.remove('active');
+          this.btnEl?.setAttribute('aria-pressed', 'false');
           this.setStatus('', '');
         }
       } else {
         this.enabled = false;
         this.btnEl?.classList.remove('active');
+        this.btnEl?.setAttribute('aria-pressed', 'false');
         this.setStatus('', '');
         this.stopPlayback();
         await this.cleanupMedia();
         await this.releaseWakeLock();
         document.removeEventListener('visibilitychange', this._onVisibility);
-        this.app.showToast?.('Голосовий режим вимкнено');
+        this.app.showToast?.('ParaRaid вимкнено');
       }
     }
 
@@ -194,7 +197,7 @@
           if (!this.inSpeech && this.speechFrameHits >= SPEECH_START_FRAMES) {
             this.inSpeech = true;
             this.speechStartedAt = now;
-            this.setStatus('Говоріть…', 'listening');
+            this.setStatus('Ефір…', 'listening');
           }
         } else {
           this.speechFrameHits = 0;
@@ -231,7 +234,7 @@
       this.inSpeech = false;
       this.speechFrameHits = 0;
       this.silenceStartedAt = 0;
-      this.setStatus('Слухаю…', 'listening');
+      this.setStatus('На звʼязку…', 'listening');
       this.loopVad();
     }
 
@@ -239,7 +242,7 @@
       if (this.busy || !this.enabled) return;
       this.busy = true;
       this.pauseListening();
-      this.setStatus('Розпізнаю…', 'thinking');
+      this.setStatus('Синхрон…', 'thinking');
 
       try {
         const blob = await this.stopRecorderToBlob();
@@ -280,7 +283,7 @@
           this.app.promptInput.style.height = `${Math.min(this.app.promptInput.scrollHeight, 160)}px`;
         }
 
-        this.setStatus('Агент думає…', 'thinking');
+        this.setStatus('Handler…', 'thinking');
         this.app.sendPrompt?.();
         // Listening resumes after speak/complete via onAgentComplete
       } catch (err) {
@@ -338,7 +341,7 @@
 
       // If queue continues, stay in thinking state
       if (session && session.promptQueue && session.promptQueue.length > 0) {
-        this.setStatus('Агент думає…', 'thinking');
+        this.setStatus('Handler…', 'thinking');
         return;
       }
 
@@ -353,7 +356,7 @@
         return;
       }
 
-      this.setStatus('Озвучую…', 'speaking');
+      this.setStatus('Передача…', 'speaking');
       try {
         const res = await fetch('/api/voice/speak', {
           method: 'POST',

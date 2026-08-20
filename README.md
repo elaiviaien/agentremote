@@ -1,6 +1,8 @@
-# ⚡ AgentRemote
+# LiuLiu
 
-**AgentRemote** — веб-оболонка (Web IDE) та локальний фоновий демон для віддаленого керування AI-агентами **Cursor** (та Antigravity / терміналом) на ваших комп'ютерах з будь-якого пристрою (комп'ютер, ноутбук, телефон).
+**LiuLiu** — remote command shell for Cursor & AI agents. Ashen UI · ParaRaid voice link.
+
+Formerly known as AgentRemote; repo/host paths may still use that name.
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app)
 
@@ -73,7 +75,7 @@ ELEVENLABS_API_KEY=your_elevenlabs_key
 ELEVENLABS_VOICE_ID=EXAVITQu4vr4xnSDxMaL
 ```
 
-Натисніть іконку мікрофона біля поля вводу, щоб увімкнути hands-free voice mode (авто-відправка після паузи в мові + озвучка відповіді).
+Натисніть **ParaRaid** (іконка звʼязку біля поля вводу), щоб увімкнути hands-free voice mode.
 3. Запустіть воркер:
 ```bash
 npm run worker
