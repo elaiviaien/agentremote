@@ -447,7 +447,7 @@
       if (!this.enabled) return;
       this.busy = true;
       this.pauseListening();
-      this.setStatus('Агент думає…', 'thinking');
+      this.setStatus('Handler…', 'thinking');
     }
   }
 
