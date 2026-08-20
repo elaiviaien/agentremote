@@ -1913,11 +1913,15 @@ class AgentRemoteApp {
     // 1. Debounce protection against rapid double-clicks or multiple Enter triggers
     const now = Date.now();
     if (this._lastPromptSubmitTime && now - this._lastPromptSubmitTime < 500) {
-      return;
+      return false;
     }
 
     const text = this.promptInput.value.trim();
-    if (!text || !this.activeSessionId) return;
+    if (!text) return false;
+    if (!this.activeSessionId) {
+      this.showToast('Спочатку відкрийте або створіть чат', 4500);
+      return false;
+    }
 
     this._lastPromptSubmitTime = now;
     this.promptInput.value = '';
@@ -1932,7 +1936,7 @@ class AgentRemoteApp {
         // Prevent accidental duplicate enqueue of the same prompt in a row
         if (session.promptQueue.length > 0 && session.promptQueue[session.promptQueue.length - 1] === text) {
           console.warn('[Chat] Suppressed identical duplicate prompt in queue');
-          return;
+          return false;
         }
         session.promptQueue.push(text);
       }
@@ -1951,7 +1955,7 @@ class AgentRemoteApp {
       }
 
       this.showToast(`🕒 Повідомлення додано в чергу (#${(session && session.promptQueue && session.promptQueue.length) || 1})`);
-      return;
+      return true;
     }
 
     this.renderChatMessageElement('user', text);
@@ -2016,7 +2020,14 @@ class AgentRemoteApp {
           },
         })
       );
+      return true;
     }
+
+    this.showToast('Немає зʼєднання з хабом', 4000);
+    this.isStreaming = false;
+    this.stopAgentStallWatchdog();
+    this.stopAgentBtn.style.display = 'none';
+    return false;
   }
 
   stopAgent() {

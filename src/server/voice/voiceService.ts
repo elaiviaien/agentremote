@@ -61,7 +61,12 @@ async function geminiGenerate(parts: Array<Record<string, unknown>>): Promise<st
 
 export async function transcribeAudio(buffer: Buffer, mimeType: string): Promise<string> {
   const base64 = buffer.toString('base64');
-  const safeMime = mimeType || 'audio/webm';
+  let safeMime = (mimeType || 'audio/webm').split(';')[0].trim().toLowerCase();
+  // Gemini expects canonical mime types
+  if (safeMime === 'audio/mp4' || safeMime === 'video/mp4') safeMime = 'audio/mp4';
+  if (safeMime === 'audio/mpeg') safeMime = 'audio/mp3';
+  if (!safeMime.startsWith('audio/')) safeMime = 'audio/webm';
+
   const text = await geminiGenerate([
     {
       inlineData: {

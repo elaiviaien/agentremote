@@ -1,18 +1,18 @@
 /**
  * ParaRaid — hands-free voice link for LiuLiu.
- * Expects window.app with token, sendPrompt, showToast.
+ * Records only while speaking (not the idle silence before speech).
  */
 (function () {
-  const SILENCE_MS = 1200;
-  const MIN_SPEECH_MS = 450;
-  const RMS_THRESHOLD = 0.018;
-  const SPEECH_START_FRAMES = 3;
+  const SILENCE_MS = 1100;
+  const MIN_SPEECH_MS = 350;
+  const RMS_THRESHOLD = 0.01;
+  const SPEECH_START_FRAMES = 2;
 
   class VoiceModeController {
     constructor(app) {
       this.app = app;
       this.enabled = false;
-      this.busy = false; // transcribing / waiting agent / speaking
+      this.busy = false;
       this.listening = false;
       this.stream = null;
       this.audioCtx = null;
@@ -75,6 +75,10 @@
     async setEnabled(on) {
       if (on === this.enabled) return;
       if (on) {
+        if (!this.app.activeSessionId) {
+          this.app.showToast?.('Спочатку відкрийте або створіть чат', 4500);
+          return;
+        }
         try {
           await this.startListeningPipeline();
           this.enabled = true;
@@ -83,7 +87,7 @@
           this.setStatus('На звʼязку…', 'listening');
           await this.acquireWakeLock();
           document.addEventListener('visibilitychange', this._onVisibility);
-          this.app.showToast?.('ParaRaid увімкнено — говоріть, пауза надішле повідомлення');
+          this.app.showToast?.('ParaRaid увімкнено — говоріть, після паузи піде в чат');
         } catch (err) {
           console.error('[ParaRaid] start failed', err);
           this.app.showToast?.('Немає доступу до мікрофона', 5000);
@@ -115,7 +119,7 @@
           });
         }
       } catch (err) {
-        console.warn('[VoiceMode] Wake Lock unavailable', err);
+        console.warn('[ParaRaid] Wake Lock unavailable', err);
       }
     }
 
@@ -142,11 +146,15 @@
         },
       });
       this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (this.audioCtx.state === 'suspended') {
+        await this.audioCtx.resume();
+      }
       const source = this.audioCtx.createMediaStreamSource(this.stream);
       this.analyser = this.audioCtx.createAnalyser();
       this.analyser.fftSize = 2048;
+      this.analyser.smoothingTimeConstant = 0.3;
       source.connect(this.analyser);
-      this.startRecorder();
+      // Do NOT start MediaRecorder yet — only when speech begins
       this.listening = true;
       this.busy = false;
       this.inSpeech = false;
@@ -170,15 +178,22 @@
     }
 
     startRecorder() {
+      if (!this.stream) return;
+      if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') return;
       this.chunks = [];
       const mimeType = this.pickMimeType();
-      this.mediaRecorder = mimeType
-        ? new MediaRecorder(this.stream, { mimeType })
-        : new MediaRecorder(this.stream);
+      try {
+        this.mediaRecorder = mimeType
+          ? new MediaRecorder(this.stream, { mimeType })
+          : new MediaRecorder(this.stream);
+      } catch (err) {
+        console.error('[ParaRaid] MediaRecorder failed', err);
+        this.mediaRecorder = new MediaRecorder(this.stream);
+      }
       this.mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) this.chunks.push(e.data);
       };
-      this.mediaRecorder.start(250);
+      this.mediaRecorder.start(200);
     }
 
     loopVad() {
@@ -197,6 +212,7 @@
           if (!this.inSpeech && this.speechFrameHits >= SPEECH_START_FRAMES) {
             this.inSpeech = true;
             this.speechStartedAt = now;
+            this.startRecorder();
             this.setStatus('Ефір…', 'listening');
           }
         } else {
@@ -211,6 +227,9 @@
                 this.finalizeUtterance();
                 return;
               }
+              // Too short — drop buffer and keep listening
+              this.discardRecorder();
+              this.setStatus('На звʼязку…', 'listening');
             }
           }
         }
@@ -230,12 +249,29 @@
     resumeListening() {
       if (!this.enabled || this.busy) return;
       if (!this.stream) return;
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume().catch(() => {});
+      }
       this.listening = true;
       this.inSpeech = false;
       this.speechFrameHits = 0;
       this.silenceStartedAt = 0;
       this.setStatus('На звʼязку…', 'listening');
       this.loopVad();
+    }
+
+    discardRecorder() {
+      try {
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+          this.mediaRecorder.ondataavailable = null;
+          this.mediaRecorder.onstop = null;
+          this.mediaRecorder.stop();
+        }
+      } catch {
+        /* ignore */
+      }
+      this.mediaRecorder = null;
+      this.chunks = [];
     }
 
     async finalizeUtterance() {
@@ -246,14 +282,15 @@
 
       try {
         const blob = await this.stopRecorderToBlob();
-        if (!blob || blob.size < 200) {
+        if (!blob || blob.size < 400) {
+          this.app.showToast?.('Занадто коротко — повторіть', 2500);
           this.busy = false;
-          this.startRecorder();
           this.resumeListening();
           return;
         }
 
         const base64 = await this.blobToBase64(blob);
+        const mimeType = (blob.type || 'audio/webm').split(';')[0];
         const res = await fetch('/api/voice/transcribe', {
           method: 'POST',
           headers: {
@@ -262,7 +299,7 @@
           },
           body: JSON.stringify({
             audioBase64: base64,
-            mimeType: blob.type || 'audio/webm',
+            mimeType,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -272,7 +309,6 @@
         if (!text) {
           this.app.showToast?.('Не розчув — спробуйте ще раз');
           this.busy = false;
-          this.startRecorder();
           this.resumeListening();
           return;
         }
@@ -284,13 +320,21 @@
         }
 
         this.setStatus('Handler…', 'thinking');
-        this.app.sendPrompt?.();
-        // Listening resumes after speak/complete via onAgentComplete
+        const sent = this.app.sendPrompt?.();
+        if (sent === false) {
+          this.busy = false;
+          this.resumeListening();
+          return;
+        }
+        // If sendPrompt returned undefined (old) but isStreaming became true — OK
+        if (sent !== true && !this.app.isStreaming) {
+          this.busy = false;
+          this.resumeListening();
+        }
       } catch (err) {
-        console.error('[VoiceMode] utterance failed', err);
-        this.app.showToast?.('Помилка розпізнавання мови', 4000);
+        console.error('[ParaRaid] utterance failed', err);
+        this.app.showToast?.(`Помилка розпізнавання: ${err.message || err}`, 5000);
         this.busy = false;
-        this.startRecorder();
         this.resumeListening();
       }
     }
@@ -302,17 +346,19 @@
           resolve(null);
           return;
         }
-        recorder.onstop = () => {
-          const mime = recorder.mimeType || 'audio/webm';
+        const finish = () => {
+          const mime = (recorder.mimeType || 'audio/webm').split(';')[0];
           const blob = new Blob(this.chunks, { type: mime });
           this.chunks = [];
           this.mediaRecorder = null;
           resolve(blob);
         };
+        recorder.onstop = finish;
         try {
+          if (recorder.state === 'recording') recorder.requestData?.();
           recorder.stop();
         } catch {
-          resolve(null);
+          finish();
         }
       });
     }
@@ -334,12 +380,10 @@
       if (!this.enabled) return;
       if (options.aborted) {
         this.busy = false;
-        this.startRecorder();
         this.resumeListening();
         return;
       }
 
-      // If queue continues, stay in thinking state
       if (session && session.promptQueue && session.promptQueue.length > 0) {
         this.setStatus('Handler…', 'thinking');
         return;
@@ -351,7 +395,6 @@
 
       if (!text) {
         this.busy = false;
-        this.startRecorder();
         this.resumeListening();
         return;
       }
@@ -373,14 +416,11 @@
         const buf = await res.arrayBuffer();
         await this.playAudioBuffer(buf);
       } catch (err) {
-        console.error('[VoiceMode] speak failed', err);
+        console.error('[ParaRaid] speak failed', err);
         this.app.showToast?.('Не вдалося озвучити відповідь', 4000);
       } finally {
         this.busy = false;
-        if (this.enabled) {
-          this.startRecorder();
-          this.resumeListening();
-        }
+        if (this.enabled) this.resumeListening();
       }
     }
 
@@ -415,16 +455,7 @@
 
     async cleanupMedia() {
       this.pauseListening();
-      try {
-        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-          this.mediaRecorder.onstop = null;
-          this.mediaRecorder.stop();
-        }
-      } catch {
-        /* ignore */
-      }
-      this.mediaRecorder = null;
-      this.chunks = [];
+      this.discardRecorder();
       if (this.stream) {
         this.stream.getTracks().forEach((t) => t.stop());
         this.stream = null;
@@ -442,11 +473,11 @@
       this.listening = false;
     }
 
-    /** Call when agent starts running so mic doesn't capture during tools */
     onAgentStart() {
       if (!this.enabled) return;
       this.busy = true;
       this.pauseListening();
+      this.discardRecorder();
       this.setStatus('Handler…', 'thinking');
     }
   }
